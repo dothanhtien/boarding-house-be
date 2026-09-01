@@ -48,6 +48,7 @@ secrets.json
 *.pfx
 *.env
 .env
+docker/pgadmin/pgpass
 
 ## Test results
 [Tt]est[Rr]esult*/

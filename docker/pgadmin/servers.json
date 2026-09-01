@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Boarding House (docker)",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "boarding_house",
+      "Username": "boarding_house",
+      "PassFile": "/pgadmin4/pgpass",
+      "SSLMode": "prefer"
+    }
+  }
+}
