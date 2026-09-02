@@ -92,6 +92,22 @@ Open the Scalar UI at `/scalar/v1`:
 
 The Scalar UI is only enabled in the `Development` environment (see `Program.cs`).
 
+## Database migrations
+
+Postgres from step 2 must be running. Generate a new migration with `dotnet ef migrations add`:
+
+```bash
+dotnet ef migrations add InitialCreate \
+  --project src/BoardingHouse.Api \
+  --output-dir Persistence/Migrations
+```
+
+Apply pending migrations to the database:
+
+```bash
+dotnet ef database update --project src/BoardingHouse.Api
+```
+
 ## Hot reload when running via Docker
 
 `docker-compose.override.yml` is automatically merged into `docker-compose.yml` by Docker Compose when running `docker compose up` (no extra flag needed). This file:
