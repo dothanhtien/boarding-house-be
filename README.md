@@ -14,7 +14,7 @@ Backend API for boarding house / room rental management (property, room, lease, 
 
 ## Project structure
 
-```
+```text
 BoardingHouse.slnx
 docker-compose.yml           # Postgres + api (base, used for CI/production)
 docker-compose.override.yml  # auto-merged on `docker compose up` — hot reload for api + pgAdmin (local dev only)
@@ -61,7 +61,7 @@ docker compose up -d postgres pgadmin
 ```
 
 - **Postgres**: `localhost:5432` (user/password/db as set in `.env`).
-- **pgAdmin**: [http://localhost:5050](http://localhost:5050) — the `postgres` server is already registered and auto-connected (via `docker/pgadmin/servers.json` + `pgpass`), no login screen, no manual setup needed. Only defined in `docker-compose.override.yml` (local dev, see below) — the base `docker-compose.yml` used for CI/production has no pgAdmin service at all.
+- **pgAdmin**: [http://localhost:5050](http://localhost:5050) — log in with `PGADMIN_DEFAULT_EMAIL`/`PGADMIN_DEFAULT_PASSWORD` (from `.env`); the `postgres` server is already registered and auto-connected (via `docker/pgadmin/servers.json` + `pgpass`), no manual connection setup needed. Only defined in `docker-compose.override.yml` (local dev, see below) — the base `docker-compose.yml` used for CI/production has no pgAdmin service at all.
 
 ### 3. Run the API
 
@@ -101,7 +101,7 @@ The Scalar UI is only enabled in the `Development` environment (see `Program.cs`
 - Uses named volumes (`api_bin`, `api_obj`) to isolate the `bin/`/`obj/` produced inside the container (Linux) from the host's `bin/`/`obj/` — preventing the container from overwriting the host's build artifacts with Linux ones, which would otherwise break IntelliSense/OmniSharp on the dev machine (macOS/Windows).
 - Sets `DOTNET_USE_POLLING_FILE_WATCHER=true` — required for `dotnet watch` to pick up file changes through the bind mount, especially on macOS/Windows (filesystem events don't reliably cross the Docker Desktop VM boundary).
 - Sets `ASPNETCORE_ENVIRONMENT=Development` for the `api` service (the base `docker-compose.yml` runs it as `Production`), which is what enables the Scalar UI (see step 4 above).
-- Adds the `pgadmin` service itself, with its login screen disabled (`PGADMIN_CONFIG_SERVER_MODE`/`PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED=False`) for local-dev convenience. pgAdmin isn't part of the base `docker-compose.yml` at all — it never runs in CI/production.
+- Adds the `pgadmin` service itself, and binds its port (`5050`) and Postgres' (`5432`) to `127.0.0.1` only, keeping them off the LAN. pgAdmin isn't part of the base `docker-compose.yml` at all — it never runs in CI/production.
 
 **Notes:**
 
