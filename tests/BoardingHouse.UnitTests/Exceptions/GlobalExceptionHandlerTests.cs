@@ -1,11 +1,10 @@
 using System.Text.Json;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Common.Exceptions;
+using BoardingHouse.Api.Exceptions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace BoardingHouse.UnitTests.Common;
+namespace BoardingHouse.UnitTests.Exceptions;
 
 public class GlobalExceptionHandlerTests
 {

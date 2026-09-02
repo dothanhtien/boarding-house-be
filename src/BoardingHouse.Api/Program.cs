@@ -1,6 +1,11 @@
-using BoardingHouse.Api.Common;
+using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Middleware;
 using BoardingHouse.Api.Persistence;
+using BoardingHouse.Api.Persistence.Interceptors;
+using BoardingHouse.Api.Repositories;
+using BoardingHouse.Api.Services;
+using FluentValidation;
+using FluentValidation.AspNetCore;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using Serilog;
@@ -21,10 +26,14 @@ try
             .Enrich.FromLogContext()
     );
 
-    // Add services to the container.
-
     builder.Services.AddControllers();
-    // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+
+    builder.Services.AddFluentValidationAutoValidation();
+    builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+
+    // Stop at the first failed rule within a property so each field surfaces a single error.
+    ValidatorOptions.Global.DefaultRuleLevelCascadeMode = CascadeMode.Stop;
+
     builder.Services.AddOpenApi(options =>
     {
         options.AddDocumentTransformer((document, _, _) =>
@@ -37,10 +46,17 @@ try
 
     builder.Services.AddDbContext<AppDbContext>(options =>
         options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
+            .AddInterceptors(new AuditableEntitySaveChangesInterceptor())
+            .UseSnakeCaseNamingConvention()
     );
 
     builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+
     builder.Services.AddProblemDetails();
+
+    builder.Services.AddScoped<IUserRepository, UserRepository>();
+
+    builder.Services.AddScoped<IUserService, UserService>();
 
     var app = builder.Build();
 
@@ -58,7 +74,6 @@ try
         };
     });
 
-    // Configure the HTTP request pipeline.
     if (app.Environment.IsDevelopment())
     {
         app.MapOpenApi();
@@ -74,7 +89,7 @@ try
     app.Run();
 
 }
-catch (Exception ex)
+catch (Exception ex) when (ex is not HostAbortedException)
 {
     Log.Fatal(ex, "BoardingHouse.Api terminated unexpectedly");
     Environment.ExitCode = 1;
@@ -83,3 +98,5 @@ finally
 {
     Log.CloseAndFlush();
 }
+
+public partial class Program;

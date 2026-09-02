@@ -1,4 +1,6 @@
-namespace BoardingHouse.Api.Common;
+using BoardingHouse.Api.Common;
+
+namespace BoardingHouse.Api.Repositories;
 
 public interface IRepository<T> where T : BaseEntity
 {
@@ -6,5 +8,6 @@ public interface IRepository<T> where T : BaseEntity
     Task<T?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task AddAsync(T entity, CancellationToken cancellationToken = default);
     void Update(T entity);
-    void Remove(T entity);
+    void SoftDelete(T entity);
+    Task HardDeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }

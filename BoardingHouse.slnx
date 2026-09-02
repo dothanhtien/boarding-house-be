@@ -3,6 +3,7 @@
     <Project Path="src/BoardingHouse.Api/BoardingHouse.Api.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/BoardingHouse.IntegrationTests/BoardingHouse.IntegrationTests.csproj" />
     <Project Path="tests/BoardingHouse.UnitTests/BoardingHouse.UnitTests.csproj" />
   </Folder>
 </Solution>
