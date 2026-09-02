@@ -1,5 +1,7 @@
 # Boarding House API
 
+[![CI](https://github.com/dothanhtien/boarding-house-be/actions/workflows/ci.yml/badge.svg)](https://github.com/dothanhtien/boarding-house-be/actions/workflows/ci.yml)
+
 Backend API for boarding house / room rental management (property, room, lease, invoice, payment, maintenance, vehicle, notification, expense...).
 
 ## Tech stack
