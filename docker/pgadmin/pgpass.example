@@ -1,0 +1,4 @@
+# pgAdmin auto-login credentials for the pre-registered "Boarding House (docker)" server.
+# Format: hostname:port:database:username:password
+# Copy this file to `pgpass` (gitignored) and keep the values in sync with your `.env`.
+postgres:5432:*:boarding_house:changeme

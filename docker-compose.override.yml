@@ -1,0 +1,37 @@
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  api:
+    build:
+      target: dev
+    volumes:
+      - ./src/BoardingHouse.Api:/src/src/BoardingHouse.Api
+      - api_bin:/src/src/BoardingHouse.Api/bin
+      - api_obj:/src/src/BoardingHouse.Api/obj
+      - api_nuget_cache:/root/.nuget/packages
+    environment:
+      DOTNET_USE_POLLING_FILE_WATCHER: "true"
+      ASPNETCORE_ENVIRONMENT: Development
+
+  pgadmin:
+    image: dpage/pgadmin4
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    ports:
+      - "127.0.0.1:5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json:ro
+      - ./docker/pgadmin/pgpass:/pgadmin4/pgpass
+    depends_on:
+      - postgres
+
+volumes:
+  api_bin:
+  api_obj:
+  api_nuget_cache:
+  pgadmin_data:
