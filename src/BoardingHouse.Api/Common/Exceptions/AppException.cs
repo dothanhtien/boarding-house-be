@@ -2,7 +2,7 @@ namespace BoardingHouse.Api.Common.Exceptions;
 
 public abstract class AppException(string message, int statusCode) : Exception(message)
 {
-    public int StatusCode { get; set; } = statusCode;
+    public int StatusCode { get; } = statusCode;
 }
 
 public class NotFoundAppException(string message)
