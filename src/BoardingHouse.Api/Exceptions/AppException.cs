@@ -1,4 +1,4 @@
-namespace BoardingHouse.Api.Common.Exceptions;
+namespace BoardingHouse.Api.Exceptions;
 
 public abstract class AppException(string message, int statusCode) : Exception(message)
 {
