@@ -19,7 +19,7 @@ public class CreateUserRequestValidator : AbstractValidator<CreateUserRequest>
         RuleFor(x => x.Password)
             .NotEmpty().WithMessage("Password is required")
             .MinimumLength(8).WithMessage("Password must be at least 8 characters")
-            .MaximumLength(128).WithMessage("Password exceeds 128 characters");
+            .MaximumLength(72).WithMessage("Password exceeds 72 characters");
         RuleFor(x => x.PasswordConfirmation)
             .NotEmpty().WithMessage("Password confirmation is required")
             .Equal(x => x.Password).WithMessage("Password confirmation does not match password");

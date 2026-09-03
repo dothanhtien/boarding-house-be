@@ -28,5 +28,5 @@ public class Repository<T>(AppDbContext context) : IRepository<T> where T : Base
     // issuing a DELETE directly against the database, so this always hard-deletes even for
     // ISoftDeletable entities. Executes immediately, independent of SaveChangesAsync.
     public Task HardDeleteAsync(Guid id, CancellationToken cancellationToken = default) =>
-        context.Set<T>().Where(e => e.Id == id).ExecuteDeleteAsync(cancellationToken);
+        context.Set<T>().IgnoreQueryFilters().Where(e => e.Id == id).ExecuteDeleteAsync(cancellationToken);
 }

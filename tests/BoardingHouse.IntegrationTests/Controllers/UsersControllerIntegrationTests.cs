@@ -73,6 +73,7 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
     public async Task FullLifecycle_CreateUpdateDelete_BehavesCorrectly()
     {
         var createResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest());
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
         var created = await createResponse.Content.ReadFromJsonAsync<UserResponse>();
 
         var updateResponse = await _client.PutAsJsonAsync($"/api/users/{created!.Id}", new UpdateUserRequest
@@ -81,9 +82,9 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
             FullName = "Updated Name",
             IsActive = false
         });
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
         var updated = await updateResponse.Content.ReadFromJsonAsync<UserResponse>();
 
-        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
         Assert.Equal("Updated Name", updated!.FullName);
         Assert.False(updated.IsActive);
 

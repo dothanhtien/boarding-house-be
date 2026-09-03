@@ -74,4 +74,43 @@ public class UserRepositoryIntegrationTests(PostgresContainerFixture fixture)
 
         Assert.NotNull(deletedAt);
     }
+
+    [Fact]
+    public async Task HardDeleteAsync_ActiveUser_RemovesRowFromDatabase()
+    {
+        await using var context = fixture.CreateContext();
+        var repository = new UserRepository(context);
+
+        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User" };
+        await repository.AddAsync(user);
+        await context.SaveChangesAsync();
+
+        await repository.HardDeleteAsync(user.Id);
+
+        var count = await context.Database
+            .SqlQueryRaw<long>("SELECT COUNT(*) AS \"Value\" FROM users WHERE id = {0}", user.Id)
+            .SingleAsync();
+        Assert.Equal(0, count);
+    }
+
+    [Fact]
+    public async Task HardDeleteAsync_SoftDeletedUser_RemovesRowFromDatabase()
+    {
+        await using var context = fixture.CreateContext();
+        var repository = new UserRepository(context);
+
+        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User" };
+        await repository.AddAsync(user);
+        await context.SaveChangesAsync();
+
+        repository.SoftDelete(user);
+        await context.SaveChangesAsync();
+
+        await repository.HardDeleteAsync(user.Id);
+
+        var count = await context.Database
+            .SqlQueryRaw<long>("SELECT COUNT(*) AS \"Value\" FROM users WHERE id = {0}", user.Id)
+            .SingleAsync();
+        Assert.Equal(0, count);
+    }
 }
