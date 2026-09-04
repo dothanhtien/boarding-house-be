@@ -38,7 +38,7 @@ public class UserService(IUserRepository userRepository, AppDbContext context) :
         {
             Email = email,
             Phone = request.Phone,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password, workFactor: 12),
             FullName = request.FullName
         };
 

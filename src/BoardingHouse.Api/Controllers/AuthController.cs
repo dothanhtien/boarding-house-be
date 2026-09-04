@@ -1,0 +1,41 @@
+using BoardingHouse.Api.DTOs.Auth;
+using BoardingHouse.Api.Services;
+using Microsoft.AspNetCore.Mvc;
+
+namespace BoardingHouse.Api.Controllers;
+
+[ApiController]
+[Route("api/auth")]
+public class AuthController(IAuthService authService) : ControllerBase
+{
+    [HttpPost]
+    public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
+    {
+        var response = await authService.RegisterAsync(request, cancellationToken);
+        return Ok(response);
+    }
+
+    [HttpPost("login")]
+    public async Task<ActionResult<AuthResponse>> Login(LoginRequest request, CancellationToken cancellationToken)
+    {
+        var response = await authService.LoginAsync(request, GetIpAddress(), GetUserAgent(), cancellationToken);
+        return Ok(response);
+    }
+
+    [HttpPost("refresh-token")]
+    public async Task<ActionResult<AuthResponse>> Refresh(RefreshTokenRequest request, CancellationToken cancellationToken)
+    {
+        var response = await authService.RefreshTokenAsync(request.RefreshToken, GetIpAddress(), GetUserAgent(), cancellationToken);
+        return Ok(response);
+    }
+
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout(RefreshTokenRequest request, CancellationToken cancellationToken)
+    {
+        await authService.LogoutAsync(request.RefreshToken, cancellationToken);
+        return NoContent();
+    }
+
+    private string? GetIpAddress() => HttpContext.Connection.RemoteIpAddress?.ToString();
+    private string? GetUserAgent() => Request.Headers.UserAgent.ToString();
+}
