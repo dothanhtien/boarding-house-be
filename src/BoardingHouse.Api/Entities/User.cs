@@ -11,4 +11,6 @@ public class User : BaseEntity
     public required string FullName { get; set; }
     public DateTimeOffset? LastLoginAt { get; set; }
     public bool IsActive { get; set; } = true;
+
+    public ICollection<RefreshToken> RefreshTokens { get; set; } = [];
 }

@@ -9,7 +9,7 @@ using Npgsql;
 
 namespace BoardingHouse.Api.Services;
 
-public class UserService(IUserRepository userRepository, AppDbContext context) : IUserService
+public class UserService(IUserRepository userRepository, AppDbContext context, ILogger<UserService> logger) : IUserService
 {
     public async Task<List<UserResponse>> GetAllAsync(CancellationToken cancellationToken = default)
     {
@@ -31,6 +31,7 @@ public class UserService(IUserRepository userRepository, AppDbContext context) :
 
         if (await userRepository.ExistsByEmailOrPhoneAsync(email, request.Phone, cancellationToken))
         {
+            logger.LogWarning("Create user failed: email or phone already in use ({Email})", email);
             throw new ConflictAppException("Email or phone already in use");
         }
 
@@ -38,7 +39,7 @@ public class UserService(IUserRepository userRepository, AppDbContext context) :
         {
             Email = email,
             Phone = request.Phone,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password, workFactor: 12),
             FullName = request.FullName
         };
 
@@ -49,8 +50,11 @@ public class UserService(IUserRepository userRepository, AppDbContext context) :
         }
         catch (DbUpdateException ex) when (IsUniqueViolation(ex))
         {
+            logger.LogWarning("Create user failed: email or phone already in use ({Email})", email);
             throw new ConflictAppException("Email or phone already in use");
         }
+
+        logger.LogInformation("User created ({UserId}, {Email})", user.Id, email);
 
         return user.Adapt<UserResponse>();
     }
@@ -70,6 +74,8 @@ public class UserService(IUserRepository userRepository, AppDbContext context) :
         userRepository.Update(user);
         await context.SaveChangesAsync(cancellationToken);
 
+        logger.LogInformation("User updated ({UserId})", user.Id);
+
         return user.Adapt<UserResponse>();
     }
 
@@ -80,5 +86,7 @@ public class UserService(IUserRepository userRepository, AppDbContext context) :
 
         userRepository.SoftDelete(user);
         await context.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation("User soft-deleted ({UserId})", user.Id);
     }
 }
