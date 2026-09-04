@@ -27,6 +27,7 @@ Content-Type: application/json
 
 @refreshToken = {{login.response.body.refreshToken}}
 
+# @name refresh
 POST {{BoardingHouse.Api_HostAddress}}/api/auth/refresh-token
 Content-Type: application/json
 
@@ -36,11 +37,13 @@ Content-Type: application/json
 
 ###
 
+@rotatedRefreshToken = {{refresh.response.body.refreshToken}}
+
 POST {{BoardingHouse.Api_HostAddress}}/api/auth/logout
 Content-Type: application/json
 
 {
-  "refreshToken": "{{refreshToken}}"
+  "refreshToken": "{{rotatedRefreshToken}}"
 }
 
 ###
@@ -57,7 +60,7 @@ Content-Type: application/json
 
 {
   "email": "new.user@example.com",
-  "phone": "0123456789",
+  "phone": "0987654320",
   "fullName": "New User",
   "password": "P@ssw0rd!",
   "passwordConfirmation": "P@ssw0rd!"

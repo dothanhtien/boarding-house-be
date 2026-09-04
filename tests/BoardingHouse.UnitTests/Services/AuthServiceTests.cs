@@ -82,7 +82,7 @@ public class AuthServiceTests
         Assert.Equal("Test User", response.FullName);
 
         _userRepository.Verify(r => r.AddAsync(
-            It.Is<User>(u => u.Email == "new@test.com" && u.PasswordHash != "password1" && u.PasswordHash != string.Empty),
+            It.Is<User>(u => u.Email == "new@test.com" && u.PasswordHash != "password" && u.PasswordHash != string.Empty),
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
