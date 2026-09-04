@@ -7,6 +7,7 @@ using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
 namespace BoardingHouse.UnitTests.Services;
@@ -38,7 +39,8 @@ public class AuthServiceTests
             _refreshTokenRepository.Object,
             _tokenService.Object,
             _context,
-            configuration);
+            configuration,
+            NullLogger<AuthService>.Instance);
     }
 
     [Fact]
@@ -175,7 +177,6 @@ public class AuthServiceTests
 
         Assert.NotNull(otherActiveToken.RevokedAt);
         Assert.Equal(RevokedReason.Suspicious, otherActiveToken.RevokedReason);
-        _refreshTokenRepository.Verify(r => r.Update(otherActiveToken), Times.Once);
     }
 
     [Fact]

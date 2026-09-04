@@ -1,4 +1,5 @@
 using BoardingHouse.Api.DTOs.Auth;
+using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -8,8 +9,8 @@ namespace BoardingHouse.Api.Controllers;
 [Route("api/auth")]
 public class AuthController(IAuthService authService) : ControllerBase
 {
-    [HttpPost]
-    public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
+    [HttpPost("register")]
+    public async Task<ActionResult<UserResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
     {
         var response = await authService.RegisterAsync(request, cancellationToken);
         return Ok(response);

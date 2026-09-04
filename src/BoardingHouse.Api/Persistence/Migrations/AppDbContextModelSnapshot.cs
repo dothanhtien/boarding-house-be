@@ -29,7 +29,7 @@ namespace BoardingHouse.Api.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<DateTimeOffset?>("CreatedAt")
+                    b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
@@ -42,7 +42,7 @@ namespace BoardingHouse.Api.Persistence.Migrations
                         .HasColumnType("character varying(45)")
                         .HasColumnName("ip_address");
 
-                    b.Property<Guid>("ReplacedById")
+                    b.Property<Guid?>("ReplacedById")
                         .HasColumnType("uuid")
                         .HasColumnName("replaced_by_id");
 

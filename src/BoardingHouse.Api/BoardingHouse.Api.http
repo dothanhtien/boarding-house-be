@@ -1,6 +1,91 @@
 @BoardingHouse.Api_HostAddress = http://localhost:5066
 
-GET {{BoardingHouse.Api_HostAddress}}/weatherforecast/
+### Register
+POST {{BoardingHouse.Api_HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "phone": "0123456789",
+  "fullName": "Test User",
+  "password": "P@ssw0rd!",
+  "passwordConfirmation": "P@ssw0rd!"
+}
+
+###
+
+# @name login
+POST {{BoardingHouse.Api_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "P@ssw0rd!"
+}
+
+###
+
+@refreshToken = {{login.response.body.refreshToken}}
+
+POST {{BoardingHouse.Api_HostAddress}}/api/auth/refresh-token
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}"
+}
+
+###
+
+POST {{BoardingHouse.Api_HostAddress}}/api/auth/logout
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}"
+}
+
+###
+
+### Get all users
+GET {{BoardingHouse.Api_HostAddress}}/api/users
 Accept: application/json
+
+###
+
+# @name createUser
+POST {{BoardingHouse.Api_HostAddress}}/api/users
+Content-Type: application/json
+
+{
+  "email": "new.user@example.com",
+  "phone": "0123456789",
+  "fullName": "New User",
+  "password": "P@ssw0rd!",
+  "passwordConfirmation": "P@ssw0rd!"
+}
+
+###
+
+@userId = {{createUser.response.body.id}}
+
+### Get user by id
+GET {{BoardingHouse.Api_HostAddress}}/api/users/{{userId}}
+Accept: application/json
+
+###
+
+### Update user
+PUT {{BoardingHouse.Api_HostAddress}}/api/users/{{userId}}
+Content-Type: application/json
+
+{
+  "phone": "0987654321",
+  "fullName": "New User Updated",
+  "isActive": true
+}
+
+###
+
+### Delete user
+DELETE {{BoardingHouse.Api_HostAddress}}/api/users/{{userId}}
 
 ###

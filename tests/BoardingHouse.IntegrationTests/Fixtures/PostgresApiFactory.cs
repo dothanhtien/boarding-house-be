@@ -18,7 +18,8 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString()
+                ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
+                ["Jwt:Secret"] = "this-is-a-test-secret-at-least-32-chars-long"
             });
         });
     }
@@ -36,7 +37,7 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         using var scope = Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await context.Database.ExecuteSqlRawAsync("TRUNCATE TABLE users");
+        await context.Database.ExecuteSqlRawAsync("TRUNCATE TABLE refresh_tokens, users CASCADE");
     }
 
     async Task IAsyncLifetime.DisposeAsync()

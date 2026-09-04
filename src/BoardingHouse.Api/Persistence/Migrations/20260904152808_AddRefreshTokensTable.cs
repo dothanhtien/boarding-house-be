@@ -21,10 +21,10 @@ namespace BoardingHouse.Api.Persistence.Migrations
                     expires_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     revoked_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     revoked_reason = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
-                    replaced_by_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    replaced_by_id = table.Column<Guid>(type: "uuid", nullable: true),
                     ip_address = table.Column<string>(type: "character varying(45)", maxLength: 45, nullable: true),
                     user_agent = table.Column<string>(type: "text", nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
+                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {

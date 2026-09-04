@@ -16,6 +16,4 @@ public class RefreshTokenRepository(AppDbContext context) : IRefreshTokenReposit
 
     public async Task AddAsync(RefreshToken refreshToken, CancellationToken cancellationToken = default) =>
         await context.Set<RefreshToken>().AddAsync(refreshToken, cancellationToken);
-
-    public void Update(RefreshToken refreshToken) => context.Set<RefreshToken>().Update(refreshToken);
 }

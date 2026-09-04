@@ -12,10 +12,10 @@ public class RefreshToken : Entity
     public DateTimeOffset ExpiresAt { get; set; }
     public DateTimeOffset? RevokedAt { get; set; }
     public RevokedReason? RevokedReason { get; set; }
-    public Guid ReplacedById { get; set; }
+    public Guid? ReplacedById { get; set; }
     public string? IpAddress { get; set; }
     public string? UserAgent { get; set; }
-    public DateTimeOffset? CreatedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public bool IsActive => RevokedAt is null && ExpiresAt > DateTimeOffset.UtcNow;
 }
