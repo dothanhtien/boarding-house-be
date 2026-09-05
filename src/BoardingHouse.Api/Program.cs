@@ -1,10 +1,13 @@
 using System.Text;
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Exceptions;
+using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Middleware;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Interceptors;
 using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services;
+using BoardingHouse.Api.Services.Caching;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -53,6 +56,12 @@ try
             .UseSnakeCaseNamingConvention()
     );
 
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = builder.Configuration.GetConnectionString("Redis");
+        options.InstanceName = "BoardingHouse";
+    });
+
     builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
     builder.Services.AddProblemDetails();
@@ -64,22 +73,10 @@ try
     builder.Services.AddScoped<IAuthService, AuthService>();
     builder.Services.AddSingleton<ITokenService, TokenService>();
 
-    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-        .AddJwtBearer(options =>
-        {
-            options.TokenValidationParameters = new TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidateLifetime = true,
-                ValidateIssuerSigningKey = true,
-                ValidIssuer = builder.Configuration["Jwt:Issuer"],
-                ValidAudience = builder.Configuration["Jwt:Audience"],
-                IssuerSigningKey = new SymmetricSecurityKey(
-                    Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Secret"]!)),
-                ClockSkew = TimeSpan.Zero
-            };
-        });
+    builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
+    builder.Services.AddScoped<IUserCache, UserCache>();
+
+    builder.Services.AddJwtAuthentication(builder.Configuration);
 
     builder.Services.AddAuthorization();
 

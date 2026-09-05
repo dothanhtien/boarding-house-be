@@ -3,13 +3,18 @@ using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
+using BoardingHouse.Api.Services.Caching;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
 namespace BoardingHouse.Api.Services;
 
-public class UserService(IUserRepository userRepository, AppDbContext context, ILogger<UserService> logger) : IUserService
+public class UserService(
+    IUserRepository userRepository,
+    AppDbContext context,
+    IUserCache userCache,
+    ILogger<UserService> logger) : IUserService
 {
     public async Task<List<UserResponse>> GetAllAsync(CancellationToken cancellationToken = default)
     {
@@ -73,6 +78,7 @@ public class UserService(IUserRepository userRepository, AppDbContext context, I
 
         userRepository.Update(user);
         await context.SaveChangesAsync(cancellationToken);
+        await userCache.InvalidateAsync(user.Id, cancellationToken);
 
         logger.LogInformation("User updated ({UserId})", user.Id);
 
@@ -86,6 +92,7 @@ public class UserService(IUserRepository userRepository, AppDbContext context, I
 
         userRepository.SoftDelete(user);
         await context.SaveChangesAsync(cancellationToken);
+        await userCache.InvalidateAsync(user.Id, cancellationToken);
 
         logger.LogInformation("User soft-deleted ({UserId})", user.Id);
     }

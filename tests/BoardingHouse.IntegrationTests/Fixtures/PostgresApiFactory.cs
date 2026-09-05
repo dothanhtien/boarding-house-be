@@ -4,13 +4,16 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using StackExchange.Redis;
 using Testcontainers.PostgreSql;
+using Testcontainers.Redis;
 
 namespace BoardingHouse.IntegrationTests.Fixtures;
 
 public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:17-alpine").Build();
+    private readonly RedisContainer _redis = new RedisBuilder("redis:7-alpine").Build();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -19,14 +22,16 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
-                ["Jwt:Secret"] = "this-is-a-test-secret-at-least-32-chars-long"
+                ["ConnectionStrings:Redis"] = _redis.GetConnectionString(),
+                ["Jwt:Secret"] = TestJwtOptions.Secret,
+                ["Redis:UserCacheTtlSeconds"] = "1"
             });
         });
     }
 
     public async Task InitializeAsync()
     {
-        await _container.StartAsync();
+        await Task.WhenAll(_container.StartAsync(), _redis.StartAsync());
 
         using var scope = Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -38,11 +43,17 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         using var scope = Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await context.Database.ExecuteSqlRawAsync("TRUNCATE TABLE refresh_tokens, users CASCADE");
+
+        var redisOptions = ConfigurationOptions.Parse(_redis.GetConnectionString());
+        redisOptions.AllowAdmin = true;
+
+        await using var connection = await ConnectionMultiplexer.ConnectAsync(redisOptions);
+        await connection.GetServer(connection.GetEndPoints().Single()).FlushDatabaseAsync();
     }
 
     async Task IAsyncLifetime.DisposeAsync()
     {
-        await _container.DisposeAsync();
+        await Task.WhenAll(_container.DisposeAsync().AsTask(), _redis.DisposeAsync().AsTask());
         await base.DisposeAsync();
     }
 }

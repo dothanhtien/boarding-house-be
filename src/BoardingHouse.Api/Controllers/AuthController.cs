@@ -1,13 +1,16 @@
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Services;
+using Mapster;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BoardingHouse.Api.Controllers;
 
 [ApiController]
 [Route("api/auth")]
-public class AuthController(IAuthService authService) : ControllerBase
+public class AuthController(IAuthService authService, ICurrentUserAccessor currentUserAccessor) : ControllerBase
 {
     [HttpPost("register")]
     public async Task<ActionResult<UserResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
@@ -35,6 +38,13 @@ public class AuthController(IAuthService authService) : ControllerBase
     {
         await authService.LogoutAsync(request.RefreshToken, cancellationToken);
         return NoContent();
+    }
+
+    [HttpGet("me")]
+    [Authorize]
+    public ActionResult<UserResponse> Me()
+    {
+        return Ok(currentUserAccessor.User!.Adapt<UserResponse>());
     }
 
     private string? GetIpAddress() => HttpContext.Connection.RemoteIpAddress?.ToString();
