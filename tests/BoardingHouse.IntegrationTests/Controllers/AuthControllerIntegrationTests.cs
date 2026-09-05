@@ -1,11 +1,16 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Text;
 using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 
@@ -29,17 +34,42 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         FullName = "Test User"
     };
 
-    private async Task<AuthResponse> RegisterAndLoginAsync(string email = "user@test.com")
+    private async Task<(Guid UserId, string AccessToken, string RefreshToken)> RegisterAndLoginAsync(string email = "user@test.com")
     {
-        await _client.PostAsJsonAsync("/api/auth/register", ValidRegisterRequest(email));
+        var registerResponse = await _client.PostAsJsonAsync("/api/auth/register", ValidRegisterRequest(email));
+        var user = await registerResponse.Content.ReadFromJsonAsync<UserResponse>();
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
             Email = email,
             Password = Password
         });
+        var tokens = await loginResponse.Content.ReadFromJsonAsync<AuthResponse>();
 
-        return (await loginResponse.Content.ReadFromJsonAsync<AuthResponse>())!;
+        return (user!.Id, tokens!.AccessToken, tokens.RefreshToken);
+    }
+
+    private static HttpRequestMessage AuthorizedGet(string url, string accessToken)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        return request;
+    }
+
+    private static string GenerateAccessTokenWithoutSubClaim()
+    {
+        var claims = new[] { new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()) };
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(TestJwtOptions.Secret));
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var token = new JwtSecurityToken(
+            issuer: TestJwtOptions.Issuer,
+            audience: TestJwtOptions.Audience,
+            claims: claims,
+            expires: DateTime.UtcNow.AddMinutes(15),
+            signingCredentials: credentials);
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
     private async Task DeactivateUserAsync(string email)
@@ -152,36 +182,35 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
     [Fact]
     public async Task Refresh_ValidToken_Returns200WithRotatedTokens()
     {
-        var tokens = await RegisterAndLoginAsync();
+        var (_, accessToken, refreshToken) = await RegisterAndLoginAsync();
 
         var response = await _client.PostAsJsonAsync("/api/auth/refresh-token", new RefreshTokenRequest
         {
-            RefreshToken = tokens.RefreshToken
+            RefreshToken = refreshToken
         });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var body = await response.Content.ReadFromJsonAsync<AuthResponse>();
         Assert.NotNull(body);
-        Assert.NotEqual(tokens.RefreshToken, body.RefreshToken);
-        Assert.NotEqual(tokens.AccessToken, body.AccessToken);
+        Assert.NotEqual(refreshToken, body.RefreshToken);
+        Assert.NotEqual(accessToken, body.AccessToken);
     }
 
     [Fact]
     public async Task Refresh_UsedToken_Returns401AndRevokesAllActiveTokens()
     {
-        var tokens = await RegisterAndLoginAsync();
+        var (_, _, refreshToken) = await RegisterAndLoginAsync();
 
         var firstRefreshResponse = await _client.PostAsJsonAsync("/api/auth/refresh-token", new RefreshTokenRequest
         {
-            RefreshToken = tokens.RefreshToken
+            RefreshToken = refreshToken
         });
         var rotatedTokens = await firstRefreshResponse.Content.ReadFromJsonAsync<AuthResponse>();
 
-        // Reusing the already-rotated (revoked) refresh token should fail and revoke the whole chain.
         var reuseResponse = await _client.PostAsJsonAsync("/api/auth/refresh-token", new RefreshTokenRequest
         {
-            RefreshToken = tokens.RefreshToken
+            RefreshToken = refreshToken
         });
 
         Assert.Equal(HttpStatusCode.Unauthorized, reuseResponse.StatusCode);
@@ -208,18 +237,18 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
     [Fact]
     public async Task Logout_ValidToken_Returns204AndInvalidatesToken()
     {
-        var tokens = await RegisterAndLoginAsync();
+        var (_, _, refreshToken) = await RegisterAndLoginAsync();
 
         var logoutResponse = await _client.PostAsJsonAsync("/api/auth/logout", new RefreshTokenRequest
         {
-            RefreshToken = tokens.RefreshToken
+            RefreshToken = refreshToken
         });
 
         Assert.Equal(HttpStatusCode.NoContent, logoutResponse.StatusCode);
 
         var refreshResponse = await _client.PostAsJsonAsync("/api/auth/refresh-token", new RefreshTokenRequest
         {
-            RefreshToken = tokens.RefreshToken
+            RefreshToken = refreshToken
         });
 
         Assert.Equal(HttpStatusCode.Unauthorized, refreshResponse.StatusCode);
@@ -234,5 +263,78 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         });
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Me_ValidToken_Returns200WithCurrentUser()
+    {
+        var (userId, accessToken, _) = await RegisterAndLoginAsync();
+
+        var response = await _client.SendAsync(AuthorizedGet("/api/auth/me", accessToken));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<UserResponse>();
+        Assert.Equal(userId, body!.Id);
+    }
+
+    [Fact]
+    public async Task Me_NoToken_Returns401()
+    {
+        var response = await _client.GetAsync("/api/auth/me");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Me_TokenWithoutSubClaim_Returns401()
+    {
+        var token = GenerateAccessTokenWithoutSubClaim();
+
+        var response = await _client.SendAsync(AuthorizedGet("/api/auth/me", token));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Me_AfterDeactivateViaApi_Returns401Immediately()
+    {
+        var (userId, accessToken, _) = await RegisterAndLoginAsync();
+
+        await _client.SendAsync(AuthorizedGet("/api/auth/me", accessToken));
+
+        var updateResponse = await _client.PutAsJsonAsync($"/api/users/{userId}", new UpdateUserRequest
+        {
+            Phone = "0900000000",
+            FullName = "Test User",
+            IsActive = false
+        });
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+
+        var response = await _client.SendAsync(AuthorizedGet("/api/auth/me", accessToken));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Me_AfterDirectDbChange_StaysValidUntilCacheExpires_ThenReturns401()
+    {
+        var (_, accessToken, _) = await RegisterAndLoginAsync();
+
+        await _client.SendAsync(AuthorizedGet("/api/auth/me", accessToken));
+
+        await DeactivateUserAsync("user@test.com");
+
+        var stillCachedResponse = await _client.SendAsync(AuthorizedGet("/api/auth/me", accessToken));
+        Assert.Equal(HttpStatusCode.OK, stillCachedResponse.StatusCode);
+
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        HttpResponseMessage afterExpiryResponse;
+        do
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
+            afterExpiryResponse = await _client.SendAsync(AuthorizedGet("/api/auth/me", accessToken));
+        } while (afterExpiryResponse.StatusCode != HttpStatusCode.Unauthorized && DateTime.UtcNow < deadline);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, afterExpiryResponse.StatusCode);
     }
 }

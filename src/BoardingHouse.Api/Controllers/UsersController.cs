@@ -1,11 +1,13 @@
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BoardingHouse.Api.Controllers;
 
 [ApiController]
 [Route("api/users")]
+[Authorize]
 public class UsersController(IUserService userService) : ControllerBase
 {
     [HttpGet]
