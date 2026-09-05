@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Services.Caching;
 using Microsoft.Extensions.Caching.Distributed;
@@ -33,7 +34,8 @@ public class UserCacheTests
         Email = "user@test.com",
         PasswordHash = "super-secret-hash",
         FullName = "Test User",
-        IsActive = true
+        IsActive = true,
+        CreatedBy = SentinelActors.System
     };
 
     [Fact]

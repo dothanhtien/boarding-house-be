@@ -33,16 +33,22 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         await Task.WhenAll(_container.StartAsync(), _redis.StartAsync());
 
-        using var scope = Services.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await context.Database.MigrateAsync();
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(_container.GetConnectionString())
+            .UseSnakeCaseNamingConvention()
+            .Options;
+        await using (var context = new AppDbContext(options))
+        {
+            await context.Database.MigrateAsync();
+        }
     }
 
     public async Task ResetAsync()
     {
         using var scope = Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await context.Database.ExecuteSqlRawAsync("TRUNCATE TABLE refresh_tokens, users CASCADE");
+        await context.Database.ExecuteSqlRawAsync(
+            "TRUNCATE TABLE users, refresh_tokens, roles, permissions, user_roles, role_permissions CASCADE");
 
         var redisOptions = ConfigurationOptions.Parse(_redis.GetConnectionString());
         redisOptions.AllowAdmin = true;
