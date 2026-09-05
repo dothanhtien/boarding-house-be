@@ -36,7 +36,7 @@ public class AuthService(
             Phone = request.Phone,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password, workFactor: 12),
             FullName = request.FullName,
-            CreatedBy = SystemActor.Id
+            CreatedBy = SentinelActors.SelfRegistration
         };
 
         await userRepository.AddAsync(user, cancellationToken);

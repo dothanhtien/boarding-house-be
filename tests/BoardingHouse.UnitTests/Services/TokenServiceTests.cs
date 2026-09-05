@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Services;
 using Microsoft.Extensions.Configuration;
@@ -26,7 +27,7 @@ public class TokenServiceTests
     public void GenerateAccessToken_ReturnsDecodableJwt_WithSubClaimEqualToUserId()
     {
         var service = CreateService();
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User" };
+        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
 
         var token = service.GenerateAccessToken(user);
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);

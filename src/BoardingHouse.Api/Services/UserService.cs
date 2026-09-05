@@ -1,3 +1,4 @@
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Exceptions;
@@ -6,7 +7,6 @@ using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services.Caching;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 
 namespace BoardingHouse.Api.Services;
 
@@ -14,6 +14,7 @@ public class UserService(
     IUserRepository userRepository,
     AppDbContext context,
     IUserCache userCache,
+    ICurrentUserAccessor currentUserAccessor,
     ILogger<UserService> logger) : IUserService
 {
     public async Task<List<UserResponse>> GetAllAsync(CancellationToken cancellationToken = default)
@@ -45,7 +46,8 @@ public class UserService(
             Email = email,
             Phone = request.Phone,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password, workFactor: 12),
-            FullName = request.FullName
+            FullName = request.FullName,
+            CreatedBy = currentUserAccessor.User?.Id ?? SentinelActors.System
         };
 
         try
@@ -53,7 +55,7 @@ public class UserService(
             await userRepository.AddAsync(user, cancellationToken);
             await context.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
             logger.LogWarning("Create user failed: email or phone already in use ({Email})", email);
             throw new ConflictAppException("Email or phone already in use");
@@ -63,9 +65,6 @@ public class UserService(
 
         return user.Adapt<UserResponse>();
     }
-
-    private static bool IsUniqueViolation(DbUpdateException ex) =>
-        ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 
     public async Task<UserResponse> UpdateAsync(Guid id, UpdateUserRequest request, CancellationToken cancellationToken = default)
     {

@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 
 namespace BoardingHouse.Api.Exceptions;
 
@@ -15,7 +14,7 @@ public class GlobalExceptionHandler(IHostEnvironment env, ILogger<GlobalExceptio
         var (statusCode, title) = exception switch
         {
             AppException appEx => (appEx.StatusCode, appEx.Message),
-            DbUpdateException { InnerException: PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } } =>
+            DbUpdateException ex when ex.IsUniqueViolation() =>
                 (StatusCodes.Status409Conflict, "A record with the same value already exists"),
             _ => (StatusCodes.Status500InternalServerError, "Internal server error")
         };
