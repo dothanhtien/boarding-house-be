@@ -56,6 +56,16 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         return request;
     }
 
+    private static HttpRequestMessage AuthorizedPut<T>(string url, string accessToken, T body)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Put, url)
+        {
+            Content = JsonContent.Create(body)
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        return request;
+    }
+
     private static string GenerateAccessTokenWithoutSubClaim()
     {
         var claims = new[] { new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()) };
@@ -302,12 +312,12 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
 
         await _client.SendAsync(AuthorizedGet("/api/auth/me", accessToken));
 
-        var updateResponse = await _client.PutAsJsonAsync($"/api/users/{userId}", new UpdateUserRequest
+        var updateResponse = await _client.SendAsync(AuthorizedPut($"/api/users/{userId}", accessToken, new UpdateUserRequest
         {
             Phone = "0900000000",
             FullName = "Test User",
             IsActive = false
-        });
+        }));
         Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
 
         var response = await _client.SendAsync(AuthorizedGet("/api/auth/me", accessToken));
