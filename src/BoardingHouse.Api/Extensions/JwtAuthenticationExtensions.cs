@@ -11,6 +11,9 @@ namespace BoardingHouse.Api.Extensions;
 
 public static class JwtAuthenticationExtensions
 {
+    // Deliberately generic: doesn't distinguish "not found" from "disabled" to avoid account enumeration.
+    private const string InvalidAccountMessage = "Account does not exist or has been disabled";
+
     public static IServiceCollection AddJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -79,13 +82,19 @@ public static class JwtAuthenticationExtensions
             var userRepository = services.GetRequiredService<IUserRepository>();
             user = await userRepository.GetByIdAsync(userId, cancellationToken);
 
-            if (user is null || !user.IsActive)
+            if (user is null)
             {
-                context.Fail("Account does not exist or has been disabled");
+                context.Fail(InvalidAccountMessage);
                 return;
             }
 
             await userCache.SetAsync(user, cancellationToken);
+        }
+
+        if (!user.IsActive)
+        {
+            context.Fail(InvalidAccountMessage);
+            return;
         }
 
         services.GetRequiredService<ICurrentUserAccessor>().User = user;

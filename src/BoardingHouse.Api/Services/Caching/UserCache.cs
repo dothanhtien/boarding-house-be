@@ -10,7 +10,17 @@ public class UserCache(IDistributedCache cache, IConfiguration configuration, IL
 
     public async Task<User?> GetAsync(Guid userId, CancellationToken cancellationToken = default)
     {
-        var json = await cache.GetStringAsync(Key(userId), cancellationToken);
+        string? json;
+        try
+        {
+            json = await cache.GetStringAsync(Key(userId), cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to read cached user {UserId}; falling back to database", userId);
+            return null;
+        }
+
         if (json is null)
         {
             return null;
@@ -28,7 +38,7 @@ public class UserCache(IDistributedCache cache, IConfiguration configuration, IL
         }
     }
 
-    public Task SetAsync(User user, CancellationToken cancellationToken = default)
+    public async Task SetAsync(User user, CancellationToken cancellationToken = default)
     {
         var toCache = new User
         {
@@ -46,15 +56,31 @@ public class UserCache(IDistributedCache cache, IConfiguration configuration, IL
             UpdatedBy = user.UpdatedBy
         };
 
-        return cache.SetStringAsync(
-            Key(user.Id),
-            JsonSerializer.Serialize(toCache),
-            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = Ttl },
-            cancellationToken);
+        try
+        {
+            await cache.SetStringAsync(
+                Key(user.Id),
+                JsonSerializer.Serialize(toCache),
+                new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = Ttl },
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to cache user {UserId}; continuing without caching", user.Id);
+        }
     }
 
-    public Task InvalidateAsync(Guid userId, CancellationToken cancellationToken = default) =>
-        cache.RemoveAsync(Key(userId), cancellationToken);
+    public async Task InvalidateAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await cache.RemoveAsync(Key(userId), cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to invalidate cached user {UserId}; stale entry may persist until TTL expiry", userId);
+        }
+    }
 
     private static string Key(Guid userId) => $"user:{userId}";
 }
