@@ -115,7 +115,20 @@ The Scalar UI is only enabled in the `Development` environment (see `Program.cs`
     dotnet BoardingHouse.Api.dll --seed-rbac
     ```
 
-    This runs the seed then exits without starting the web host.
+    This runs the seed then exits without starting the web host. Run it from the build output directory, e.g. `src/BoardingHouse.Api/bin/Debug/net10.0/`, and set `ASPNETCORE_ENVIRONMENT=Development` if you're seeding a local Postgres (otherwise there's no connection string):
+
+    ```bash
+    cd src/BoardingHouse.Api
+    ASPNETCORE_ENVIRONMENT=Development dotnet bin/Debug/net10.0/BoardingHouse.Api.dll --seed-rbac
+    ```
+
+- **Platform admin bootstrap** (`AdminSeeder`) creates the very first `platform_admin` account. Run manually, once, after `--seed-rbac`:
+
+  ```bash
+  ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD='...' dotnet run --project src/BoardingHouse.Api -- --seed-admin
+  ```
+
+  In Docker: `docker compose exec api dotnet BoardingHouse.Api.dll --seed-rbac` / `--seed-admin`.
 
 ## Database migrations
 

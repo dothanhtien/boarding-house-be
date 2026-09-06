@@ -25,32 +25,6 @@ public class RoleRepositoryTests
     };
 
     [Fact]
-    public async Task GetBySlugAsync_ExistingSlug_ReturnsRole()
-    {
-        using var context = CreateContext();
-        var role = NewRole("admin");
-        context.Roles.Add(role);
-        await context.SaveChangesAsync();
-
-        var repository = new RoleRepository(context);
-        var result = await repository.GetBySlugAsync("admin");
-
-        Assert.NotNull(result);
-        Assert.Equal(role.Id, result!.Id);
-    }
-
-    [Fact]
-    public async Task GetBySlugAsync_UnknownSlug_ReturnsNull()
-    {
-        using var context = CreateContext();
-        var repository = new RoleRepository(context);
-
-        var result = await repository.GetBySlugAsync("unknown");
-
-        Assert.Null(result);
-    }
-
-    [Fact]
     public async Task GetByIdAsync_ExistingId_ReturnsRole()
     {
         using var context = CreateContext();

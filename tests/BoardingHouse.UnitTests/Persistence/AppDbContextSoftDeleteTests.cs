@@ -2,7 +2,7 @@ using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Persistence;
 using Microsoft.EntityFrameworkCore;
 
-namespace BoardingHouse.UnitTests;
+namespace BoardingHouse.UnitTests.Persistence;
 
 public class SampleEntity : BaseEntity
 {

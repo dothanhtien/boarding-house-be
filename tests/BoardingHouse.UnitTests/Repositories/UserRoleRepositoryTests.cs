@@ -1,6 +1,7 @@
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Persistence;
+using BoardingHouse.Api.Persistence.Interceptors;
 using BoardingHouse.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,98 +13,94 @@ public class UserRoleRepositoryTests
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .AddInterceptors(new AuditableEntitySaveChangesInterceptor())
             .Options;
 
         return new AppDbContext(options);
     }
 
-    private static Permission NewPermission(string resource, string action) => new()
-    {
-        Resource = resource,
-        Action = action,
-        CreatedBy = SentinelActors.System
-    };
-
     [Fact]
-    public async Task GetPermissionsByUserIdAsync_ActiveRole_ReturnsDistinctPermissions()
+    public async Task GetActiveRoleIdsByUserIdAsync_ActiveRole_ReturnsRoleId()
     {
         using var context = CreateContext();
         var userId = Guid.NewGuid();
         var role = new Role { Name = "Admin", Slug = "admin", IsActive = true, CreatedBy = SentinelActors.System };
-        var usersRead = NewPermission("users", "read");
-        var usersWrite = NewPermission("users", "write");
-
         context.Roles.Add(role);
-        context.Permissions.AddRange(usersRead, usersWrite);
-        context.RolePermissions.AddRange(
-            new RolePermission { Role = role, Permission = usersRead, CreatedBy = SentinelActors.System },
-            new RolePermission { Role = role, Permission = usersWrite, CreatedBy = SentinelActors.System });
         context.UserRoles.Add(new UserRole { UserId = userId, Role = role, CreatedBy = SentinelActors.System });
         await context.SaveChangesAsync();
 
         var repository = new UserRoleRepository(context);
-        var result = await repository.GetPermissionsByUserIdAsync(userId);
+        var result = await repository.GetActiveRoleIdsByUserIdAsync(userId);
 
-        Assert.Equal(2, result.Count);
-        Assert.Contains(result, p => p.Resource == "users" && p.Action == "read");
-        Assert.Contains(result, p => p.Resource == "users" && p.Action == "write");
+        Assert.Equal([role.Id], result);
     }
 
     [Fact]
-    public async Task GetPermissionsByUserIdAsync_InactiveRole_ReturnsEmpty()
+    public async Task GetActiveRoleIdsByUserIdAsync_InactiveRole_ReturnsEmpty()
     {
         using var context = CreateContext();
         var userId = Guid.NewGuid();
         var role = new Role { Name = "Disabled", Slug = "disabled", IsActive = false, CreatedBy = SentinelActors.System };
-        var permission = NewPermission("users", "read");
-
         context.Roles.Add(role);
-        context.Permissions.Add(permission);
-        context.RolePermissions.Add(new RolePermission { Role = role, Permission = permission, CreatedBy = SentinelActors.System });
         context.UserRoles.Add(new UserRole { UserId = userId, Role = role, CreatedBy = SentinelActors.System });
         await context.SaveChangesAsync();
 
         var repository = new UserRoleRepository(context);
-        var result = await repository.GetPermissionsByUserIdAsync(userId);
+        var result = await repository.GetActiveRoleIdsByUserIdAsync(userId);
 
         Assert.Empty(result);
     }
 
     [Fact]
-    public async Task GetPermissionsByUserIdAsync_UserWithNoRoles_ReturnsEmpty()
+    public async Task GetActiveRoleIdsByUserIdAsync_UserRoleSoftDeleted_ReturnsEmpty()
+    {
+        using var context = CreateContext();
+        var userId = Guid.NewGuid();
+        var role = new Role { Name = "Admin", Slug = "admin", IsActive = true, CreatedBy = SentinelActors.System };
+        context.Roles.Add(role);
+        var userRole = new UserRole { UserId = userId, Role = role, CreatedBy = SentinelActors.System };
+        context.UserRoles.Add(userRole);
+        await context.SaveChangesAsync();
+
+        var repository = new UserRoleRepository(context);
+        repository.SoftDelete(userRole);
+        await context.SaveChangesAsync();
+
+        var result = await repository.GetActiveRoleIdsByUserIdAsync(userId);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task GetActiveRoleIdsByUserIdAsync_UserWithNoRoles_ReturnsEmpty()
     {
         using var context = CreateContext();
         var repository = new UserRoleRepository(context);
 
-        var result = await repository.GetPermissionsByUserIdAsync(Guid.NewGuid());
+        var result = await repository.GetActiveRoleIdsByUserIdAsync(Guid.NewGuid());
 
         Assert.Empty(result);
     }
 
     [Fact]
-    public async Task GetPermissionsByUserIdAsync_SharedPermissionAcrossRoles_ReturnsDistinctEntry()
+    public async Task GetActiveRoleIdsByUserIdAsync_MultipleActiveRoles_ReturnsDistinctRoleIds()
     {
         using var context = CreateContext();
         var userId = Guid.NewGuid();
         var roleA = new Role { Name = "Role A", Slug = "role-a", IsActive = true, CreatedBy = SentinelActors.System };
         var roleB = new Role { Name = "Role B", Slug = "role-b", IsActive = true, CreatedBy = SentinelActors.System };
-        var sharedPermission = NewPermission("users", "read");
-
         context.Roles.AddRange(roleA, roleB);
-        context.Permissions.Add(sharedPermission);
-        context.RolePermissions.AddRange(
-            new RolePermission { Role = roleA, Permission = sharedPermission, CreatedBy = SentinelActors.System },
-            new RolePermission { Role = roleB, Permission = sharedPermission, CreatedBy = SentinelActors.System });
         context.UserRoles.AddRange(
             new UserRole { UserId = userId, Role = roleA, CreatedBy = SentinelActors.System },
             new UserRole { UserId = userId, Role = roleB, CreatedBy = SentinelActors.System });
         await context.SaveChangesAsync();
 
         var repository = new UserRoleRepository(context);
-        var result = await repository.GetPermissionsByUserIdAsync(userId);
+        var result = await repository.GetActiveRoleIdsByUserIdAsync(userId);
 
-        Assert.Single(result);
-        Assert.Equal(("users", "read"), result[0]);
+        Assert.Equal(2, result.Count);
+        Assert.Contains(roleA.Id, result);
+        Assert.Contains(roleB.Id, result);
     }
 
     [Fact]

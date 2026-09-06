@@ -1,3 +1,4 @@
+using BoardingHouse.Api.Authorization;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -11,6 +12,7 @@ namespace BoardingHouse.Api.Controllers;
 public class UsersController(IUserService userService) : ControllerBase
 {
     [HttpGet]
+    [RequirePermission("user", "read")]
     public async Task<ActionResult<List<UserResponse>>> GetAll(CancellationToken cancellationToken)
     {
         var users = await userService.GetAllAsync(cancellationToken);
@@ -18,6 +20,7 @@ public class UsersController(IUserService userService) : ControllerBase
     }
 
     [HttpGet("{id:guid}")]
+    [RequirePermission("user", "read")]
     public async Task<ActionResult<UserResponse>> GetById(Guid id, CancellationToken cancellationToken)
     {
         var user = await userService.GetByIdAsync(id, cancellationToken);
@@ -25,6 +28,7 @@ public class UsersController(IUserService userService) : ControllerBase
     }
 
     [HttpPost]
+    [RequirePermission("user", "create")]
     public async Task<ActionResult<UserResponse>> Create(CreateUserRequest request, CancellationToken cancellationToken)
     {
         var user = await userService.CreateAsync(request, cancellationToken);
@@ -32,6 +36,7 @@ public class UsersController(IUserService userService) : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
+    [RequirePermission("user", "update")]
     public async Task<ActionResult<UserResponse>> Update(Guid id, UpdateUserRequest request, CancellationToken cancellationToken)
     {
         var user = await userService.UpdateAsync(id, request, cancellationToken);
@@ -39,6 +44,7 @@ public class UsersController(IUserService userService) : ControllerBase
     }
 
     [HttpDelete("{id:guid}")]
+    [RequirePermission("user", "delete")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
         await userService.DeleteAsync(id, cancellationToken);

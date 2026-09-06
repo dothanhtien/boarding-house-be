@@ -312,6 +312,8 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
 
         await _client.SendAsync(AuthorizedGet("/api/auth/me", accessToken));
 
+        await factory.GrantPlatformAdminRoleAsync(userId);
+
         var updateResponse = await _client.SendAsync(AuthorizedPut($"/api/users/{userId}", accessToken, new UpdateUserRequest
         {
             Phone = "0900000000",
