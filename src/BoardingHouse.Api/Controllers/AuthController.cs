@@ -13,24 +13,24 @@ namespace BoardingHouse.Api.Controllers;
 public class AuthController(IAuthService authService, ICurrentUserAccessor currentUserAccessor) : ControllerBase
 {
     [HttpPost("register")]
-    public async Task<ActionResult<UserResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<UserResponse>>> Register(RegisterRequest request, CancellationToken cancellationToken)
     {
         var response = await authService.RegisterAsync(request, cancellationToken);
-        return Ok(response);
+        return Ok(new ApiResponse<UserResponse> { Data = response });
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<AuthResponse>> Login(LoginRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<AuthResponse>>> Login(LoginRequest request, CancellationToken cancellationToken)
     {
         var response = await authService.LoginAsync(request, GetIpAddress(), GetUserAgent(), cancellationToken);
-        return Ok(response);
+        return Ok(new ApiResponse<AuthResponse> { Data = response });
     }
 
     [HttpPost("refresh-token")]
-    public async Task<ActionResult<AuthResponse>> Refresh(RefreshTokenRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<AuthResponse>>> Refresh(RefreshTokenRequest request, CancellationToken cancellationToken)
     {
         var response = await authService.RefreshTokenAsync(request.RefreshToken, GetIpAddress(), GetUserAgent(), cancellationToken);
-        return Ok(response);
+        return Ok(new ApiResponse<AuthResponse> { Data = response });
     }
 
     [HttpPost("logout")]
@@ -42,9 +42,9 @@ public class AuthController(IAuthService authService, ICurrentUserAccessor curre
 
     [HttpGet("me")]
     [Authorize]
-    public ActionResult<UserResponse> Me()
+    public ActionResult<ApiResponse<UserResponse>> Me()
     {
-        return Ok(currentUserAccessor.User!.Adapt<UserResponse>());
+        return Ok(new ApiResponse<UserResponse> { Data = currentUserAccessor.User!.Adapt<UserResponse>() });
     }
 
     private string? GetIpAddress() => HttpContext.Connection.RemoteIpAddress?.ToString();

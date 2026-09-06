@@ -26,22 +26,22 @@ Backend API for boarding house / room rental management (property, room, lease, 
 
 ```text
 BoardingHouse.slnx
-docker-compose.yml           # Postgres + Redis + api (base, used for CI/production)
-docker-compose.override.yml  # auto-merged on `docker compose up` — hot reload for api + pgAdmin (local dev only)
+docker-compose.yml            # Postgres + Redis + api (base, used for CI/production)
+docker-compose.override.yml   # auto-merged on `docker compose up` — hot reload for api + pgAdmin (local dev only)
 docker/
-  pgadmin/                   # supporting config for the pgadmin service (servers.json, pgpass)
+  pgadmin/                    # supporting config for the pgadmin service (servers.json, pgpass)
 src/
   BoardingHouse.Api/
-    Controllers/             # AuthController, UsersController
-    DTOs/                    # request/response models + FluentValidation validators
-    Entities/                # User, Role, Permission, RolePermission, UserRole, RefreshToken
-    Exceptions/              # AppException + GlobalExceptionHandler (RFC 7807 problem details)
-    Extensions/              # JwtAuthenticationExtensions
+    Controllers/              # AuthController, UsersController
+    DTOs/                     # request/response models + FluentValidation validators
+    Entities/                 # User, Role, Permission, RolePermission, UserRole, RefreshToken
+    Exceptions/               # AppException + GlobalExceptionHandler (RFC 7807 problem details)
+    Extensions/               # JwtAuthenticationExtensions
     Middleware/               # CorrelationIdMiddleware
     Persistence/              # AppDbContext, EF Core configurations, migrations, audit interceptor
-      Seed/                  # RbacSeeder (default roles/permissions)
-    Repositories/            # EF Core repositories
-    Services/                # AuthService, UserService, TokenService, UserCache (Redis)
+      Seed/                   # RbacSeeder (default roles/permissions)
+    Repositories/             # EF Core repositories
+    Services/                 # AuthService, UserService, TokenService, UserCache (Redis)
     Program.cs
     Dockerfile                # multi-stage: build → dev (hot reload) → final (runtime image)
 tests/

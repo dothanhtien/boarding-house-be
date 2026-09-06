@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Roles;
 using BoardingHouse.Api.DTOs.Users;
@@ -34,7 +35,7 @@ public class RolesControllerIntegrationTests(PostgresApiFactory factory)
             PasswordConfirmation = ActorPassword,
             FullName = "Actor User"
         });
-        var actor = await registerResponse.Content.ReadFromJsonAsync<UserResponse>();
+        var actor = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
 
         await factory.GrantPlatformAdminRoleAsync(actor!.Id);
 
@@ -43,7 +44,7 @@ public class RolesControllerIntegrationTests(PostgresApiFactory factory)
             Email = ActorEmail,
             Password = ActorPassword
         });
-        var tokens = await loginResponse.Content.ReadFromJsonAsync<AuthResponse>();
+        var tokens = (await loginResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
 
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens!.AccessToken);
     }
@@ -54,7 +55,7 @@ public class RolesControllerIntegrationTests(PostgresApiFactory factory)
         var response = await _client.GetAsync("/api/roles");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<List<RoleResponse>>();
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<List<RoleResponse>>>())?.Data;
         Assert.NotNull(body);
         Assert.Contains(body!, r => r.Slug == "platform_admin");
         Assert.Contains(body!, r => r.Slug == "platform_staff");
@@ -89,7 +90,7 @@ public class RolesControllerIntegrationTests(PostgresApiFactory factory)
             Email = "no-permission@test.com",
             Password = ActorPassword
         });
-        var tokens = await loginResponse.Content.ReadFromJsonAsync<AuthResponse>();
+        var tokens = (await loginResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
         unprivilegedClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens!.AccessToken);
 
         var response = await unprivilegedClient.GetAsync("/api/roles");

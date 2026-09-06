@@ -25,6 +25,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 modelBuilder.Entity(entityType.ClrType)
                     .HasQueryFilter(BuildSoftDeleteFilter(entityType.ClrType));
             }
+
+            if (typeof(Entity).IsAssignableFrom(entityType.ClrType))
+            {
+                modelBuilder.Entity(entityType.ClrType)
+                    .Property(nameof(Entity.Id))
+                    .HasDefaultValueSql("gen_random_uuid()");
+            }
         }
     }
 

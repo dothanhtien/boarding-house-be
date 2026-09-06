@@ -15,7 +15,7 @@ namespace BoardingHouse.Api.Persistence.Migrations
                 name: "users",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     email = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false),
                     email_verified_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     phone = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: true),

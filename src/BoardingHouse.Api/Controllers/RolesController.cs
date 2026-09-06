@@ -1,4 +1,5 @@
 using BoardingHouse.Api.Authorization;
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Roles;
 using BoardingHouse.Api.Repositories;
 using Mapster;
@@ -14,9 +15,9 @@ public class RolesController(IRoleRepository roleRepository) : ControllerBase
 {
     [HttpGet]
     [RequirePermission("role", "read")]
-    public async Task<ActionResult<List<RoleResponse>>> GetAll(CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<List<RoleResponse>>>> GetAll(CancellationToken cancellationToken)
     {
         var roles = await roleRepository.GetAllAsync(cancellationToken);
-        return Ok(roles.Adapt<List<RoleResponse>>());
+        return Ok(new ApiResponse<List<RoleResponse>> { Data = roles.Adapt<List<RoleResponse>>() });
     }
 }

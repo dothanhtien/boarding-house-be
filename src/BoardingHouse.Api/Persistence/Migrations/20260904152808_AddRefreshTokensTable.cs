@@ -15,7 +15,7 @@ namespace BoardingHouse.Api.Persistence.Migrations
                 name: "refresh_tokens",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     user_id = table.Column<Guid>(type: "uuid", nullable: false),
                     token_hash = table.Column<string>(type: "text", nullable: false),
                     expires_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),

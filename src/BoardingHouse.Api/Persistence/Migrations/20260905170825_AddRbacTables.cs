@@ -15,7 +15,7 @@ namespace BoardingHouse.Api.Persistence.Migrations
                 name: "permissions",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     resource = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
                     action = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
                     description = table.Column<string>(type: "text", nullable: true),
@@ -33,7 +33,7 @@ namespace BoardingHouse.Api.Persistence.Migrations
                 name: "roles",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     name = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     slug = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     description = table.Column<string>(type: "text", nullable: true),
@@ -81,7 +81,7 @@ namespace BoardingHouse.Api.Persistence.Migrations
                 name: "user_roles",
                 columns: table => new
                 {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     user_id = table.Column<Guid>(type: "uuid", nullable: false),
                     role_id = table.Column<Guid>(type: "uuid", nullable: false),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
