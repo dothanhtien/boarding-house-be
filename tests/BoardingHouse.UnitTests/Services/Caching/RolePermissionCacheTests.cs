@@ -92,6 +92,20 @@ public class RolePermissionCacheTests
     }
 
     [Fact]
+    public async Task GetAsync_CorruptedJson_RemoveAsyncFails_ReturnsNull()
+    {
+        var roleId = Guid.NewGuid();
+        _cache.Setup(c => c.GetAsync($"role-permissions:{roleId}", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Encoding.UTF8.GetBytes("{ not-valid-json"));
+        _cache.Setup(c => c.RemoveAsync($"role-permissions:{roleId}", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("redis unavailable"));
+
+        var result = await CreateSut().GetAsync(roleId);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public async Task SetAsync_UsesConfiguredTtl()
     {
         DistributedCacheEntryOptions? capturedOptions = null;

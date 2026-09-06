@@ -34,7 +34,16 @@ public class RolePermissionCache(IDistributedCache cache, IConfiguration configu
         catch (Exception ex) when (ex is JsonException or FormatException)
         {
             logger.LogWarning(ex, "Failed to deserialize cached permissions for role {RoleId}; falling back to database", roleId);
-            await cache.RemoveAsync(Key(roleId), cancellationToken);
+
+            try
+            {
+                await cache.RemoveAsync(Key(roleId), cancellationToken);
+            }
+            catch (Exception removeEx) when (removeEx is not OperationCanceledException)
+            {
+                logger.LogWarning(removeEx, "Failed to remove malformed cached permissions for role {RoleId}", roleId);
+            }
+
             return null;
         }
     }

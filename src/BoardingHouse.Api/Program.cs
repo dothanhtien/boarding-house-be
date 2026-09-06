@@ -119,7 +119,7 @@ try
         using var adminSeedScope = app.Services.CreateScope();
         var adminSeedDb = adminSeedScope.ServiceProvider.GetRequiredService<AppDbContext>();
         await AdminSeeder.SeedAsync(adminSeedDb, adminEmail, adminPassword, adminFullName);
-        Log.Information("Platform admin seed completed ({Email})", adminEmail);
+        Log.Information("Platform admin seed completed");
         return;
     }
 
