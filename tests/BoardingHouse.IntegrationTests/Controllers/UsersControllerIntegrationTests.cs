@@ -25,7 +25,7 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
 
     private async Task AuthenticateAsync()
     {
-        await _client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
+        var registerResponse = await _client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
         {
             Email = ActorEmail,
             Phone = "0900000099",
@@ -33,6 +33,9 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
             PasswordConfirmation = ActorPassword,
             FullName = "Actor User"
         });
+        var actor = await registerResponse.Content.ReadFromJsonAsync<UserResponse>();
+
+        await factory.GrantPlatformAdminRoleAsync(actor!.Id);
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {

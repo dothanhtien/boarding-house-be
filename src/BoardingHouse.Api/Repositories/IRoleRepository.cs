@@ -4,5 +4,7 @@ namespace BoardingHouse.Api.Repositories;
 
 public interface IRoleRepository : IRepository<Role>
 {
-    Task<Role?> GetBySlugAsync(string slug, CancellationToken cancellationToken = default);
+    Task<List<(string Resource, string Action)>> GetPermissionsByRoleIdAsync(
+        Guid roleId,
+        CancellationToken cancellationToken = default);
 }

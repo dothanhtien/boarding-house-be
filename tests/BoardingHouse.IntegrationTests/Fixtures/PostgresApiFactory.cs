@@ -1,4 +1,7 @@
+using BoardingHouse.Api.Common;
+using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Persistence;
+using BoardingHouse.Api.Persistence.Seed;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -55,6 +58,25 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
         await using var connection = await ConnectionMultiplexer.ConnectAsync(redisOptions);
         await connection.GetServer(connection.GetEndPoints().Single()).FlushDatabaseAsync();
+    }
+
+    public async Task GrantPlatformAdminRoleAsync(Guid userId)
+    {
+        using var scope = Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        await RbacSeeder.SeedAsync(context);
+
+        var role = await context.Roles.SingleAsync(r => r.Slug == "platform_admin");
+
+        context.UserRoles.Add(new UserRole
+        {
+            UserId = userId,
+            RoleId = role.Id,
+            CreatedBy = SentinelActors.System
+        });
+
+        await context.SaveChangesAsync();
     }
 
     async Task IAsyncLifetime.DisposeAsync()

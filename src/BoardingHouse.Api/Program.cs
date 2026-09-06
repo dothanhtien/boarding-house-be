@@ -1,4 +1,5 @@
 using System.Text;
+using BoardingHouse.Api.Authorization;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Extensions;
@@ -12,6 +13,7 @@ using BoardingHouse.Api.Services.Caching;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
@@ -78,6 +80,10 @@ try
 
     builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
     builder.Services.AddScoped<IUserCache, UserCache>();
+    builder.Services.AddScoped<IRolePermissionCache, RolePermissionCache>();
+    builder.Services.AddScoped<IPermissionService, PermissionService>();
+    builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+    builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 
     builder.Services.AddJwtAuthentication(builder.Configuration);
 
@@ -95,6 +101,25 @@ try
         var seedDb = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
         await RbacSeeder.SeedAsync(seedDb);
         Log.Information("RBAC seed completed");
+        return;
+    }
+
+    if (args.Contains("--seed-admin"))
+    {
+        var adminEmail = builder.Configuration["ADMIN_EMAIL"];
+        var adminPassword = builder.Configuration["ADMIN_PASSWORD"];
+        var adminFullName = builder.Configuration["ADMIN_FULLNAME"] ?? "Platform Admin";
+
+        if (string.IsNullOrWhiteSpace(adminEmail) || string.IsNullOrWhiteSpace(adminPassword))
+        {
+            Log.Fatal("--seed-admin requires ADMIN_EMAIL and ADMIN_PASSWORD environment variables to be set");
+            return;
+        }
+
+        using var adminSeedScope = app.Services.CreateScope();
+        var adminSeedDb = adminSeedScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await AdminSeeder.SeedAsync(adminSeedDb, adminEmail, adminPassword, adminFullName);
+        Log.Information("Platform admin seed completed");
         return;
     }
 
