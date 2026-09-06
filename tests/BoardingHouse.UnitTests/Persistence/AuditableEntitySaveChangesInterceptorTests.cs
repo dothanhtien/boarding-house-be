@@ -1,3 +1,4 @@
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Interceptors;
@@ -21,7 +22,7 @@ public class AuditableEntitySaveChangesInterceptorTests
     public async Task SaveChangesAsync_NewEntity_SetsCreatedAt()
     {
         using var context = CreateContext();
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User" };
+        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
 
         context.Users.Add(user);
         await context.SaveChangesAsync();
@@ -34,7 +35,7 @@ public class AuditableEntitySaveChangesInterceptorTests
     public async Task SaveChangesAsync_ModifiedEntity_SetsUpdatedAt_KeepsCreatedAt()
     {
         using var context = CreateContext();
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User" };
+        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
         context.Users.Add(user);
         await context.SaveChangesAsync();
         var createdAt = user.CreatedAt;

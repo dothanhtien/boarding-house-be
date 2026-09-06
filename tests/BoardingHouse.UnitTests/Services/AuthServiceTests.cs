@@ -1,3 +1,4 @@
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Entities.Enums;
@@ -93,7 +94,8 @@ public class AuthServiceTests
         {
             Email = "user@test.com",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("correct-password"),
-            FullName = "Test User"
+            FullName = "Test User",
+            CreatedBy = SentinelActors.System
         };
         _userRepository.Setup(r => r.GetByEmailAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
@@ -110,7 +112,8 @@ public class AuthServiceTests
             Email = "user@test.com",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("password1"),
             FullName = "Test User",
-            IsActive = false
+            IsActive = false,
+            CreatedBy = SentinelActors.System
         };
         _userRepository.Setup(r => r.GetByEmailAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
@@ -122,7 +125,7 @@ public class AuthServiceTests
     [Fact]
     public async Task LoginAsync_ValidCredentials_ReturnsTokens_AndUpdatesLastLoginAt()
     {
-        var user = new User { Email = "user@test.com", PasswordHash = BCrypt.Net.BCrypt.HashPassword("password1"), FullName = "Test User" };
+        var user = new User { Email = "user@test.com", PasswordHash = BCrypt.Net.BCrypt.HashPassword("password1"), FullName = "Test User", CreatedBy = SentinelActors.System };
         _userRepository.Setup(r => r.GetByEmailAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _tokenService.Setup(t => t.GenerateAccessToken(It.IsAny<User>())).Returns("access-token");
         _tokenService.Setup(t => t.GenerateRefreshToken()).Returns("refresh-token");
@@ -200,7 +203,7 @@ public class AuthServiceTests
     [Fact]
     public async Task RefreshTokenAsync_Valid_RevokesOldToken_AndReturnsNewTokens()
     {
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User" };
+        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
         var oldToken = new RefreshToken
         {
             UserId = user.Id,

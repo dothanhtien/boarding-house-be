@@ -1,3 +1,4 @@
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Interceptors;
@@ -22,7 +23,7 @@ public class UserRepositoryTests
     public async Task GetByEmailAsync_ExistingEmail_ReturnsUser()
     {
         using var context = CreateContext();
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User" };
+        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
@@ -37,7 +38,7 @@ public class UserRepositoryTests
     public async Task GetByEmailAsync_DifferentCasing_ReturnsUser()
     {
         using var context = CreateContext();
-        var user = new User { Email = "User@Test.com", PasswordHash = "hashed-password", FullName = "Test User" };
+        var user = new User { Email = "User@Test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
@@ -63,7 +64,7 @@ public class UserRepositoryTests
     public async Task ExistsByEmailOrPhoneAsync_MatchingEmail_ReturnsTrue()
     {
         using var context = CreateContext();
-        context.Users.Add(new User { Email = "taken@test.com", PasswordHash = "hashed-password", FullName = "Test User" });
+        context.Users.Add(new User { Email = "taken@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         await context.SaveChangesAsync();
 
         var repository = new UserRepository(context);
@@ -76,7 +77,7 @@ public class UserRepositoryTests
     public async Task ExistsByEmailOrPhoneAsync_MatchingPhone_ReturnsTrue()
     {
         using var context = CreateContext();
-        context.Users.Add(new User { Email = "other@test.com", PasswordHash = "hashed-password", Phone = "0900000000", FullName = "Test User" });
+        context.Users.Add(new User { Email = "other@test.com", PasswordHash = "hashed-password", Phone = "0900000000", FullName = "Test User", CreatedBy = SentinelActors.System });
         await context.SaveChangesAsync();
 
         var repository = new UserRepository(context);
@@ -89,7 +90,7 @@ public class UserRepositoryTests
     public async Task ExistsByEmailOrPhoneAsync_NoMatch_ReturnsFalse()
     {
         using var context = CreateContext();
-        context.Users.Add(new User { Email = "other@test.com", PasswordHash = "hashed-password", FullName = "Test User" });
+        context.Users.Add(new User { Email = "other@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         await context.SaveChangesAsync();
 
         var repository = new UserRepository(context);
@@ -102,7 +103,7 @@ public class UserRepositoryTests
     public async Task ExistsByEmailOrPhoneAsync_DifferentEmailCasing_ReturnsTrue()
     {
         using var context = CreateContext();
-        context.Users.Add(new User { Email = "Taken@Test.com", PasswordHash = "hashed-password", FullName = "Test User" });
+        context.Users.Add(new User { Email = "Taken@Test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         await context.SaveChangesAsync();
 
         var repository = new UserRepository(context);
@@ -115,7 +116,7 @@ public class UserRepositoryTests
     public async Task ExistsByEmailOrPhoneAsync_MatchBelongsToSoftDeletedUser_ReturnsFalse()
     {
         using var context = CreateContext();
-        var user = new User { Email = "gone@test.com", PasswordHash = "hashed-password", Phone = "0900000000", FullName = "Test User" };
+        var user = new User { Email = "gone@test.com", PasswordHash = "hashed-password", Phone = "0900000000", FullName = "Test User", CreatedBy = SentinelActors.System };
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
@@ -132,8 +133,8 @@ public class UserRepositoryTests
     public async Task GetAllAsync_ExcludesSoftDeletedUsers()
     {
         using var context = CreateContext();
-        var activeUser = new User { Email = "active@test.com", PasswordHash = "hashed-password", FullName = "Active User" };
-        var deletedUser = new User { Email = "deleted@test.com", PasswordHash = "hashed-password", FullName = "Deleted User" };
+        var activeUser = new User { Email = "active@test.com", PasswordHash = "hashed-password", FullName = "Active User", CreatedBy = SentinelActors.System };
+        var deletedUser = new User { Email = "deleted@test.com", PasswordHash = "hashed-password", FullName = "Deleted User", CreatedBy = SentinelActors.System };
         context.Users.AddRange(activeUser, deletedUser);
         await context.SaveChangesAsync();
 
@@ -151,7 +152,7 @@ public class UserRepositoryTests
     public async Task GetByIdAsync_ExistingId_ReturnsUser()
     {
         using var context = CreateContext();
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User" };
+        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
@@ -178,7 +179,7 @@ public class UserRepositoryTests
     {
         using var context = CreateContext();
         var repository = new UserRepository(context);
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User" };
+        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
 
         await repository.AddAsync(user);
         await context.SaveChangesAsync();
@@ -191,7 +192,7 @@ public class UserRepositoryTests
     public async Task Update_ModifiedUser_PersistsChanges()
     {
         using var context = CreateContext();
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Old Name" };
+        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Old Name", CreatedBy = SentinelActors.System };
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
@@ -209,7 +210,7 @@ public class UserRepositoryTests
     public async Task Remove_SoftDeletesUser_ExcludedFromDefaultQuery()
     {
         using var context = CreateContext();
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User" };
+        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
         context.Users.Add(user);
         await context.SaveChangesAsync();
 

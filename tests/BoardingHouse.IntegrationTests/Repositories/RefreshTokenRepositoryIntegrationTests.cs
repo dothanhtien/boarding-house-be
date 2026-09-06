@@ -1,3 +1,4 @@
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Repositories;
@@ -14,7 +15,7 @@ public class RefreshTokenRepositoryIntegrationTests(PostgresContainerFixture fix
     public Task DisposeAsync() => Task.CompletedTask;
 
     private static User NewUser(string email = "user@test.com") =>
-        new() { Email = email, PasswordHash = "hashed-password", FullName = "Test User" };
+        new() { Email = email, PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
 
     private static RefreshToken NewToken(Guid userId, string tokenHash, DateTimeOffset? expiresAt = null, DateTimeOffset? revokedAt = null) =>
         new()

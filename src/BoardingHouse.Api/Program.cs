@@ -5,6 +5,7 @@ using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Middleware;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Interceptors;
+using BoardingHouse.Api.Persistence.Seed;
 using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services;
 using BoardingHouse.Api.Services.Caching;
@@ -68,6 +69,8 @@ try
 
     builder.Services.AddScoped<IUserRepository, UserRepository>();
     builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+    builder.Services.AddScoped<IRoleRepository, RoleRepository>();
+    builder.Services.AddScoped<IUserRoleRepository, UserRoleRepository>();
 
     builder.Services.AddScoped<IUserService, UserService>();
     builder.Services.AddScoped<IAuthService, AuthService>();
@@ -81,6 +84,26 @@ try
     builder.Services.AddAuthorization();
 
     var app = builder.Build();
+
+    // `dotnet BoardingHouse.Api.dll --seed-rbac`: runs the default role/permission seed then exits,
+    // without starting the web host. Used to seed manually in Production (after migrating) — seeding does
+    // NOT run automatically in Production on app startup (risk of a race condition when multiple instances start and insert
+    // duplicate rows at the same time).
+    if (args.Contains("--seed-rbac"))
+    {
+        using var seedScope = app.Services.CreateScope();
+        var seedDb = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await RbacSeeder.SeedAsync(seedDb);
+        Log.Information("RBAC seed completed");
+        return;
+    }
+
+    if (app.Environment.IsDevelopment())
+    {
+        using var devSeedScope = app.Services.CreateScope();
+        var devSeedDb = devSeedScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await RbacSeeder.SeedAsync(devSeedDb);
+    }
 
     app.UseExceptionHandler();
 

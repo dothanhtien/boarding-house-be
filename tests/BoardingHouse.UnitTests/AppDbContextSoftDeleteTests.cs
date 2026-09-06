@@ -40,8 +40,8 @@ public class AppDbContextSoftDeleteTests
     {
         using var context = CreateContext();
 
-        var active = new SampleEntity { Name = "Active" };
-        var deleted = new SampleEntity { Name = "Deleted", DeletedAt = DateTimeOffset.UtcNow };
+        var active = new SampleEntity { Name = "Active", CreatedBy = Guid.NewGuid() };
+        var deleted = new SampleEntity { Name = "Deleted", DeletedAt = DateTimeOffset.UtcNow, CreatedBy = Guid.NewGuid() };
 
         context.Set<SampleEntity>().AddRange(active, deleted);
         context.SaveChanges();
@@ -57,8 +57,8 @@ public class AppDbContextSoftDeleteTests
     {
         using var context = CreateContext();
 
-        var active = new SampleEntity { Name = "Active" };
-        var deleted = new SampleEntity { Name = "Deleted", DeletedAt = DateTimeOffset.UtcNow };
+        var active = new SampleEntity { Name = "Active", CreatedBy = Guid.NewGuid() };
+        var deleted = new SampleEntity { Name = "Deleted", DeletedAt = DateTimeOffset.UtcNow, CreatedBy = Guid.NewGuid() };
 
         context.Set<SampleEntity>().AddRange(active, deleted);
         context.SaveChanges();
@@ -75,10 +75,10 @@ public class AppDbContextSoftDeleteTests
     {
         using var context = CreateContext();
 
-        var activeSample = new SampleEntity { Name = "Active" };
-        var deletedSample = new SampleEntity { Name = "Deleted", DeletedAt = DateTimeOffset.UtcNow };
-        var activeAnother = new AnotherSampleEntity { Quantity = 1 };
-        var deletedAnother = new AnotherSampleEntity { Quantity = 2, DeletedAt = DateTimeOffset.UtcNow };
+        var activeSample = new SampleEntity { Name = "Active", CreatedBy = Guid.NewGuid() };
+        var deletedSample = new SampleEntity { Name = "Deleted", DeletedAt = DateTimeOffset.UtcNow, CreatedBy = Guid.NewGuid() };
+        var activeAnother = new AnotherSampleEntity { Quantity = 1, CreatedBy = Guid.NewGuid() };
+        var deletedAnother = new AnotherSampleEntity { Quantity = 2, DeletedAt = DateTimeOffset.UtcNow, CreatedBy = Guid.NewGuid() };
 
         context.Set<SampleEntity>().AddRange(activeSample, deletedSample);
         context.Set<AnotherSampleEntity>().AddRange(activeAnother, deletedAnother);
