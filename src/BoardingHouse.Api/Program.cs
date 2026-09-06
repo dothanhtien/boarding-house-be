@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using BoardingHouse.Api.Authorization;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Exceptions;
@@ -35,7 +36,15 @@ try
             .Enrich.FromLogContext()
     );
 
-    builder.Services.AddControllers();
+    builder.Services.AddControllers()
+        .ConfigureApiBehaviorOptions(options =>
+        {
+            options.InvalidModelStateResponseFactory = ValidationProblemDetailsFactory.Create;
+        })
+        .AddJsonOptions(options =>
+        {
+            options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
+        });
 
     builder.Services.AddFluentValidationAutoValidation();
     builder.Services.AddValidatorsFromAssemblyContaining<Program>();

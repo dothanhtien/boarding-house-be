@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.IntegrationTests.Fixtures;
@@ -33,7 +34,7 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
             PasswordConfirmation = ActorPassword,
             FullName = "Actor User"
         });
-        var actor = await registerResponse.Content.ReadFromJsonAsync<UserResponse>();
+        var actor = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
 
         await factory.GrantPlatformAdminRoleAsync(actor!.Id);
 
@@ -42,7 +43,7 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
             Email = ActorEmail,
             Password = ActorPassword
         });
-        var tokens = await loginResponse.Content.ReadFromJsonAsync<AuthResponse>();
+        var tokens = (await loginResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
 
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens!.AccessToken);
     }
@@ -64,7 +65,7 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.NotNull(response.Headers.Location);
 
-        var body = await response.Content.ReadFromJsonAsync<UserResponse>();
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
         Assert.NotNull(body);
         Assert.Equal("user@test.com", body!.Email);
         Assert.True(body.IsActive);
@@ -108,7 +109,7 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
         var response = await _client.GetAsync("/api/users");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<List<UserResponse>>();
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<List<UserResponse>>>())?.Data;
         Assert.NotNull(body);
         Assert.Single(body!);
         Assert.Equal(ActorEmail, body![0].Email);
@@ -118,16 +119,16 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
     public async Task GetAll_ExistingUsers_ReturnsAllExcludingDeleted()
     {
         var createResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("keep@test.com") with { Phone = "0911111111" });
-        var kept = await createResponse.Content.ReadFromJsonAsync<UserResponse>();
+        var kept = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
 
         var toDeleteResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("delete@test.com") with { Phone = "0922222222" });
-        var toDelete = await toDeleteResponse.Content.ReadFromJsonAsync<UserResponse>();
+        var toDelete = (await toDeleteResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
         await _client.DeleteAsync($"/api/users/{toDelete!.Id}");
 
         var response = await _client.GetAsync("/api/users");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<List<UserResponse>>();
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<List<UserResponse>>>())?.Data;
         Assert.NotNull(body);
         Assert.Contains(body!, u => u.Id == kept!.Id);
         Assert.DoesNotContain(body!, u => u.Id == toDelete.Id);
@@ -159,7 +160,7 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
     {
         var createResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest());
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
-        var created = await createResponse.Content.ReadFromJsonAsync<UserResponse>();
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
 
         var updateResponse = await _client.PutAsJsonAsync($"/api/users/{created!.Id}", new UpdateUserRequest
         {
@@ -168,7 +169,7 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
             IsActive = false
         });
         Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
-        var updated = await updateResponse.Content.ReadFromJsonAsync<UserResponse>();
+        var updated = (await updateResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
 
         Assert.Equal("Updated Name", updated!.FullName);
         Assert.False(updated.IsActive);

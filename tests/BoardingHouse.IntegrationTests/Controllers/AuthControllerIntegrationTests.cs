@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Persistence;
@@ -37,14 +38,14 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
     private async Task<(Guid UserId, string AccessToken, string RefreshToken)> RegisterAndLoginAsync(string email = "user@test.com")
     {
         var registerResponse = await _client.PostAsJsonAsync("/api/auth/register", ValidRegisterRequest(email));
-        var user = await registerResponse.Content.ReadFromJsonAsync<UserResponse>();
+        var user = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
             Email = email,
             Password = Password
         });
-        var tokens = await loginResponse.Content.ReadFromJsonAsync<AuthResponse>();
+        var tokens = (await loginResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
 
         return (user!.Id, tokens!.AccessToken, tokens.RefreshToken);
     }
@@ -99,7 +100,7 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var body = await response.Content.ReadFromJsonAsync<UserResponse>();
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
         Assert.NotNull(body);
         Assert.Equal("user@test.com", body.Email);
         Assert.True(body.IsActive);
@@ -142,7 +143,7 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var body = await response.Content.ReadFromJsonAsync<AuthResponse>();
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
         Assert.NotNull(body);
         Assert.False(string.IsNullOrWhiteSpace(body.AccessToken));
         Assert.False(string.IsNullOrWhiteSpace(body.RefreshToken));
@@ -201,7 +202,7 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var body = await response.Content.ReadFromJsonAsync<AuthResponse>();
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
         Assert.NotNull(body);
         Assert.NotEqual(refreshToken, body.RefreshToken);
         Assert.NotEqual(accessToken, body.AccessToken);
@@ -216,7 +217,7 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         {
             RefreshToken = refreshToken
         });
-        var rotatedTokens = await firstRefreshResponse.Content.ReadFromJsonAsync<AuthResponse>();
+        var rotatedTokens = (await firstRefreshResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
 
         var reuseResponse = await _client.PostAsJsonAsync("/api/auth/refresh-token", new RefreshTokenRequest
         {
@@ -283,7 +284,7 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         var response = await _client.SendAsync(AuthorizedGet("/api/auth/me", accessToken));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<UserResponse>();
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
         Assert.Equal(userId, body!.Id);
     }
 
