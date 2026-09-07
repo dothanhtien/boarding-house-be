@@ -14,7 +14,11 @@ public class RbacSeeder
         ("user", "update", "Update user information"),
         ("user", "delete", "Delete a user"),
         ("role", "read", "View role list/details"),
-        ("role", "assign", "Assign a role to a user")
+        ("role", "assign", "Assign a role to a user"),
+        ("organization", "read", "View organization list/details"),
+        ("organization", "create", "Create a new organization"),
+        ("organization", "update", "Update organization information"),
+        ("organization", "delete", "Delete an organization"),
     ];
 
     public static async Task SeedAsync(AppDbContext context, CancellationToken cancellationToken = default)

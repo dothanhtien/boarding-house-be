@@ -1,10 +1,10 @@
-using System.Text;
 using System.Text.Json;
 using BoardingHouse.Api.Authorization;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Middleware;
+using BoardingHouse.Api.OpenApi;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Interceptors;
 using BoardingHouse.Api.Persistence.Seed;
@@ -13,10 +13,8 @@ using BoardingHouse.Api.Services;
 using BoardingHouse.Api.Services.Caching;
 using FluentValidation;
 using FluentValidation.AspNetCore;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using Serilog;
 
@@ -60,11 +58,14 @@ try
             document.Info.Version = "v1";
             return Task.CompletedTask;
         });
+        options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
     });
 
-    builder.Services.AddDbContext<AppDbContext>(options =>
+    builder.Services.AddDbContext<AppDbContext>((sp, options) =>
         options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
-            .AddInterceptors(new AuditableEntitySaveChangesInterceptor())
+            .AddInterceptors(new AuditableEntitySaveChangesInterceptor(
+                sp.GetRequiredService<ICurrentUserAccessor>(),
+                sp.GetRequiredService<ILogger<AuditableEntitySaveChangesInterceptor>>()))
             .UseSnakeCaseNamingConvention()
     );
 
@@ -82,9 +83,11 @@ try
     builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
     builder.Services.AddScoped<IRoleRepository, RoleRepository>();
     builder.Services.AddScoped<IUserRoleRepository, UserRoleRepository>();
+    builder.Services.AddScoped<IOrganizationRepository, OrganizationRepository>();
 
     builder.Services.AddScoped<IUserService, UserService>();
     builder.Services.AddScoped<IAuthService, AuthService>();
+    builder.Services.AddScoped<IOrganizationService, OrganizationService>();
     builder.Services.AddSingleton<ITokenService, TokenService>();
 
     builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
@@ -156,7 +159,7 @@ try
     if (app.Environment.IsDevelopment())
     {
         app.MapOpenApi();
-        app.MapScalarApiReference();
+        app.MapScalarApiReference(options => options.EnablePersistentAuthentication());
     }
 
     app.UseHttpsRedirection();

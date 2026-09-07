@@ -1,6 +1,8 @@
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Interceptors;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Testcontainers.PostgreSql;
 
 namespace BoardingHouse.IntegrationTests.Fixtures;
@@ -23,7 +25,9 @@ public class PostgresContainerFixture : IAsyncLifetime
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql(_container.GetConnectionString())
-            .AddInterceptors(new AuditableEntitySaveChangesInterceptor())
+            .AddInterceptors(new AuditableEntitySaveChangesInterceptor(
+                new CurrentUserAccessor(),
+                NullLogger<AuditableEntitySaveChangesInterceptor>.Instance))
             .UseSnakeCaseNamingConvention()
             .Options;
 
@@ -34,6 +38,6 @@ public class PostgresContainerFixture : IAsyncLifetime
     {
         await using var context = CreateContext();
         await context.Database.ExecuteSqlRawAsync(
-            "TRUNCATE TABLE users, refresh_tokens, roles, permissions, user_roles, role_permissions CASCADE");
+            "TRUNCATE TABLE users, refresh_tokens, roles, permissions, user_roles, role_permissions, organizations CASCADE");
     }
 }

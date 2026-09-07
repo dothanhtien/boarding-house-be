@@ -4,6 +4,7 @@ using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Interceptors;
 using BoardingHouse.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace BoardingHouse.UnitTests.Repositories;
 
@@ -13,7 +14,9 @@ public class UserRoleRepositoryTests
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .AddInterceptors(new AuditableEntitySaveChangesInterceptor())
+            .AddInterceptors(new AuditableEntitySaveChangesInterceptor(
+                new CurrentUserAccessor(),
+                NullLogger<AuditableEntitySaveChangesInterceptor>.Instance))
             .Options;
 
         return new AppDbContext(options);

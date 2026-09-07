@@ -44,7 +44,7 @@ public class AuthController(IAuthService authService, ICurrentUserAccessor curre
     [Authorize]
     public ActionResult<ApiResponse<UserResponse>> Me()
     {
-        return Ok(new ApiResponse<UserResponse> { Data = currentUserAccessor.User!.Adapt<UserResponse>() });
+        return Ok(new ApiResponse<UserResponse> { Data = currentUserAccessor.RequiredUser.Adapt<UserResponse>() });
     }
 
     private string? GetIpAddress() => HttpContext.Connection.RemoteIpAddress?.ToString();
