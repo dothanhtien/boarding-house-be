@@ -14,10 +14,12 @@ public class OrganizationsController(IOrganizationService organizationService) :
 {
     [HttpGet]
     [RequirePermission("organization", "read")]
-    public async Task<ActionResult<ApiResponse<List<OrganizationResponse>>>> GetAll(CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<PagedResult<OrganizationResponse>>>> GetAll(
+        [FromQuery] OrganizationListQuery query,
+        CancellationToken cancellationToken)
     {
-        var organizations = await organizationService.GetAllAsync(cancellationToken);
-        return Ok(new ApiResponse<List<OrganizationResponse>> { Data = organizations });
+        var organizations = await organizationService.GetAllAsync(query, cancellationToken);
+        return Ok(new ApiResponse<PagedResult<OrganizationResponse>> { Data = organizations });
     }
 
     [HttpGet("{id:guid}")]

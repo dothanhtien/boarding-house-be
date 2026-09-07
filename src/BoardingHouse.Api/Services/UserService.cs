@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Entities;
@@ -17,10 +18,43 @@ public class UserService(
     ICurrentUserAccessor currentUserAccessor,
     ILogger<UserService> logger) : IUserService
 {
-    public async Task<List<UserResponse>> GetAllAsync(CancellationToken cancellationToken = default)
+    private static readonly Dictionary<string, Expression<Func<User, object>>> SortableFields =
+    new(StringComparer.OrdinalIgnoreCase)
     {
-        var users = await context.Users.ToListAsync(cancellationToken);
-        return users.Adapt<List<UserResponse>>();
+        [""] = u => u.CreatedAt,
+        ["email"] = u => u.Email,
+        ["fullName"] = u => u.FullName,
+        ["createdAt"] = u => u.CreatedAt,
+        ["isActive"] = u => u.IsActive
+    };
+
+    public async Task<PagedResult<UserResponse>> GetAllAsync(UserListQuery query, CancellationToken cancellationToken = default)
+    {
+        var users = context.Users.AsQueryable();
+
+        if (query.IsActive is not null)
+        {
+            users = users.Where(u => u.IsActive == query.IsActive);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var pattern = LikePattern.Contains(query.Search.Trim());
+            users = users.Where(u =>
+                EF.Functions.ILike(u.Email, pattern, LikePattern.EscapeCharacter) ||
+                EF.Functions.ILike(u.FullName, pattern, LikePattern.EscapeCharacter));
+        }
+
+        var sortField = SortableFields.GetValueOrDefault(query.SortBy ?? "", SortableFields[""]);
+        var paged = await users.ToPagedResultAsync(query, sortField, query.SortDescending, cancellationToken);
+
+        return new PagedResult<UserResponse>
+        {
+            Items = paged.Items.Adapt<List<UserResponse>>(),
+            Page = paged.Page,
+            PageSize = paged.PageSize,
+            TotalItems = paged.TotalItems
+        };
     }
 
     public async Task<UserResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)

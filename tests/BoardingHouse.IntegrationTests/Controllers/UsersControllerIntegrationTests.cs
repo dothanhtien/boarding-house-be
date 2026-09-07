@@ -109,10 +109,10 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
         var response = await _client.GetAsync("/api/users");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<List<UserResponse>>>())?.Data;
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
         Assert.NotNull(body);
-        Assert.Single(body!);
-        Assert.Equal(ActorEmail, body![0].Email);
+        Assert.Single(body!.Items);
+        Assert.Equal(ActorEmail, body.Items[0].Email);
     }
 
     [Fact]
@@ -128,10 +128,129 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
         var response = await _client.GetAsync("/api/users");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<List<UserResponse>>>())?.Data;
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
         Assert.NotNull(body);
-        Assert.Contains(body!, u => u.Id == kept!.Id);
-        Assert.DoesNotContain(body!, u => u.Id == toDelete.Id);
+        Assert.Contains(body!.Items, u => u.Id == kept!.Id);
+        Assert.DoesNotContain(body.Items, u => u.Id == toDelete.Id);
+    }
+
+    [Fact]
+    public async Task GetAll_MultiplePages_ReturnsCorrectPageAndMetadata()
+    {
+        for (var i = 0; i < 25; i++)
+        {
+            await _client.PostAsJsonAsync("/api/users", ValidCreateRequest($"user{i}@test.com") with { Phone = $"09{i:D8}" });
+        }
+
+        var page1Response = await _client.GetAsync("/api/users?page=1&pageSize=10");
+        var page1 = (await page1Response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
+        Assert.Equal(10, page1!.Items.Count);
+        Assert.Equal(26, page1.TotalItems); // 25 + actor
+        Assert.Equal(3, page1.TotalPages);
+
+        var page3Response = await _client.GetAsync("/api/users?page=3&pageSize=10");
+        var page3 = (await page3Response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
+        Assert.Equal(6, page3!.Items.Count);
+
+        var page99Response = await _client.GetAsync("/api/users?page=99&pageSize=10");
+        var page99 = (await page99Response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
+        Assert.Empty(page99!.Items);
+    }
+
+    [Fact]
+    public async Task GetAll_SearchByEmailOrFullName_ReturnsMatchingItemsOnly()
+    {
+        await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("coffee.lover@test.com") with { Phone = "0911111112" });
+        await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("tea.lover@test.com") with { Phone = "0911111113" });
+
+        var response = await _client.GetAsync("/api/users?search=coffee");
+        var result = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
+
+        Assert.Single(result!.Items);
+        Assert.Equal("coffee.lover@test.com", result.Items[0].Email);
+    }
+
+    [Fact]
+    public async Task GetAll_FilterByIsActive_ReturnsMatchingItemsOnly()
+    {
+        var inactiveResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("inactive@test.com") with { Phone = "0911111114" });
+        var inactive = (await inactiveResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        await _client.PutAsJsonAsync($"/api/users/{inactive!.Id}", new UpdateUserRequest { Phone = inactive.Phone, FullName = inactive.FullName, IsActive = false });
+
+        var filteredResponse = await _client.GetAsync("/api/users?isActive=false");
+        var filtered = (await filteredResponse.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
+        Assert.All(filtered!.Items, u => Assert.False(u.IsActive));
+        Assert.Contains(filtered.Items, u => u.Id == inactive.Id);
+
+        var allResponse = await _client.GetAsync("/api/users");
+        var all = (await allResponse.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
+        Assert.Contains(all!.Items, u => u.Id == inactive.Id);
+        Assert.True(all.Items.Count > filtered.Items.Count);
+    }
+
+    [Fact]
+    public async Task GetAll_SortByEmailDescending_ReturnsInDescendingOrder()
+    {
+        await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("alpha@test.com") with { Phone = "0911111115" });
+        await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("zeta@test.com") with { Phone = "0911111116" });
+
+        var response = await _client.GetAsync("/api/users?sortBy=email&sortDescending=true");
+        var result = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
+
+        var emails = result!.Items.Select(u => u.Email).ToList();
+        Assert.Equal(emails.OrderByDescending(e => e), emails);
+    }
+
+    [Fact]
+    public async Task GetAll_SortByUnknownField_FallsBackToDefaultWithoutError()
+    {
+        var response = await _client.GetAsync("/api/users?sortBy=unknown-field");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetAll_PageBeyondIntOverflowThreshold_ReturnsEmptyWithoutError()
+    {
+        // (page - 1) * pageSize must not overflow Int32 and wrap into a negative SQL OFFSET.
+        var response = await _client.GetAsync("/api/users?page=21474838&pageSize=100");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
+        Assert.Empty(result!.Items);
+    }
+
+    [Fact]
+    public async Task GetAll_SearchContainingLikeWildcards_MatchesLiterally()
+    {
+        await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("john_doe@test.com") with { Phone = "0911111117" });
+        await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("johnxdoe@test.com") with { Phone = "0911111118" });
+
+        var response = await _client.GetAsync("/api/users?search=john_doe");
+        var result = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
+
+        Assert.Single(result!.Items);
+        Assert.Equal("john_doe@test.com", result.Items[0].Email);
+    }
+
+    [Fact]
+    public async Task GetAll_TiedSortValues_PaginatesWithoutDuplicatesAcrossPages()
+    {
+        for (var i = 0; i < 15; i++)
+        {
+            await _client.PostAsJsonAsync("/api/users", ValidCreateRequest($"tied{i}@test.com") with { Phone = $"0922{i:D6}" });
+        }
+
+        var page1Response = await _client.GetAsync("/api/users?page=1&pageSize=10&sortBy=isActive");
+        var page1 = (await page1Response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
+
+        var page2Response = await _client.GetAsync("/api/users?page=2&pageSize=10&sortBy=isActive");
+        var page2 = (await page2Response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
+
+        var page1Ids = page1!.Items.Select(u => u.Id);
+        var page2Ids = page2!.Items.Select(u => u.Id);
+
+        Assert.Empty(page1Ids.Intersect(page2Ids));
     }
 
     [Fact]

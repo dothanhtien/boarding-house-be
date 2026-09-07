@@ -50,11 +50,11 @@ public class UserServiceTests
         _context.Users.AddRange(NewUser("a@test.com"), NewUser("b@test.com"));
         await _context.SaveChangesAsync();
 
-        var result = await _userService.GetAllAsync();
+        var result = await _userService.GetAllAsync(new UserListQuery());
 
-        Assert.Equal(2, result.Count);
-        Assert.Contains(result, u => u.Email == "a@test.com");
-        Assert.Contains(result, u => u.Email == "b@test.com");
+        Assert.Equal(2, result.Items.Count);
+        Assert.Contains(result.Items, u => u.Email == "a@test.com");
+        Assert.Contains(result.Items, u => u.Email == "b@test.com");
     }
 
     [Fact]

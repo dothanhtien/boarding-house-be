@@ -14,10 +14,12 @@ public class UsersController(IUserService userService) : ControllerBase
 {
     [HttpGet]
     [RequirePermission("user", "read")]
-    public async Task<ActionResult<ApiResponse<List<UserResponse>>>> GetAll(CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<PagedResult<UserResponse>>>> GetAll(
+        [FromQuery] UserListQuery query,
+        CancellationToken cancellationToken)
     {
-        var users = await userService.GetAllAsync(cancellationToken);
-        return Ok(new ApiResponse<List<UserResponse>> { Data = users });
+        var users = await userService.GetAllAsync(query, cancellationToken);
+        return Ok(new ApiResponse<PagedResult<UserResponse>> { Data = users });
     }
 
     [HttpGet("{id:guid}")]

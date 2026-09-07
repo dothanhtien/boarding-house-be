@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Organizations;
 using BoardingHouse.Api.Entities;
@@ -5,6 +6,7 @@ using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
 using Mapster;
+using Microsoft.EntityFrameworkCore;
 
 namespace BoardingHouse.Api.Services;
 
@@ -14,10 +16,39 @@ public class OrganizationService(
     ICurrentUserAccessor currentUserAccessor,
     ILogger<OrganizationService> logger) : IOrganizationService
 {
-    public async Task<List<OrganizationResponse>> GetAllAsync(CancellationToken cancellationToken = default)
+    private static readonly Dictionary<string, Expression<Func<Organization, object>>> SortableFields = new(StringComparer.OrdinalIgnoreCase)
     {
-        var organizations = await organizationRepository.GetAllAsync(cancellationToken);
-        return organizations.Adapt<List<OrganizationResponse>>();
+        [""] = o => o.Name,
+        ["name"] = o => o.Name,
+        ["createdAt"] = o => o.CreatedAt,
+        ["isActive"] = o => o.IsActive
+    };
+
+    public async Task<PagedResult<OrganizationResponse>> GetAllAsync(OrganizationListQuery query, CancellationToken cancellationToken = default)
+    {
+        var organizations = context.Organizations.AsQueryable();
+
+        if (query.IsActive is not null)
+        {
+            organizations = organizations.Where(o => o.IsActive == query.IsActive);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var pattern = LikePattern.Contains(query.Search.Trim());
+            organizations = organizations.Where(o => EF.Functions.ILike(o.Name, pattern, LikePattern.EscapeCharacter));
+        }
+
+        var sortField = SortableFields.GetValueOrDefault(query.SortBy ?? "", SortableFields[""]);
+        var paged = await organizations.ToPagedResultAsync(query, sortField, query.SortDescending, cancellationToken);
+
+        return new PagedResult<OrganizationResponse>
+        {
+            Items = paged.Items.Adapt<List<OrganizationResponse>>(),
+            Page = paged.Page,
+            PageSize = paged.PageSize,
+            TotalItems = paged.TotalItems
+        };
     }
 
     public async Task<OrganizationResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
