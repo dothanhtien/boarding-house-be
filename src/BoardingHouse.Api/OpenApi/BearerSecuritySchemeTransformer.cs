@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
 
@@ -29,10 +30,26 @@ public sealed class BearerSecuritySchemeTransformer(IAuthenticationSchemeProvide
             [new OpenApiSecuritySchemeReference(schemeId, document)] = []
         };
 
-        foreach (var operation in document.Paths.Values.SelectMany(path => path.Operations!.Values))
+        var apiDescriptionsByKey = context.DescriptionGroups
+            .SelectMany(group => group.Items)
+            .ToLookup(description => (Path: NormalizePath(description.RelativePath), HttpMethod: description.HttpMethod));
+
+        foreach (var (path, pathItem) in document.Paths)
         {
-            operation.Security ??= [];
-            operation.Security.Add(securityRequirement);
+            foreach (var (httpMethod, operation) in pathItem.Operations!)
+            {
+                var apiDescription = apiDescriptionsByKey[(NormalizePath(path), httpMethod.Method)].FirstOrDefault();
+                var requiresAuthorization = apiDescription?.ActionDescriptor.EndpointMetadata.OfType<IAuthorizeData>().Any() == true;
+
+                operation.Security ??= [];
+
+                if (requiresAuthorization)
+                {
+                    operation.Security.Add(securityRequirement);
+                }
+            }
         }
     }
+
+    private static string NormalizePath(string? path) => path?.Trim('/').ToLowerInvariant() ?? string.Empty;
 }
