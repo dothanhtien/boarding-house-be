@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Organizations;
@@ -14,6 +16,11 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
     : IClassFixture<PostgresApiFactory>, IAsyncLifetime
 {
     private readonly HttpClient _client = factory.CreateClient();
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
+    };
 
     private const string ActorEmail = "actor@test.com";
     private const string ActorPassword = "password123";
@@ -68,7 +75,7 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
         var response = await _client.GetAsync($"/api/organizations/{organizationId}/settings");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var settings = (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationSettingsResponse>>())?.Data;
+        var settings = (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationSettingsResponse>>(JsonOptions))?.Data;
         Assert.Equal(organizationId, settings!.OrganizationId);
         Assert.Null(settings.VatRate);
         Assert.Equal("VND", settings.Currency);
@@ -92,7 +99,7 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
         });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationSettingsResponse>>())?.Data;
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationSettingsResponse>>(JsonOptions))?.Data;
         Assert.Equal(8, updated!.VatRate);
         Assert.Equal(5, updated.DefaultBillingDay);
         Assert.Equal(LateFeeType.Fixed, updated.LateFeeType);
@@ -100,7 +107,7 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
         Assert.Equal(3, updated.LateFeeGraceDays);
 
         var getResponse = await _client.GetAsync($"/api/organizations/{organizationId}/settings");
-        var fetched = (await getResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationSettingsResponse>>())?.Data;
+        var fetched = (await getResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationSettingsResponse>>(JsonOptions))?.Data;
         Assert.Equal(8, fetched!.VatRate);
         Assert.Equal(LateFeeType.Fixed, fetched.LateFeeType);
     }
@@ -114,7 +121,7 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
         var secondResponse = await _client.PutAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest { VatRate = 10 });
 
         Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
-        var updated = (await secondResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationSettingsResponse>>())?.Data;
+        var updated = (await secondResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationSettingsResponse>>(JsonOptions))?.Data;
         Assert.Equal(10, updated!.VatRate);
         Assert.NotNull(updated.UpdatedAt);
     }
