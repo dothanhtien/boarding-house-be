@@ -14,6 +14,9 @@ public class Repository<T>(AppDbContext context) : IRepository<T> where T : Base
     public async Task<T?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         await context.Set<T>().FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
 
+    public async Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken = default) =>
+        await context.Set<T>().AnyAsync(e => e.Id == id, cancellationToken);
+
     public async Task AddAsync(T entity, CancellationToken cancellationToken = default) =>
         await context.Set<T>().AddAsync(entity, cancellationToken);
 

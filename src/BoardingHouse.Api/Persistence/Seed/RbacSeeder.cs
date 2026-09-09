@@ -19,6 +19,8 @@ public class RbacSeeder
         ("organization", "create", "Create a new organization"),
         ("organization", "update", "Update organization information"),
         ("organization", "delete", "Delete an organization"),
+        ("organization-setting", "read", "View organization settings"),
+        ("organization-setting", "update", "Update organization settings"),
     ];
 
     public static async Task SeedAsync(AppDbContext context, CancellationToken cancellationToken = default)
