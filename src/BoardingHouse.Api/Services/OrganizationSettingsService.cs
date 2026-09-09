@@ -5,6 +5,7 @@ using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
 using Mapster;
+using Microsoft.EntityFrameworkCore;
 
 namespace BoardingHouse.Api.Services;
 
@@ -43,16 +44,30 @@ public class OrganizationSettingsService(
 
         if (isNew)
         {
-            await organizationSettingsRepository.AddAsync(settings, cancellationToken);
-            logger.LogInformation("Organization settings created ({OrganizationId})", organizationId);
-        }
-        else
-        {
-            organizationSettingsRepository.Update(settings);
-            logger.LogInformation("Organization settings updated ({OrganizationId})", organizationId);
+            try
+            {
+                await organizationSettingsRepository.AddAsync(settings, cancellationToken);
+                await context.SaveChangesAsync(cancellationToken);
+                logger.LogInformation("Organization settings created ({OrganizationId})", organizationId);
+                return settings.Adapt<OrganizationSettingsResponse>();
+            }
+            catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+            {
+                context.Entry(settings).State = EntityState.Detached;
+                logger.LogInformation("Organization settings creation raced with a concurrent write ({OrganizationId}); retrying as update", organizationId);
+
+                settings = await organizationSettingsRepository.GetByOrganizationIdAsync(organizationId, cancellationToken)
+                    ?? throw new ConflictAppException("Organization settings could not be saved, please retry");
+
+                ApplyRequest(settings, request);
+                settings.UpdatedAt = DateTimeOffset.UtcNow;
+                settings.UpdatedBy = currentUserAccessor.RequiredUser.Id;
+            }
         }
 
+        organizationSettingsRepository.Update(settings);
         await context.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("Organization settings updated ({OrganizationId})", organizationId);
 
         return settings.Adapt<OrganizationSettingsResponse>();
     }

@@ -15,6 +15,10 @@ public class UpdateOrganizationSettingsRequestValidator : AbstractValidator<Upda
             .WithMessage("Late fee type and Late fee value must be set together")
             .WithName(nameof(UpdateOrganizationSettingsRequest.LateFeeValue));
 
+        RuleFor(x => x.LateFeeType)
+            .IsInEnum().WithMessage("Late fee type is invalid")
+            .When(x => x.LateFeeType is not null);
+
         RuleFor(x => x.LateFeeGraceDays)
             .GreaterThanOrEqualTo(0).WithMessage("Late fee grace days must not be negative")
             .When(x => x.LateFeeGraceDays is not null);
