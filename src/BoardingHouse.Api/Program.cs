@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using BoardingHouse.Api.Authorization;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Exceptions;
@@ -42,7 +43,13 @@ try
         .AddJsonOptions(options =>
         {
             options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
+            options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         });
+
+    builder.Services.ConfigureHttpJsonOptions(options =>
+    {
+        options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+    });
 
     builder.Services.AddFluentValidationAutoValidation();
     builder.Services.AddValidatorsFromAssemblyContaining<Program>();
@@ -84,11 +91,13 @@ try
     builder.Services.AddScoped<IRoleRepository, RoleRepository>();
     builder.Services.AddScoped<IUserRoleRepository, UserRoleRepository>();
     builder.Services.AddScoped<IOrganizationRepository, OrganizationRepository>();
+    builder.Services.AddScoped<IOrganizationSettingsRepository, OrganizationSettingsRepository>();
 
     builder.Services.AddScoped<IUserService, UserService>();
     builder.Services.AddScoped<IAuthService, AuthService>();
-    builder.Services.AddScoped<IOrganizationService, OrganizationService>();
     builder.Services.AddSingleton<ITokenService, TokenService>();
+    builder.Services.AddScoped<IOrganizationService, OrganizationService>();
+    builder.Services.AddScoped<IOrganizationSettingsService, OrganizationSettingsService>();
 
     builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
     builder.Services.AddScoped<IUserCache, UserCache>();

@@ -20,10 +20,14 @@ public static class ValidationProblemDetailsFactory
 
         problemDetails.Extensions["correlationId"] = correlationId;
 
+        var errors = string.Join("; ", context.ModelState
+            .Where(kvp => kvp.Value?.Errors.Count > 0)
+            .Select(kvp => $"{kvp.Key}: {string.Join(", ", kvp.Value!.Errors.Select(e => e.ErrorMessage))}"));
+
         var logger = context.HttpContext.RequestServices
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger(typeof(GlobalExceptionHandler));
-        logger.LogWarning("Handled exception ({CorrelationId}): {Message}", correlationId, problemDetails.Title);
+        logger.LogWarning("Validation failed ({CorrelationId}): {Errors}", correlationId, errors);
 
         return new BadRequestObjectResult(problemDetails);
     }

@@ -125,14 +125,14 @@ The Scalar UI is only enabled in the `Development` environment (see `Program.cs`
 - **Platform admin bootstrap** (`AdminSeeder`) creates the very first `platform_admin` account. Run manually, once, after `--seed-rbac`:
 
   ```bash
-  ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD='...' dotnet run --project src/BoardingHouse.Api -- --seed-admin
+  ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD='11111111' dotnet run --project src/BoardingHouse.Api -- --seed-admin
   ```
 
   In Docker:
 
   ```bash
   docker compose exec api dotnet BoardingHouse.Api.dll --seed-rbac
-  docker compose exec -e ADMIN_EMAIL=admin@example.com -e ADMIN_PASSWORD='...' api dotnet BoardingHouse.Api.dll --seed-admin
+  docker compose exec -e ADMIN_EMAIL=admin@example.com -e ADMIN_PASSWORD='11111111' api dotnet BoardingHouse.Api.dll --seed-admin
   ```
 
 ## Database migrations

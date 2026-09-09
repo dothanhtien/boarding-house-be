@@ -1,5 +1,6 @@
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Entities.Enums;
+using BoardingHouse.Api.Persistence.Converters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -12,9 +13,7 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
         builder.HasIndex(r => r.TokenHash).IsUnique();
         builder.HasIndex(r => r.UserId);
         builder.Property(r => r.RevokedReason)
-            .HasConversion(
-                v => v.ToString()!.ToUpperInvariant(),
-                v => Enum.Parse<RevokedReason>(v, ignoreCase: true))
+            .HasConversion(RevokedReasonDbValueConverter.Instance)
             .HasMaxLength(50);
         builder.Property(r => r.IpAddress).HasMaxLength(45);
 
@@ -23,8 +22,6 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
             .HasForeignKey(r => r.UserId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // Matches the soft-delete query filter on User so a soft-deleted user's refresh tokens are hidden too, 
-        // avoiding EF's required-relationship warning.
         builder.HasQueryFilter(r => r.User!.DeletedAt == null);
     }
 }

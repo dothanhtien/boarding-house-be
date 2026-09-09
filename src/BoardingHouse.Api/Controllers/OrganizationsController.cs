@@ -10,7 +10,9 @@ namespace BoardingHouse.Api.Controllers;
 [ApiController]
 [Route("api/organizations")]
 [Authorize]
-public class OrganizationsController(IOrganizationService organizationService) : ControllerBase
+public class OrganizationsController(
+    IOrganizationService organizationService,
+    IOrganizationSettingsService organizationSettingsService) : ControllerBase
 {
     [HttpGet]
     [RequirePermission("organization", "read")]
@@ -55,5 +57,22 @@ public class OrganizationsController(IOrganizationService organizationService) :
     {
         await organizationService.DeleteAsync(id, cancellationToken);
         return NoContent();
+    }
+
+    [HttpGet("{organizationId:guid}/settings")]
+    [RequirePermission("organization-setting", "read")]
+    public async Task<ActionResult<ApiResponse<OrganizationSettingsResponse>>> GetSettings(Guid organizationId, CancellationToken cancellationToken)
+    {
+        var settings = await organizationSettingsService.GetByOrganizationIdAsync(organizationId, cancellationToken);
+        return Ok(new ApiResponse<OrganizationSettingsResponse> { Data = settings });
+    }
+
+    [HttpPut("{organizationId:guid}/settings")]
+    [RequirePermission("organization-setting", "update")]
+    public async Task<ActionResult<ApiResponse<OrganizationSettingsResponse>>> UpdateSettings(
+        Guid organizationId, UpdateOrganizationSettingsRequest request, CancellationToken cancellationToken)
+    {
+        var settings = await organizationSettingsService.UpsertAsync(organizationId, request, cancellationToken);
+        return Ok(new ApiResponse<OrganizationSettingsResponse> { Data = settings });
     }
 }
