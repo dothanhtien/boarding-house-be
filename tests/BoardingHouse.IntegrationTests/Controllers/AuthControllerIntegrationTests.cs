@@ -35,7 +35,30 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         FullName = "Test User"
     };
 
-    private async Task<(Guid UserId, string AccessToken, string RefreshToken)> RegisterAndLoginAsync(string email = "user@test.com")
+    private static string ExtractRefreshTokenCookie(HttpResponseMessage response)
+    {
+        var setCookieHeader = response.Headers.GetValues("Set-Cookie")
+            .Single(h => h.StartsWith("refreshToken=", StringComparison.Ordinal));
+
+        var value = setCookieHeader.Split(';')[0]["refreshToken=".Length..];
+        return value;
+    }
+
+    private static HttpRequestMessage PostWithRefreshTokenCookie(string url, string refreshTokenCookieValue)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, url);
+        request.Headers.Add("Cookie", $"refreshToken={refreshTokenCookieValue}");
+        return request;
+    }
+
+    private static void AssertRefreshTokenCookieCleared(HttpResponseMessage response)
+    {
+        var setCookieHeader = response.Headers.GetValues("Set-Cookie")
+            .Single(h => h.StartsWith("refreshToken=", StringComparison.Ordinal));
+        Assert.Contains("01 Jan 1970", setCookieHeader, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<(Guid UserId, string AccessToken, string RefreshTokenCookieValue)> RegisterAndLoginAsync(string email = "user@test.com")
     {
         var registerResponse = await _client.PostAsJsonAsync("/api/auth/register", ValidRegisterRequest(email));
         var user = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
@@ -46,8 +69,9 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
             Password = Password
         });
         var tokens = (await loginResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
+        var refreshTokenCookieValue = ExtractRefreshTokenCookie(loginResponse);
 
-        return (user!.Id, tokens!.AccessToken, tokens.RefreshToken);
+        return (user!.Id, tokens!.AccessToken, refreshTokenCookieValue);
     }
 
     private static HttpRequestMessage AuthorizedGet(string url, string accessToken)
@@ -146,7 +170,12 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         var body = (await response.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
         Assert.NotNull(body);
         Assert.False(string.IsNullOrWhiteSpace(body.AccessToken));
-        Assert.False(string.IsNullOrWhiteSpace(body.RefreshToken));
+
+        var setCookieHeader = response.Headers.GetValues("Set-Cookie")
+            .Single(h => h.StartsWith("refreshToken=", StringComparison.Ordinal));
+        Assert.Contains("httponly", setCookieHeader, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("secure", setCookieHeader, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=lax", setCookieHeader, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -193,54 +222,52 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
     [Fact]
     public async Task Refresh_ValidToken_Returns200WithRotatedTokens()
     {
-        var (_, accessToken, refreshToken) = await RegisterAndLoginAsync();
+        var (_, accessToken, refreshTokenCookieValue) = await RegisterAndLoginAsync();
 
-        var response = await _client.PostAsJsonAsync("/api/auth/refresh-token", new RefreshTokenRequest
-        {
-            RefreshToken = refreshToken
-        });
+        var response = await _client.SendAsync(PostWithRefreshTokenCookie("/api/auth/refresh-token", refreshTokenCookieValue));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var body = (await response.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
         Assert.NotNull(body);
-        Assert.NotEqual(refreshToken, body.RefreshToken);
         Assert.NotEqual(accessToken, body.AccessToken);
+
+        var rotatedCookieValue = ExtractRefreshTokenCookie(response);
+        Assert.NotEqual(refreshTokenCookieValue, rotatedCookieValue);
     }
 
     [Fact]
     public async Task Refresh_UsedToken_Returns401AndRevokesAllActiveTokens()
     {
-        var (_, _, refreshToken) = await RegisterAndLoginAsync();
+        var (_, _, refreshTokenCookieValue) = await RegisterAndLoginAsync();
 
-        var firstRefreshResponse = await _client.PostAsJsonAsync("/api/auth/refresh-token", new RefreshTokenRequest
-        {
-            RefreshToken = refreshToken
-        });
-        var rotatedTokens = (await firstRefreshResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
+        var firstRefreshResponse = await _client.SendAsync(PostWithRefreshTokenCookie("/api/auth/refresh-token", refreshTokenCookieValue));
+        var rotatedCookieValue = ExtractRefreshTokenCookie(firstRefreshResponse);
 
-        var reuseResponse = await _client.PostAsJsonAsync("/api/auth/refresh-token", new RefreshTokenRequest
-        {
-            RefreshToken = refreshToken
-        });
+        var reuseResponse = await _client.SendAsync(PostWithRefreshTokenCookie("/api/auth/refresh-token", refreshTokenCookieValue));
 
         Assert.Equal(HttpStatusCode.Unauthorized, reuseResponse.StatusCode);
+        AssertRefreshTokenCookieCleared(reuseResponse);
 
-        var rotatedRefreshResponse = await _client.PostAsJsonAsync("/api/auth/refresh-token", new RefreshTokenRequest
-        {
-            RefreshToken = rotatedTokens!.RefreshToken
-        });
+        var rotatedRefreshResponse = await _client.SendAsync(PostWithRefreshTokenCookie("/api/auth/refresh-token", rotatedCookieValue));
 
         Assert.Equal(HttpStatusCode.Unauthorized, rotatedRefreshResponse.StatusCode);
+        AssertRefreshTokenCookieCleared(rotatedRefreshResponse);
     }
 
     [Fact]
-    public async Task Refresh_UnknownToken_Returns401()
+    public async Task Refresh_UnknownToken_Returns401AndClearsCookie()
     {
-        var response = await _client.PostAsJsonAsync("/api/auth/refresh-token", new RefreshTokenRequest
-        {
-            RefreshToken = "not-a-real-token"
-        });
+        var response = await _client.SendAsync(PostWithRefreshTokenCookie("/api/auth/refresh-token", "not-a-real-token"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        AssertRefreshTokenCookieCleared(response);
+    }
+
+    [Fact]
+    public async Task Refresh_NoCookie_Returns401()
+    {
+        var response = await _client.PostAsync("/api/auth/refresh-token", content: null);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -248,30 +275,25 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
     [Fact]
     public async Task Logout_ValidToken_Returns204AndInvalidatesToken()
     {
-        var (_, _, refreshToken) = await RegisterAndLoginAsync();
+        var (_, _, refreshTokenCookieValue) = await RegisterAndLoginAsync();
 
-        var logoutResponse = await _client.PostAsJsonAsync("/api/auth/logout", new RefreshTokenRequest
-        {
-            RefreshToken = refreshToken
-        });
+        var logoutResponse = await _client.SendAsync(PostWithRefreshTokenCookie("/api/auth/logout", refreshTokenCookieValue));
 
         Assert.Equal(HttpStatusCode.NoContent, logoutResponse.StatusCode);
 
-        var refreshResponse = await _client.PostAsJsonAsync("/api/auth/refresh-token", new RefreshTokenRequest
-        {
-            RefreshToken = refreshToken
-        });
+        var expiredSetCookieHeader = logoutResponse.Headers.GetValues("Set-Cookie")
+            .Single(h => h.StartsWith("refreshToken=", StringComparison.Ordinal));
+        Assert.Contains("01 Jan 1970", expiredSetCookieHeader, StringComparison.OrdinalIgnoreCase);
+
+        var refreshResponse = await _client.SendAsync(PostWithRefreshTokenCookie("/api/auth/refresh-token", refreshTokenCookieValue));
 
         Assert.Equal(HttpStatusCode.Unauthorized, refreshResponse.StatusCode);
     }
 
     [Fact]
-    public async Task Logout_UnknownToken_Returns204()
+    public async Task Logout_NoCookie_Returns204()
     {
-        var response = await _client.PostAsJsonAsync("/api/auth/logout", new RefreshTokenRequest
-        {
-            RefreshToken = "not-a-real-token"
-        });
+        var response = await _client.PostAsync("/api/auth/logout", content: null);
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
     }

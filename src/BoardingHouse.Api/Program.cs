@@ -110,6 +110,17 @@ try
 
     builder.Services.AddAuthorization();
 
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("Frontend", policy =>
+        {
+            policy.WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [])
+                .AllowAnyHeader()
+                .AllowAnyMethod()
+                .AllowCredentials();
+        });
+    });
+
     var app = builder.Build();
 
     // `dotnet BoardingHouse.Api.dll --seed-rbac`: runs the default role/permission seed then exits,
@@ -172,6 +183,8 @@ try
     }
 
     app.UseHttpsRedirection();
+
+    app.UseCors("Frontend");
 
     app.UseAuthentication();
     app.UseAuthorization();

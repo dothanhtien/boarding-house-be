@@ -27,7 +27,8 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
                 ["ConnectionStrings:DefaultConnection"] = _container.GetConnectionString(),
                 ["ConnectionStrings:Redis"] = _redis.GetConnectionString(),
                 ["Jwt:Secret"] = TestJwtOptions.Secret,
-                ["Redis:UserCacheTtlSeconds"] = "1"
+                ["Redis:UserCacheTtlSeconds"] = "1",
+                ["Cors:AllowedOrigins:0"] = "https://allowed.example.com"
             });
         });
     }
