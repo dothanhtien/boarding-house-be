@@ -33,9 +33,12 @@ POST {{HostAddress}}/api/auth/logout
 
 ###
 
+@accessToken = {{login.response.body.accessToken}}
+
 ### Get current user
 GET {{HostAddress}}/api/auth/me
 Accept: application/json
+Authorization: Bearer {{accessToken}}
 
 ###
 
