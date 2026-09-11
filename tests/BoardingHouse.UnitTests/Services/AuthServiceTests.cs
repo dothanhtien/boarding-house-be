@@ -133,9 +133,12 @@ public class AuthServiceTests
 
         var request = new LoginRequest { Email = "user@test.com", Password = "password1" };
 
+        var beforeCall = DateTimeOffset.UtcNow;
         var response = await _authService.LoginAsync(request, "127.0.0.1", "test-agent");
 
-        Assert.Equal("access-token", response.AccessToken);
+        Assert.Equal("access-token", response.Response.AccessToken);
+        Assert.Equal("refresh-token", response.RefreshToken);
+        Assert.InRange(response.ExpiresAt, beforeCall.AddDays(7).AddSeconds(-5), beforeCall.AddDays(7).AddSeconds(5));
         Assert.NotNull(user.LastLoginAt);
     }
 
@@ -220,10 +223,12 @@ public class AuthServiceTests
             .ReturnsAsync(oldToken);
         _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
+        var beforeCall = DateTimeOffset.UtcNow;
         var response = await _authService.RefreshTokenAsync("old-token", null, null);
 
-        Assert.Equal("new-access-token", response.AccessToken);
+        Assert.Equal("new-access-token", response.Response.AccessToken);
         Assert.Equal("new-token", response.RefreshToken);
+        Assert.InRange(response.ExpiresAt, beforeCall.AddDays(7).AddSeconds(-5), beforeCall.AddDays(7).AddSeconds(5));
         Assert.NotNull(oldToken.RevokedAt);
         Assert.Equal(RevokedReason.Rotation, oldToken.RevokedReason);
         _refreshTokenRepository.Verify(r => r.AddAsync(

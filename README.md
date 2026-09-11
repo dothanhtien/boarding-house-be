@@ -128,12 +128,15 @@ The Scalar UI is only enabled in the `Development` environment (see `Program.cs`
   ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD='11111111' dotnet run --project src/BoardingHouse.Api -- --seed-admin
   ```
 
-  In Docker:
+  In Docker (`docker-compose.override.yml` runs the `api` container on the `dev` stage via `dotnet watch run`, so there's no published `.dll` to invoke directly — use `dotnet run --` instead):
 
   ```bash
-  docker compose exec api dotnet BoardingHouse.Api.dll --seed-rbac
-  docker compose exec -e ADMIN_EMAIL=admin@example.com -e ADMIN_PASSWORD='11111111' api dotnet BoardingHouse.Api.dll --seed-admin
+  docker compose exec api dotnet run --project src/BoardingHouse.Api/BoardingHouse.Api.csproj -- --seed-rbac
+  docker compose exec -e ADMIN_EMAIL=admin@example.com -e ADMIN_PASSWORD='11111111' api \
+    dotnet run --project src/BoardingHouse.Api/BoardingHouse.Api.csproj -- --seed-admin
   ```
+
+  Against the production image (`final` stage, `WORKDIR /app`, already published), `dotnet BoardingHouse.Api.dll --seed-rbac` / `--seed-admin` works directly.
 
 ## Database migrations
 

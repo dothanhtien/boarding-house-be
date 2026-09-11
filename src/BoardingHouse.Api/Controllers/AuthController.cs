@@ -1,6 +1,7 @@
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Users;
+using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Services;
 using Mapster;
 using Microsoft.AspNetCore.Authorization;
@@ -22,21 +23,50 @@ public class AuthController(IAuthService authService, ICurrentUserAccessor curre
     [HttpPost("login")]
     public async Task<ActionResult<ApiResponse<AuthResponse>>> Login(LoginRequest request, CancellationToken cancellationToken)
     {
-        var response = await authService.LoginAsync(request, GetIpAddress(), GetUserAgent(), cancellationToken);
+        var (response, refreshToken, expiresAt) = await authService.LoginAsync(request, GetIpAddress(), GetUserAgent(), cancellationToken);
+
+        Response.AppendRefreshTokenCookie(refreshToken, expiresAt);
+
         return Ok(new ApiResponse<AuthResponse> { Data = response });
     }
 
     [HttpPost("refresh-token")]
-    public async Task<ActionResult<ApiResponse<AuthResponse>>> Refresh(RefreshTokenRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<AuthResponse>>> Refresh(CancellationToken cancellationToken)
     {
-        var response = await authService.RefreshTokenAsync(request.RefreshToken, GetIpAddress(), GetUserAgent(), cancellationToken);
+        if (!Request.TryGetRefreshTokenCookie(out var refreshToken))
+        {
+            return Unauthorized();
+        }
+
+        var refreshSucceeded = false;
+        Response.OnStarting(() =>
+        {
+            if (!refreshSucceeded)
+            {
+                Response.DeleteRefreshTokenCookie();
+            }
+
+            return Task.CompletedTask;
+        });
+
+        var (response, newRefreshToken, expiresAt) = await authService.RefreshTokenAsync(refreshToken, GetIpAddress(), GetUserAgent(), cancellationToken);
+
+        refreshSucceeded = true;
+        Response.AppendRefreshTokenCookie(newRefreshToken, expiresAt);
+
         return Ok(new ApiResponse<AuthResponse> { Data = response });
     }
 
     [HttpPost("logout")]
-    public async Task<IActionResult> Logout(RefreshTokenRequest request, CancellationToken cancellationToken)
+    public async Task<IActionResult> Logout(CancellationToken cancellationToken)
     {
-        await authService.LogoutAsync(request.RefreshToken, cancellationToken);
+        if (Request.TryGetRefreshTokenCookie(out var refreshToken))
+        {
+            await authService.LogoutAsync(refreshToken, cancellationToken);
+        }
+
+        Response.DeleteRefreshTokenCookie();
+
         return NoContent();
     }
 
@@ -47,6 +77,20 @@ public class AuthController(IAuthService authService, ICurrentUserAccessor curre
         return Ok(new ApiResponse<UserResponse> { Data = currentUserAccessor.RequiredUser.Adapt<UserResponse>() });
     }
 
-    private string? GetIpAddress() => HttpContext.Connection.RemoteIpAddress?.ToString();
+    private string? GetIpAddress()
+    {
+        var ip = HttpContext.Connection.RemoteIpAddress;
+        if (ip is null)
+        {
+            return null;
+        }
+
+        if (ip.IsIPv4MappedToIPv6)
+        {
+            ip = ip.MapToIPv4();
+        }
+
+        return ip.ToString();
+    }
     private string? GetUserAgent() => Request.Headers.UserAgent.ToString();
 }

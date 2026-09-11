@@ -1,7 +1,7 @@
-@BoardingHouse.Api_HostAddress = http://localhost:5066
+@HostAddress = http://localhost:5066
 
 ### Register
-POST {{BoardingHouse.Api_HostAddress}}/api/auth/register
+POST {{HostAddress}}/api/auth/register
 Content-Type: application/json
 
 {
@@ -15,7 +15,7 @@ Content-Type: application/json
 ###
 
 # @name login
-POST {{BoardingHouse.Api_HostAddress}}/api/auth/login
+POST {{HostAddress}}/api/auth/login
 Content-Type: application/json
 
 {
@@ -25,37 +25,31 @@ Content-Type: application/json
 
 ###
 
-@refreshToken = {{login.response.body.refreshToken}}
-
-# @name refresh
-POST {{BoardingHouse.Api_HostAddress}}/api/auth/refresh-token
-Content-Type: application/json
-
-{
-  "refreshToken": "{{refreshToken}}"
-}
+POST {{HostAddress}}/api/auth/refresh-token
 
 ###
 
-@rotatedRefreshToken = {{refresh.response.body.refreshToken}}
+POST {{HostAddress}}/api/auth/logout
 
-POST {{BoardingHouse.Api_HostAddress}}/api/auth/logout
-Content-Type: application/json
+###
 
-{
-  "refreshToken": "{{rotatedRefreshToken}}"
-}
+@accessToken = {{login.response.body.accessToken}}
+
+### Get current user
+GET {{HostAddress}}/api/auth/me
+Accept: application/json
+Authorization: Bearer {{accessToken}}
 
 ###
 
 ### Get all users
-GET {{BoardingHouse.Api_HostAddress}}/api/users
+GET {{HostAddress}}/api/users?page=1&pageSize=20
 Accept: application/json
 
 ###
 
 # @name createUser
-POST {{BoardingHouse.Api_HostAddress}}/api/users
+POST {{HostAddress}}/api/users
 Content-Type: application/json
 
 {
@@ -71,13 +65,13 @@ Content-Type: application/json
 @userId = {{createUser.response.body.id}}
 
 ### Get user by id
-GET {{BoardingHouse.Api_HostAddress}}/api/users/{{userId}}
+GET {{HostAddress}}/api/users/{{userId}}
 Accept: application/json
 
 ###
 
 ### Update user
-PUT {{BoardingHouse.Api_HostAddress}}/api/users/{{userId}}
+PUT {{HostAddress}}/api/users/{{userId}}
 Content-Type: application/json
 
 {
@@ -89,6 +83,89 @@ Content-Type: application/json
 ###
 
 ### Delete user
-DELETE {{BoardingHouse.Api_HostAddress}}/api/users/{{userId}}
+DELETE {{HostAddress}}/api/users/{{userId}}
+
+###
+
+### Get all roles
+GET {{HostAddress}}/api/roles
+Accept: application/json
+
+###
+
+### Get all organizations
+GET {{HostAddress}}/api/organizations?page=1&pageSize=20
+Accept: application/json
+
+###
+
+# @name createOrganization
+POST {{HostAddress}}/api/organizations
+Content-Type: application/json
+
+{
+  "name": "Sunrise Boarding House",
+  "taxCode": "0312345678",
+  "phone": "0987654321",
+  "email": "contact@sunrise.example.com",
+  "province": "Ho Chi Minh",
+  "district": "District 1",
+  "ward": "Ben Nghe",
+  "address": "123 Le Loi"
+}
+
+###
+
+@organizationId = {{createOrganization.response.body.id}}
+
+### Get organization by id
+GET {{HostAddress}}/api/organizations/{{organizationId}}
+Accept: application/json
+
+###
+
+### Update organization
+PUT {{HostAddress}}/api/organizations/{{organizationId}}
+Content-Type: application/json
+
+{
+  "name": "Sunrise Boarding House Updated",
+  "taxCode": "0312345678",
+  "phone": "0987654321",
+  "email": "contact@sunrise.example.com",
+  "province": "Ho Chi Minh",
+  "district": "District 1",
+  "ward": "Ben Nghe",
+  "address": "123 Le Loi",
+  "isActive": true
+}
+
+###
+
+### Delete organization
+DELETE {{HostAddress}}/api/organizations/{{organizationId}}
+
+###
+
+### Get organization settings
+GET {{HostAddress}}/api/organizations/{{organizationId}}/settings
+Accept: application/json
+
+###
+
+### Update organization settings
+PUT {{HostAddress}}/api/organizations/{{organizationId}}/settings
+Content-Type: application/json
+
+{
+  "defaultBillingDay": 5,
+  "lateFeeType": "Fixed",
+  "lateFeeValue": 50000,
+  "lateFeeGraceDays": 3,
+  "vatRate": 8,
+  "bankAccountNumber": "0123456789",
+  "bankName": "Vietcombank",
+  "bankAccountName": "SUNRISE BOARDING HOUSE"
+}
 
 ###
