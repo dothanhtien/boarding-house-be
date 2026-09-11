@@ -21,17 +21,19 @@ public class AuthController(IAuthService authService, ICurrentUserAccessor curre
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<ApiResponse<AuthResponse>>> Login(LoginRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<UserResponse>>> Login(LoginRequest request, CancellationToken cancellationToken)
     {
-        var (response, refreshToken, expiresAt) = await authService.LoginAsync(request, GetIpAddress(), GetUserAgent(), cancellationToken);
+        var (user, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt) =
+            await authService.LoginAsync(request, GetIpAddress(), GetUserAgent(), cancellationToken);
 
-        Response.AppendRefreshTokenCookie(refreshToken, expiresAt);
+        Response.AppendAccessTokenCookie(accessToken, accessTokenExpiresAt);
+        Response.AppendRefreshTokenCookie(refreshToken, refreshTokenExpiresAt);
 
-        return Ok(new ApiResponse<AuthResponse> { Data = response });
+        return Ok(new ApiResponse<UserResponse> { Data = user });
     }
 
     [HttpPost("refresh-token")]
-    public async Task<ActionResult<ApiResponse<AuthResponse>>> Refresh(CancellationToken cancellationToken)
+    public async Task<IActionResult> Refresh(CancellationToken cancellationToken)
     {
         if (!Request.TryGetRefreshTokenCookie(out var refreshToken))
         {
@@ -43,18 +45,21 @@ public class AuthController(IAuthService authService, ICurrentUserAccessor curre
         {
             if (!refreshSucceeded)
             {
+                Response.DeleteAccessTokenCookie();
                 Response.DeleteRefreshTokenCookie();
             }
 
             return Task.CompletedTask;
         });
 
-        var (response, newRefreshToken, expiresAt) = await authService.RefreshTokenAsync(refreshToken, GetIpAddress(), GetUserAgent(), cancellationToken);
+        var (accessToken, accessTokenExpiresAt, newRefreshToken, refreshTokenExpiresAt) =
+            await authService.RefreshTokenAsync(refreshToken, GetIpAddress(), GetUserAgent(), cancellationToken);
 
         refreshSucceeded = true;
-        Response.AppendRefreshTokenCookie(newRefreshToken, expiresAt);
+        Response.AppendAccessTokenCookie(accessToken, accessTokenExpiresAt);
+        Response.AppendRefreshTokenCookie(newRefreshToken, refreshTokenExpiresAt);
 
-        return Ok(new ApiResponse<AuthResponse> { Data = response });
+        return NoContent();
     }
 
     [HttpPost("logout")]
@@ -65,6 +70,7 @@ public class AuthController(IAuthService authService, ICurrentUserAccessor curre
             await authService.LogoutAsync(refreshToken, cancellationToken);
         }
 
+        Response.DeleteAccessTokenCookie();
         Response.DeleteRefreshTokenCookie();
 
         return NoContent();

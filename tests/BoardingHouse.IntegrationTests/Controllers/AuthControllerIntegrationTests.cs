@@ -35,13 +35,19 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         FullName = "Test User"
     };
 
-    private static string ExtractRefreshTokenCookie(HttpResponseMessage response)
+    private static string ExtractCookie(HttpResponseMessage response, string cookieName)
     {
         var setCookieHeader = response.Headers.GetValues("Set-Cookie")
-            .Single(h => h.StartsWith("refreshToken=", StringComparison.Ordinal));
+            .Single(h => h.StartsWith($"{cookieName}=", StringComparison.Ordinal));
 
-        var value = setCookieHeader.Split(';')[0]["refreshToken=".Length..];
-        return value;
+        return setCookieHeader.Split(';')[0][$"{cookieName}=".Length..];
+    }
+
+    private static HttpRequestMessage WithCookies(HttpMethod method, string url, params (string Name, string Value)[] cookies)
+    {
+        var request = new HttpRequestMessage(method, url);
+        request.Headers.Add("Cookie", string.Join("; ", cookies.Select(c => $"{c.Name}={c.Value}")));
+        return request;
     }
 
     private static HttpRequestMessage PostWithRefreshTokenCookie(string url, string refreshTokenCookieValue)
@@ -51,14 +57,17 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         return request;
     }
 
-    private static void AssertRefreshTokenCookieCleared(HttpResponseMessage response)
+    private static void AssertAuthCookiesCleared(HttpResponseMessage response)
     {
-        var setCookieHeader = response.Headers.GetValues("Set-Cookie")
-            .Single(h => h.StartsWith("refreshToken=", StringComparison.Ordinal));
-        Assert.Contains("01 Jan 1970", setCookieHeader, StringComparison.OrdinalIgnoreCase);
+        foreach (var cookieName in new[] { "accessToken", "refreshToken" })
+        {
+            var setCookieHeader = response.Headers.GetValues("Set-Cookie")
+                .Single(h => h.StartsWith($"{cookieName}=", StringComparison.Ordinal));
+            Assert.Contains("01 Jan 1970", setCookieHeader, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
-    private async Task<(Guid UserId, string AccessToken, string RefreshTokenCookieValue)> RegisterAndLoginAsync(string email = "user@test.com")
+    private async Task<(Guid UserId, string AccessTokenCookieValue, string RefreshTokenCookieValue)> RegisterAndLoginAsync(string email = "user@test.com")
     {
         var registerResponse = await _client.PostAsJsonAsync("/api/auth/register", ValidRegisterRequest(email));
         var user = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
@@ -68,10 +77,11 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
             Email = email,
             Password = Password
         });
-        var tokens = (await loginResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
-        var refreshTokenCookieValue = ExtractRefreshTokenCookie(loginResponse);
 
-        return (user!.Id, tokens!.AccessToken, refreshTokenCookieValue);
+        var accessTokenCookieValue = ExtractCookie(loginResponse, "accessToken");
+        var refreshTokenCookieValue = ExtractCookie(loginResponse, "refreshToken");
+
+        return (user!.Id, accessTokenCookieValue, refreshTokenCookieValue);
     }
 
     private static HttpRequestMessage AuthorizedGet(string url, string accessToken)
@@ -155,7 +165,7 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
     }
 
     [Fact]
-    public async Task Login_ValidCredentials_Returns200WithTokens()
+    public async Task Login_ValidCredentials_Returns200WithUserAndSetsCookie()
     {
         await _client.PostAsJsonAsync("/api/auth/register", ValidRegisterRequest());
 
@@ -167,15 +177,13 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
         Assert.NotNull(body);
-        Assert.False(string.IsNullOrWhiteSpace(body.AccessToken));
+        Assert.Equal("user@test.com", body.Email);
 
-        var setCookieHeader = response.Headers.GetValues("Set-Cookie")
-            .Single(h => h.StartsWith("refreshToken=", StringComparison.Ordinal));
-        Assert.Contains("httponly", setCookieHeader, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("secure", setCookieHeader, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("samesite=lax", setCookieHeader, StringComparison.OrdinalIgnoreCase);
+        var setCookieHeaders = response.Headers.GetValues("Set-Cookie").ToList();
+        Assert.Contains(setCookieHeaders, h => h.StartsWith("accessToken=", StringComparison.Ordinal) && h.Contains("httponly", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(setCookieHeaders, h => h.StartsWith("refreshToken=", StringComparison.Ordinal) && h.Contains("httponly", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -220,20 +228,15 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
     }
 
     [Fact]
-    public async Task Refresh_ValidToken_Returns200WithRotatedTokens()
+    public async Task Refresh_ValidToken_Returns204AndRotatesCookies()
     {
-        var (_, accessToken, refreshTokenCookieValue) = await RegisterAndLoginAsync();
+        var (_, accessTokenCookieValue, refreshTokenCookieValue) = await RegisterAndLoginAsync();
 
         var response = await _client.SendAsync(PostWithRefreshTokenCookie("/api/auth/refresh-token", refreshTokenCookieValue));
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
-        Assert.NotNull(body);
-        Assert.NotEqual(accessToken, body.AccessToken);
-
-        var rotatedCookieValue = ExtractRefreshTokenCookie(response);
-        Assert.NotEqual(refreshTokenCookieValue, rotatedCookieValue);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.NotEqual(accessTokenCookieValue, ExtractCookie(response, "accessToken"));
+        Assert.NotEqual(refreshTokenCookieValue, ExtractCookie(response, "refreshToken"));
     }
 
     [Fact]
@@ -242,17 +245,17 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         var (_, _, refreshTokenCookieValue) = await RegisterAndLoginAsync();
 
         var firstRefreshResponse = await _client.SendAsync(PostWithRefreshTokenCookie("/api/auth/refresh-token", refreshTokenCookieValue));
-        var rotatedCookieValue = ExtractRefreshTokenCookie(firstRefreshResponse);
+        var rotatedCookieValue = ExtractCookie(firstRefreshResponse, "refreshToken");
 
         var reuseResponse = await _client.SendAsync(PostWithRefreshTokenCookie("/api/auth/refresh-token", refreshTokenCookieValue));
 
         Assert.Equal(HttpStatusCode.Unauthorized, reuseResponse.StatusCode);
-        AssertRefreshTokenCookieCleared(reuseResponse);
+        AssertAuthCookiesCleared(reuseResponse);
 
         var rotatedRefreshResponse = await _client.SendAsync(PostWithRefreshTokenCookie("/api/auth/refresh-token", rotatedCookieValue));
 
         Assert.Equal(HttpStatusCode.Unauthorized, rotatedRefreshResponse.StatusCode);
-        AssertRefreshTokenCookieCleared(rotatedRefreshResponse);
+        AssertAuthCookiesCleared(rotatedRefreshResponse);
     }
 
     [Fact]
@@ -261,7 +264,7 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         var response = await _client.SendAsync(PostWithRefreshTokenCookie("/api/auth/refresh-token", "not-a-real-token"));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        AssertRefreshTokenCookieCleared(response);
+        AssertAuthCookiesCleared(response);
     }
 
     [Fact]
@@ -316,6 +319,33 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         var response = await _client.GetAsync("/api/auth/me");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Me_CookieOnly_Returns200WithCurrentUser()
+    {
+        var (userId, accessTokenCookieValue, _) = await RegisterAndLoginAsync();
+
+        var response = await _client.SendAsync(WithCookies(HttpMethod.Get, "/api/auth/me", ("accessToken", accessTokenCookieValue)));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        Assert.Equal(userId, body!.Id);
+    }
+
+    [Fact]
+    public async Task Me_BearerAndCookiePresent_BearerTakesPrecedence()
+    {
+        var (userId, accessTokenCookieValue, _) = await RegisterAndLoginAsync();
+
+        var request = WithCookies(HttpMethod.Get, "/api/auth/me", ("accessToken", "not-a-real-token"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessTokenCookieValue);
+
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        Assert.Equal(userId, body!.Id);
     }
 
     [Fact]

@@ -39,6 +39,19 @@ public static class JwtAuthenticationExtensions
 
                 options.Events = new JwtBearerEvents
                 {
+                    OnMessageReceived = context =>
+                    {
+                        var hasBearerHeader = context.Request.Headers.Authorization
+                            .ToString()
+                            .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
+
+                        if (!hasBearerHeader && context.Request.TryGetAccessTokenCookie(out var cookieToken))
+                        {
+                            context.Token = cookieToken;
+                        }
+
+                        return Task.CompletedTask;
+                    },
                     OnTokenValidated = OnTokenValidatedAsync,
                     OnChallenge = context =>
                     {

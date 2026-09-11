@@ -24,6 +24,14 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
 
     public Task DisposeAsync() => Task.CompletedTask;
 
+    private static string ExtractAccessTokenCookie(HttpResponseMessage response)
+    {
+        var setCookieHeader = response.Headers.GetValues("Set-Cookie")
+            .Single(h => h.StartsWith("accessToken=", StringComparison.Ordinal));
+
+        return setCookieHeader.Split(';')[0]["accessToken=".Length..];
+    }
+
     private async Task AuthenticateAsync()
     {
         var registerResponse = await _client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
@@ -43,9 +51,8 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
             Email = ActorEmail,
             Password = ActorPassword
         });
-        var tokens = (await loginResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
 
-        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens!.AccessToken);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));
     }
 
     private static CreateUserRequest ValidCreateRequest(string email = "user@test.com") => new()

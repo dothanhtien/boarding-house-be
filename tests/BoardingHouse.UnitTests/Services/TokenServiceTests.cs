@@ -29,10 +29,11 @@ public class TokenServiceTests
         var service = CreateService();
         var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
 
-        var token = service.GenerateAccessToken(user);
+        var (token, expiresAt) = service.GenerateAccessToken(user);
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
 
         Assert.Equal(user.Id.ToString(), jwt.Subject);
+        Assert.Equal(jwt.ValidTo, expiresAt.UtcDateTime, TimeSpan.FromSeconds(1));
     }
 
     [Fact]
