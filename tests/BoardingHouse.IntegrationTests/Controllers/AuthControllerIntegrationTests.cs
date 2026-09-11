@@ -322,6 +322,33 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
     }
 
     [Fact]
+    public async Task Me_CookieOnly_Returns200WithCurrentUser()
+    {
+        var (userId, accessTokenCookieValue, _) = await RegisterAndLoginAsync();
+
+        var response = await _client.SendAsync(WithCookies(HttpMethod.Get, "/api/auth/me", ("accessToken", accessTokenCookieValue)));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        Assert.Equal(userId, body!.Id);
+    }
+
+    [Fact]
+    public async Task Me_BearerAndCookiePresent_BearerTakesPrecedence()
+    {
+        var (userId, accessTokenCookieValue, _) = await RegisterAndLoginAsync();
+
+        var request = WithCookies(HttpMethod.Get, "/api/auth/me", ("accessToken", "not-a-real-token"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessTokenCookieValue);
+
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        Assert.Equal(userId, body!.Id);
+    }
+
+    [Fact]
     public async Task Me_TokenWithoutSubClaim_Returns401()
     {
         var token = GenerateAccessTokenWithoutSubClaim();

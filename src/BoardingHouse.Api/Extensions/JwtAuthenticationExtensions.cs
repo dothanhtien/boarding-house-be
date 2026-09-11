@@ -41,8 +41,11 @@ public static class JwtAuthenticationExtensions
                 {
                     OnMessageReceived = context =>
                     {
-                        if (string.IsNullOrEmpty(context.Token) &&
-                            context.Request.TryGetAccessTokenCookie(out var cookieToken))
+                        var hasBearerHeader = context.Request.Headers.Authorization
+                            .ToString()
+                            .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
+
+                        if (!hasBearerHeader && context.Request.TryGetAccessTokenCookie(out var cookieToken))
                         {
                             context.Token = cookieToken;
                         }
