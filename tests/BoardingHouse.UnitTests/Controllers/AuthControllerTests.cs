@@ -2,6 +2,7 @@ using System.Net;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Controllers;
 using BoardingHouse.Api.DTOs.Auth;
+using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -22,9 +23,18 @@ public class AuthControllerTests
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
 
+        var user = new UserResponse
+        {
+            Id = Guid.NewGuid(),
+            Email = "user@test.com",
+            FullName = "Test User",
+            IsActive = true,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
         _authService
             .Setup(s => s.LoginAsync(It.IsAny<LoginRequest>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((new AuthResponse { AccessToken = "access-token" }, "refresh-token", DateTimeOffset.UtcNow.AddDays(7)));
+            .ReturnsAsync((user, "access-token", DateTimeOffset.UtcNow.AddMinutes(15), "refresh-token", DateTimeOffset.UtcNow.AddDays(7)));
     }
 
     [Fact]

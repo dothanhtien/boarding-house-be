@@ -3,6 +3,7 @@ namespace BoardingHouse.Api.Extensions;
 public static class RefreshTokenCookieExtensions
 {
     private const string CookieName = "refreshToken";
+    private const string Path = "/api/auth";
 
     public static void AppendRefreshTokenCookie(this HttpResponse response, string refreshToken, DateTimeOffset expiresAtUtc)
     {
@@ -12,13 +13,13 @@ public static class RefreshTokenCookieExtensions
             Secure = true,
             SameSite = SameSiteMode.Lax,
             Expires = expiresAtUtc,
-            Path = "/api/auth"
+            Path = Path
         });
     }
 
     public static void DeleteRefreshTokenCookie(this HttpResponse response)
     {
-        response.Cookies.Delete(CookieName, new CookieOptions { Path = "/api/auth" });
+        response.Cookies.Delete(CookieName, new CookieOptions { Path = Path });
     }
 
     public static bool TryGetRefreshTokenCookie(this HttpRequest request, out string refreshToken) =>

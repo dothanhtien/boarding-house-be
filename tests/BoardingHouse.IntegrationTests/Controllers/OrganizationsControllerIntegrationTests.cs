@@ -25,6 +25,14 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
 
     public Task DisposeAsync() => Task.CompletedTask;
 
+    private static string ExtractAccessTokenCookie(HttpResponseMessage response)
+    {
+        var setCookieHeader = response.Headers.GetValues("Set-Cookie")
+            .Single(h => h.StartsWith("accessToken=", StringComparison.Ordinal));
+
+        return setCookieHeader.Split(';')[0]["accessToken=".Length..];
+    }
+
     private async Task AuthenticateAsync()
     {
         var registerResponse = await _client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
@@ -44,9 +52,8 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
             Email = ActorEmail,
             Password = ActorPassword
         });
-        var tokens = (await loginResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
 
-        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens!.AccessToken);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));
     }
 
     private static CreateOrganizationRequest ValidCreateRequest() => new()
@@ -140,8 +147,7 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
             Email = "no-permission@test.com",
             Password = ActorPassword
         });
-        var tokens = (await loginResponse.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>())?.Data;
-        unprivilegedClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens!.AccessToken);
+        unprivilegedClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));
 
         var response = await unprivilegedClient.GetAsync("/api/organizations");
 

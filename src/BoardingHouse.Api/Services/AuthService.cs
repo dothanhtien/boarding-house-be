@@ -47,7 +47,7 @@ public class AuthService(
         return user.Adapt<UserResponse>();
     }
 
-    public async Task<(AuthResponse Response, string RefreshToken, DateTimeOffset ExpiresAt)> LoginAsync(
+    public async Task<(UserResponse User, string AccessToken, DateTimeOffset AccessTokenExpiresAt, string RefreshToken, DateTimeOffset RefreshTokenExpiresAt)> LoginAsync(
         LoginRequest request,
         string? ipAddress,
         string? userAgent,
@@ -66,14 +66,15 @@ public class AuthService(
         user.LastLoginAt = DateTimeOffset.UtcNow;
         userRepository.Update(user);
 
-        var response = await IssueTokensAsync(user, ipAddress, userAgent, cancellationToken);
+        var (accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt) =
+            await IssueTokensAsync(user, ipAddress, userAgent, cancellationToken);
 
         logger.LogInformation("User {UserId} logged in from {IpAddress}", user.Id, ipAddress);
 
-        return response;
+        return (user.Adapt<UserResponse>(), accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt);
     }
 
-    public async Task<(AuthResponse Response, string RefreshToken, DateTimeOffset ExpiresAt)> RefreshTokenAsync(
+    public async Task<(string AccessToken, DateTimeOffset AccessTokenExpiresAt, string RefreshToken, DateTimeOffset RefreshTokenExpiresAt)> RefreshTokenAsync(
         string refreshToken,
         string? ipAddress,
         string? userAgent,
@@ -141,9 +142,9 @@ public class AuthService(
 
         logger.LogInformation("Refresh token rotated for user {UserId}", user.Id);
 
-        var response = new AuthResponse { AccessToken = tokenService.GenerateAccessToken(user) };
+        var (accessToken, accessTokenExpiresAt) = tokenService.GenerateAccessToken(user);
 
-        return (response, newRefreshToken, newExpiresAt);
+        return (accessToken, accessTokenExpiresAt, newRefreshToken, newExpiresAt);
     }
 
     public async Task LogoutAsync(string refreshToken, CancellationToken cancellationToken = default)
@@ -164,13 +165,13 @@ public class AuthService(
         logger.LogInformation("User {UserId} logged out", existingToken.UserId);
     }
 
-    private async Task<(AuthResponse Response, string RefreshToken, DateTimeOffset ExpiresAt)> IssueTokensAsync(
+    private async Task<(string AccessToken, DateTimeOffset AccessTokenExpiresAt, string RefreshToken, DateTimeOffset RefreshTokenExpiresAt)> IssueTokensAsync(
         User user,
         string? ipAddress,
         string? userAgent,
         CancellationToken cancellationToken = default)
     {
-        var accessToken = tokenService.GenerateAccessToken(user);
+        var (accessToken, accessTokenExpiresAt) = tokenService.GenerateAccessToken(user);
         var refreshToken = tokenService.GenerateRefreshToken();
         var expiresAt = DateTimeOffset.UtcNow.Add(RefreshTokenLifetime);
 
@@ -186,8 +187,6 @@ public class AuthService(
         await refreshTokenRepository.AddAsync(refreshTokenEntity, cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
 
-        var response = new AuthResponse { AccessToken = accessToken };
-
-        return (response, refreshToken, expiresAt);
+        return (accessToken, accessTokenExpiresAt, refreshToken, expiresAt);
     }
 }

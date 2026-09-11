@@ -14,6 +14,8 @@ Content-Type: application/json
 
 ###
 
+# accessToken + refreshToken are now both set as HttpOnly cookies on the login response.
+# Enable "rest-client.enableCookies": true in VS Code settings so the requests below send them automatically.
 # @name login
 POST {{HostAddress}}/api/auth/login
 Content-Type: application/json
@@ -33,12 +35,9 @@ POST {{HostAddress}}/api/auth/logout
 
 ###
 
-@accessToken = {{login.response.body.accessToken}}
-
 ### Get current user
 GET {{HostAddress}}/api/auth/me
 Accept: application/json
-Authorization: Bearer {{accessToken}}
 
 ###
 

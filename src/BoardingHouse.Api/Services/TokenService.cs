@@ -9,7 +9,7 @@ namespace BoardingHouse.Api.Services;
 
 public class TokenService(IConfiguration configuration) : ITokenService
 {
-    public string GenerateAccessToken(User user)
+    public (string Token, DateTimeOffset ExpiresAt) GenerateAccessToken(User user)
     {
         var claims = new[]
         {
@@ -21,15 +21,16 @@ public class TokenService(IConfiguration configuration) : ITokenService
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Jwt:Secret"]!));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var expirationMinutes = configuration.GetValue<int>("Jwt:AccessTokenExpirationMinutes");
+        var expiresAt = DateTime.UtcNow.AddMinutes(expirationMinutes);
 
         var token = new JwtSecurityToken(
             issuer: configuration["Jwt:Issuer"],
             audience: configuration["Jwt:Audience"],
             claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(expirationMinutes),
+            expires: expiresAt,
             signingCredentials: credentials);
 
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
     }
 
     public string GenerateRefreshToken() =>

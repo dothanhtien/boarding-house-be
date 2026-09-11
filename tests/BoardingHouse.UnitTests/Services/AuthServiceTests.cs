@@ -126,8 +126,9 @@ public class AuthServiceTests
     public async Task LoginAsync_ValidCredentials_ReturnsTokens_AndUpdatesLastLoginAt()
     {
         var user = new User { Email = "user@test.com", PasswordHash = BCrypt.Net.BCrypt.HashPassword("password1"), FullName = "Test User", CreatedBy = SentinelActors.System };
+        var accessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(15);
         _userRepository.Setup(r => r.GetByEmailAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
-        _tokenService.Setup(t => t.GenerateAccessToken(It.IsAny<User>())).Returns("access-token");
+        _tokenService.Setup(t => t.GenerateAccessToken(It.IsAny<User>())).Returns(("access-token", accessTokenExpiresAt));
         _tokenService.Setup(t => t.GenerateRefreshToken()).Returns("refresh-token");
         _tokenService.Setup(t => t.HashToken(It.IsAny<string>())).Returns("refresh-token-hash");
 
@@ -136,9 +137,11 @@ public class AuthServiceTests
         var beforeCall = DateTimeOffset.UtcNow;
         var response = await _authService.LoginAsync(request, "127.0.0.1", "test-agent");
 
-        Assert.Equal("access-token", response.Response.AccessToken);
+        Assert.Equal("user@test.com", response.User.Email);
+        Assert.Equal("access-token", response.AccessToken);
+        Assert.Equal(accessTokenExpiresAt, response.AccessTokenExpiresAt);
         Assert.Equal("refresh-token", response.RefreshToken);
-        Assert.InRange(response.ExpiresAt, beforeCall.AddDays(7).AddSeconds(-5), beforeCall.AddDays(7).AddSeconds(5));
+        Assert.InRange(response.RefreshTokenExpiresAt, beforeCall.AddDays(7).AddSeconds(-5), beforeCall.AddDays(7).AddSeconds(5));
         Assert.NotNull(user.LastLoginAt);
     }
 
@@ -214,10 +217,11 @@ public class AuthServiceTests
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
         };
 
+        var accessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(15);
         _tokenService.Setup(t => t.HashToken("old-token")).Returns("old-hash");
         _tokenService.Setup(t => t.HashToken("new-token")).Returns("new-hash");
         _tokenService.Setup(t => t.GenerateRefreshToken()).Returns("new-token");
-        _tokenService.Setup(t => t.GenerateAccessToken(user)).Returns("new-access-token");
+        _tokenService.Setup(t => t.GenerateAccessToken(user)).Returns(("new-access-token", accessTokenExpiresAt));
         _refreshTokenRepository
             .Setup(r => r.GetByTokenHashAsync("old-hash", It.IsAny<CancellationToken>()))
             .ReturnsAsync(oldToken);
@@ -226,9 +230,10 @@ public class AuthServiceTests
         var beforeCall = DateTimeOffset.UtcNow;
         var response = await _authService.RefreshTokenAsync("old-token", null, null);
 
-        Assert.Equal("new-access-token", response.Response.AccessToken);
+        Assert.Equal("new-access-token", response.AccessToken);
+        Assert.Equal(accessTokenExpiresAt, response.AccessTokenExpiresAt);
         Assert.Equal("new-token", response.RefreshToken);
-        Assert.InRange(response.ExpiresAt, beforeCall.AddDays(7).AddSeconds(-5), beforeCall.AddDays(7).AddSeconds(5));
+        Assert.InRange(response.RefreshTokenExpiresAt, beforeCall.AddDays(7).AddSeconds(-5), beforeCall.AddDays(7).AddSeconds(5));
         Assert.NotNull(oldToken.RevokedAt);
         Assert.Equal(RevokedReason.Rotation, oldToken.RevokedReason);
         _refreshTokenRepository.Verify(r => r.AddAsync(
