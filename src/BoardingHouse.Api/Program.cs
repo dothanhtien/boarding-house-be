@@ -66,6 +66,7 @@ try
             return Task.CompletedTask;
         });
         options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
+        options.AddOperationTransformer<CamelCaseParameterNameTransformer>();
     });
 
     builder.Services.AddDbContext<AppDbContext>((sp, options) =>
