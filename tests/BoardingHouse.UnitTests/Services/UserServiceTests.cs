@@ -271,16 +271,104 @@ public class UserServiceTests
     {
         var user = NewUser();
         _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _userRepository.Setup(r => r.ExistsByEmailExcludingUserAsync("new@test.com", user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(false);
 
-        var request = new UpdateUserRequest { Phone = "0900000000", FullName = "New Name", IsActive = false };
+        var request = new UpdateUserRequest { Email = "new@test.com", Phone = "0900000000", FullName = "New Name", IsActive = false };
 
         var response = await _userService.UpdateAsync(user.Id, request);
 
+        Assert.Equal("new@test.com", response.Email);
         Assert.Equal("New Name", response.FullName);
         Assert.Equal("0900000000", user.Phone);
         Assert.False(user.IsActive);
         _userRepository.Verify(r => r.Update(user), Times.Once);
         _userCache.Verify(c => c.InvalidateAsync(user.Id, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_OnlyIsActiveProvided_KeepsEmailAndFullNameUnchanged()
+    {
+        var user = NewUser();
+        var originalEmail = user.Email;
+        var originalFullName = user.FullName;
+        _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var request = new UpdateUserRequest { IsActive = false };
+
+        var response = await _userService.UpdateAsync(user.Id, request);
+
+        Assert.Equal(originalEmail, response.Email);
+        Assert.Equal(originalFullName, response.FullName);
+        Assert.False(response.IsActive);
+        _userRepository.Verify(r => r.ExistsByEmailExcludingUserAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_PhoneNotProvided_KeepsExistingPhone()
+    {
+        var user = NewUser();
+        user.Phone = "0900000000";
+        _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var request = new UpdateUserRequest { FullName = "New Name" };
+
+        var response = await _userService.UpdateAsync(user.Id, request);
+
+        Assert.Equal("0900000000", user.Phone);
+        Assert.Equal("New Name", response.FullName);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_SameEmailAsCurrent_DoesNotCheckDuplicate()
+    {
+        var user = NewUser();
+        _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var request = new UpdateUserRequest { Email = user.Email, FullName = "New Name" };
+
+        await _userService.UpdateAsync(user.Id, request);
+
+        _userRepository.Verify(r => r.ExistsByEmailExcludingUserAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_EmailAlreadyUsedByAnotherUser_ThrowsConflictAppException()
+    {
+        var user = NewUser();
+        _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _userRepository.Setup(r => r.ExistsByEmailExcludingUserAsync("taken@test.com", user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var request = new UpdateUserRequest { Email = "taken@test.com" };
+
+        await Assert.ThrowsAsync<ConflictAppException>(() => _userService.UpdateAsync(user.Id, request));
+        _userRepository.Verify(r => r.Update(It.IsAny<User>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_SamePhoneAsCurrent_DoesNotCheckDuplicate()
+    {
+        var user = NewUser();
+        user.Phone = "0900000000";
+        _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var request = new UpdateUserRequest { Phone = "0900000000", FullName = "New Name" };
+
+        await _userService.UpdateAsync(user.Id, request);
+
+        _userRepository.Verify(r => r.ExistsByPhoneExcludingUserAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_PhoneAlreadyUsedByAnotherUser_ThrowsConflictAppException()
+    {
+        var user = NewUser();
+        _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _userRepository.Setup(r => r.ExistsByPhoneExcludingUserAsync("0911111111", user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var request = new UpdateUserRequest { Phone = "0911111111" };
+
+        await Assert.ThrowsAsync<ConflictAppException>(() => _userService.UpdateAsync(user.Id, request));
+        _userRepository.Verify(r => r.Update(It.IsAny<User>()), Times.Never);
     }
 
     [Fact]

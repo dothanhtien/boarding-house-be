@@ -11,4 +11,10 @@ public class UserRepository(AppDbContext context) : Repository<User>(context), I
 
     public Task<bool> ExistsByEmailOrPhoneAsync(string email, string? phone, CancellationToken cancellationToken = default) =>
         Context.Users.AnyAsync(u => u.Email.ToLower() == email.ToLower() || (phone != null && u.Phone == phone), cancellationToken);
+
+    public Task<bool> ExistsByEmailExcludingUserAsync(string email, Guid excludeUserId, CancellationToken cancellationToken = default) =>
+        Context.Users.AnyAsync(u => u.Id != excludeUserId && u.Email.ToLower() == email.ToLower(), cancellationToken);
+
+    public Task<bool> ExistsByPhoneExcludingUserAsync(string phone, Guid excludeUserId, CancellationToken cancellationToken = default) =>
+        Context.Users.AnyAsync(u => u.Id != excludeUserId && u.Phone == phone, cancellationToken);
 }

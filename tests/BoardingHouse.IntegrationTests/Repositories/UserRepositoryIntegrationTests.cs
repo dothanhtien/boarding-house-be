@@ -57,6 +57,19 @@ public class UserRepositoryIntegrationTests(PostgresContainerFixture fixture)
     }
 
     [Fact]
+    public async Task SaveChangesAsync_TwoUsersWithEmptyStringPhone_Succeeds()
+    {
+        await using var context = fixture.CreateContext();
+        context.Users.Add(new User { Email = "a@test.com", PasswordHash = "hashed-password", Phone = "", FullName = "A", CreatedBy = SentinelActors.System });
+        context.Users.Add(new User { Email = "b@test.com", PasswordHash = "hashed-password", Phone = "", FullName = "B", CreatedBy = SentinelActors.System });
+
+        await context.SaveChangesAsync();
+
+        var count = await context.Users.CountAsync();
+        Assert.Equal(2, count);
+    }
+
+    [Fact]
     public async Task Remove_SoftDeletesUser_PersistsDeletedAtInDb()
     {
         await using var context = fixture.CreateContext();

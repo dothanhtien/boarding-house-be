@@ -133,6 +133,98 @@ public class UserRepositoryTests
     }
 
     [Fact]
+    public async Task ExistsByEmailExcludingUserAsync_MatchingEmailOfOtherUser_ReturnsTrue()
+    {
+        using var context = CreateContext();
+        var otherUser = new User { Email = "taken@test.com", PasswordHash = "hashed-password", FullName = "Other", CreatedBy = SentinelActors.System };
+        context.Users.Add(otherUser);
+        await context.SaveChangesAsync();
+
+        var repository = new UserRepository(context);
+        var result = await repository.ExistsByEmailExcludingUserAsync("taken@test.com", Guid.NewGuid());
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task ExistsByEmailExcludingUserAsync_MatchingEmailBelongsToExcludedUser_ReturnsFalse()
+    {
+        using var context = CreateContext();
+        var user = new User { Email = "self@test.com", PasswordHash = "hashed-password", FullName = "Self", CreatedBy = SentinelActors.System };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var repository = new UserRepository(context);
+        var result = await repository.ExistsByEmailExcludingUserAsync("self@test.com", user.Id);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task ExistsByEmailExcludingUserAsync_DifferentEmailCasing_ReturnsTrue()
+    {
+        using var context = CreateContext();
+        var otherUser = new User { Email = "Taken@Test.com", PasswordHash = "hashed-password", FullName = "Other", CreatedBy = SentinelActors.System };
+        context.Users.Add(otherUser);
+        await context.SaveChangesAsync();
+
+        var repository = new UserRepository(context);
+        var result = await repository.ExistsByEmailExcludingUserAsync("taken@test.com", Guid.NewGuid());
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task ExistsByEmailExcludingUserAsync_NoMatch_ReturnsFalse()
+    {
+        using var context = CreateContext();
+
+        var repository = new UserRepository(context);
+        var result = await repository.ExistsByEmailExcludingUserAsync("nobody@test.com", Guid.NewGuid());
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task ExistsByPhoneExcludingUserAsync_MatchingPhoneOfOtherUser_ReturnsTrue()
+    {
+        using var context = CreateContext();
+        var otherUser = new User { Email = "other@test.com", PasswordHash = "hashed-password", Phone = "0900000000", FullName = "Other", CreatedBy = SentinelActors.System };
+        context.Users.Add(otherUser);
+        await context.SaveChangesAsync();
+
+        var repository = new UserRepository(context);
+        var result = await repository.ExistsByPhoneExcludingUserAsync("0900000000", Guid.NewGuid());
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task ExistsByPhoneExcludingUserAsync_MatchingPhoneBelongsToExcludedUser_ReturnsFalse()
+    {
+        using var context = CreateContext();
+        var user = new User { Email = "self@test.com", PasswordHash = "hashed-password", Phone = "0900000000", FullName = "Self", CreatedBy = SentinelActors.System };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var repository = new UserRepository(context);
+        var result = await repository.ExistsByPhoneExcludingUserAsync("0900000000", user.Id);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task ExistsByPhoneExcludingUserAsync_NoMatch_ReturnsFalse()
+    {
+        using var context = CreateContext();
+
+        var repository = new UserRepository(context);
+        var result = await repository.ExistsByPhoneExcludingUserAsync("0900000000", Guid.NewGuid());
+
+        Assert.False(result);
+    }
+
+    [Fact]
     public async Task GetAllAsync_ExcludesSoftDeletedUsers()
     {
         using var context = CreateContext();

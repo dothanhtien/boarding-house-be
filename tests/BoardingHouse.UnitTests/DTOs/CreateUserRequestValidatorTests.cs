@@ -43,6 +43,29 @@ public class CreateUserRequestValidatorTests
         Assert.Contains(result.Errors, e => e.PropertyName == nameof(CreateUserRequest.Phone));
     }
 
+    [Theory]
+    [InlineData("0900-000-000")]
+    [InlineData("0900 000 000")]
+    [InlineData("abc0900000")]
+    [InlineData("09000000+0")]
+    [InlineData("+")]
+    [InlineData("")]
+    public void Validate_PhoneContainsNonDigitCharacters_HasPhoneError(string phone)
+    {
+        var result = _validator.Validate(Valid() with { Phone = phone });
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.PropertyName == nameof(CreateUserRequest.Phone));
+    }
+
+    [Fact]
+    public void Validate_PhoneWithLeadingPlus_IsValid()
+    {
+        var result = _validator.Validate(Valid() with { Phone = "+84900000000" });
+
+        Assert.True(result.IsValid);
+    }
+
     [Fact]
     public void Validate_EmptyFullName_HasFullNameError()
     {

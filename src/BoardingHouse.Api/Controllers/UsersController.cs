@@ -38,7 +38,7 @@ public class UsersController(IUserService userService) : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = user.Id }, new ApiResponse<UserResponse> { Data = user });
     }
 
-    [HttpPut("{id:guid}")]
+    [HttpPatch("{id:guid}")]
     [RequirePermission("user", "update")]
     public async Task<ActionResult<ApiResponse<UserResponse>>> Update(Guid id, UpdateUserRequest request, CancellationToken cancellationToken)
     {

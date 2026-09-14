@@ -182,7 +182,7 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
     {
         var inactiveResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("inactive@test.com") with { Phone = "0911111114" });
         var inactive = (await inactiveResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
-        await _client.PutAsJsonAsync($"/api/users/{inactive!.Id}", new UpdateUserRequest { Phone = inactive.Phone, FullName = inactive.FullName, IsActive = false });
+        await _client.PatchAsJsonAsync($"/api/users/{inactive!.Id}", new UpdateUserRequest { IsActive = false });
 
         var filteredResponse = await _client.GetAsync("/api/users?isActive=false");
         var filtered = (await filteredResponse.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
@@ -201,11 +201,24 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
         await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("alpha@test.com") with { Phone = "0911111115" });
         await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("zeta@test.com") with { Phone = "0911111116" });
 
-        var response = await _client.GetAsync("/api/users?sortBy=email&sortDescending=true");
+        var response = await _client.GetAsync("/api/users?sortBy=email&sortOrder=desc");
         var result = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
 
         var emails = result!.Items.Select(u => u.Email).ToList();
         Assert.Equal(emails.OrderByDescending(e => e), emails);
+    }
+
+    [Fact]
+    public async Task GetAll_SortByEmailAscending_ReturnsInAscendingOrder()
+    {
+        await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("alpha@test.com") with { Phone = "0911111115" });
+        await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("zeta@test.com") with { Phone = "0911111116" });
+
+        var response = await _client.GetAsync("/api/users?sortBy=email&sortOrder=asc");
+        var result = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
+
+        var emails = result!.Items.Select(u => u.Email).ToList();
+        Assert.Equal(emails.OrderBy(e => e), emails);
     }
 
     [Fact]
@@ -214,6 +227,25 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
         var response = await _client.GetAsync("/api/users?sortBy=unknown-field");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetAll_NoSortOrderProvided_DefaultsToDescendingByCreatedAt()
+    {
+        await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("second@test.com") with { Phone = "0911111121" });
+
+        var response = await _client.GetAsync("/api/users");
+        var result = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>())?.Data;
+
+        Assert.Equal("second@test.com", result!.Items[0].Email);
+    }
+
+    [Fact]
+    public async Task GetAll_SortOrderInvalidValue_Returns400()
+    {
+        var response = await _client.GetAsync("/api/users?sortOrder=invalid");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -263,7 +295,7 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
     [Fact]
     public async Task Update_UnknownId_Returns404()
     {
-        var response = await _client.PutAsJsonAsync($"/api/users/{Guid.NewGuid()}", new UpdateUserRequest
+        var response = await _client.PatchAsJsonAsync($"/api/users/{Guid.NewGuid()}", new UpdateUserRequest
         {
             Phone = "0900000000",
             FullName = "Test User",
@@ -271,6 +303,113 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
         });
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_IsActiveWrongType_Returns400()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+
+        var content = new StringContent("{\"isActive\":\"test\"}", System.Text.Encoding.UTF8, "application/json");
+        var response = await _client.PatchAsync($"/api/users/{created!.Id}", content);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_EmptyBody_Returns400()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+
+        var response = await _client.PatchAsJsonAsync($"/api/users/{created!.Id}", new UpdateUserRequest());
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_EmailField_UpdatesEmail()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+
+        var response = await _client.PatchAsJsonAsync($"/api/users/{created!.Id}", new UpdateUserRequest { Email = "changed@test.com" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        Assert.Equal("changed@test.com", updated!.Email);
+    }
+
+    [Fact]
+    public async Task Update_EmailAlreadyUsedByAnotherUser_Returns409()
+    {
+        var firstResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("first@test.com") with { Phone = "0911111117" });
+        var first = (await firstResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+
+        var secondResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("second@test.com") with { Phone = "0911111118" });
+        var second = (await secondResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+
+        var response = await _client.PatchAsJsonAsync($"/api/users/{second!.Id}", new UpdateUserRequest { Email = first!.Email });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_SameEmailAsCurrent_Returns200()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+
+        var response = await _client.PatchAsJsonAsync($"/api/users/{created!.Id}", new UpdateUserRequest { Email = created.Email, FullName = "Updated Name" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        Assert.Equal(created.Email, updated!.Email);
+        Assert.Equal("Updated Name", updated.FullName);
+    }
+
+    [Fact]
+    public async Task Update_PhoneAlreadyUsedByAnotherUser_Returns409()
+    {
+        var firstResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("first2@test.com") with { Phone = "0911111119" });
+        var first = (await firstResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+
+        var secondResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest("second2@test.com") with { Phone = "0911111120" });
+        var second = (await secondResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+
+        var response = await _client.PatchAsJsonAsync($"/api/users/{second!.Id}", new UpdateUserRequest { Phone = first!.Phone });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_SamePhoneAsCurrent_Returns200()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+
+        var response = await _client.PatchAsJsonAsync($"/api/users/{created!.Id}", new UpdateUserRequest { Phone = created.Phone, FullName = "Updated Name" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        Assert.Equal(created.Phone, updated!.Phone);
+        Assert.Equal("Updated Name", updated.FullName);
+    }
+
+    [Fact]
+    public async Task Update_OnlyOneField_KeepsOtherFieldsUnchanged()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+
+        var response = await _client.PatchAsJsonAsync($"/api/users/{created!.Id}", new UpdateUserRequest { FullName = "Only Name Changed" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        Assert.Equal("Only Name Changed", updated!.FullName);
+        Assert.Equal(created.Email, updated.Email);
+        Assert.Equal(created.IsActive, updated.IsActive);
     }
 
     [Fact]
@@ -288,7 +427,7 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
         var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
 
-        var updateResponse = await _client.PutAsJsonAsync($"/api/users/{created!.Id}", new UpdateUserRequest
+        var updateResponse = await _client.PatchAsJsonAsync($"/api/users/{created!.Id}", new UpdateUserRequest
         {
             Phone = "0911111111",
             FullName = "Updated Name",

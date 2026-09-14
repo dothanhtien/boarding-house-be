@@ -52,7 +52,7 @@ namespace BoardingHouse.Api.Persistence.Migrations
                 table: "users",
                 column: "phone",
                 unique: true,
-                filter: "phone IS NOT NULL AND deleted_at IS NULL");
+                filter: "phone IS NOT NULL AND phone != '' AND deleted_at IS NULL");
         }
 
         /// <inheritdoc />

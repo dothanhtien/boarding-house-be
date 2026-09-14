@@ -12,6 +12,7 @@ public class RegisterRequestValidator : AbstractValidator<RegisterRequest>
             .MaximumLength(255).WithMessage("Email exceeds 255 characters");
         RuleFor(x => x.Phone)
             .MaximumLength(20).WithMessage("Phone exceeds 20 characters")
+            .Matches(@"^\+?\d+$").WithMessage("Phone must contain only digits, optionally starting with +")
             .When(x => x.Phone is not null);
         RuleFor(x => x.FullName)
             .NotEmpty().WithMessage("Full name is required")
