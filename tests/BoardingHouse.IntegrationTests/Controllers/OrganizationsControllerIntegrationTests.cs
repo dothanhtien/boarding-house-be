@@ -218,7 +218,7 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
         await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Alpha" });
         await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Zeta" });
 
-        var response = await _client.GetAsync("/api/organizations?sortBy=name&sortDescending=true");
+        var response = await _client.GetAsync("/api/organizations?sortBy=name&sortOrder=desc");
         var result = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<OrganizationResponse>>>())?.Data;
 
         var names = result!.Items.Select(o => o.Name).ToList();
@@ -231,6 +231,19 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
         var response = await _client.GetAsync("/api/organizations?sortBy=unknown-field");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetAll_NoSortOrderProvided_DefaultsToDescendingByName()
+    {
+        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Alpha" });
+        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Zeta" });
+
+        var response = await _client.GetAsync("/api/organizations");
+        var result = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<OrganizationResponse>>>())?.Data;
+
+        var names = result!.Items.Select(o => o.Name).ToList();
+        Assert.Equal(names.OrderByDescending(n => n), names);
     }
 
     [Fact]

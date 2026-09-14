@@ -44,6 +44,27 @@ public class CreateOrganizationRequestValidatorTests
         result.ShouldHaveValidationErrorFor(x => x.Phone);
     }
 
+    [Theory]
+    [InlineData("0900-000-000")]
+    [InlineData("0900 000 000")]
+    [InlineData("abc0900000")]
+    [InlineData("+")]
+    [InlineData("")]
+    public void Validate_PhoneContainsNonDigitCharacters_HasError(string phone)
+    {
+        var result = _validator.TestValidate(ValidRequest() with { Phone = phone });
+
+        result.ShouldHaveValidationErrorFor(x => x.Phone);
+    }
+
+    [Fact]
+    public void Validate_PhoneWithLeadingPlus_HasNoError()
+    {
+        var result = _validator.TestValidate(ValidRequest() with { Phone = "+84900000000" });
+
+        result.ShouldNotHaveValidationErrorFor(x => x.Phone);
+    }
+
     [Fact]
     public void Validate_InvalidEmail_HasError()
     {

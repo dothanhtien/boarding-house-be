@@ -8,6 +8,7 @@ public class UpdateUserRequestValidatorTests
 
     private static UpdateUserRequest Valid() => new()
     {
+        Email = "test@example.com",
         Phone = "0900000000",
         FullName = "Test User",
         IsActive = true
@@ -19,6 +20,58 @@ public class UpdateUserRequestValidatorTests
         var result = _validator.Validate(Valid());
 
         Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validate_AllFieldsNull_HasError()
+    {
+        var result = _validator.Validate(new UpdateUserRequest());
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.PropertyName == "Request");
+    }
+
+    [Fact]
+    public void Validate_OnlyOneFieldProvided_IsValid()
+    {
+        var result = _validator.Validate(new UpdateUserRequest { IsActive = false });
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validate_NullEmail_IsValid()
+    {
+        var result = _validator.Validate(Valid() with { Email = null });
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validate_EmptyEmail_HasEmailError()
+    {
+        var result = _validator.Validate(Valid() with { Email = "" });
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.PropertyName == nameof(UpdateUserRequest.Email));
+    }
+
+    [Fact]
+    public void Validate_InvalidEmailFormat_HasEmailError()
+    {
+        var result = _validator.Validate(Valid() with { Email = "not-an-email" });
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.PropertyName == nameof(UpdateUserRequest.Email));
+    }
+
+    [Fact]
+    public void Validate_EmailExceeds255Characters_HasEmailError()
+    {
+        var result = _validator.Validate(Valid() with { Email = $"{new string('a', 250)}@a.com" });
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.PropertyName == nameof(UpdateUserRequest.Email));
     }
 
     [Fact]
@@ -38,6 +91,43 @@ public class UpdateUserRequestValidatorTests
         Assert.Contains(result.Errors, e => e.PropertyName == nameof(UpdateUserRequest.Phone));
     }
 
+    [Theory]
+    [InlineData("0900-000-000")]
+    [InlineData("0900 000 000")]
+    [InlineData("abc0900000")]
+    [InlineData("+")]
+    public void Validate_PhoneContainsNonDigitCharacters_HasPhoneError(string phone)
+    {
+        var result = _validator.Validate(Valid() with { Phone = phone });
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.PropertyName == nameof(UpdateUserRequest.Phone));
+    }
+
+    [Fact]
+    public void Validate_EmptyStringPhone_IsValid()
+    {
+        var result = _validator.Validate(Valid() with { Phone = "" });
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validate_PhoneWithLeadingPlus_IsValid()
+    {
+        var result = _validator.Validate(Valid() with { Phone = "+84900000000" });
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validate_NullFullName_IsValid()
+    {
+        var result = _validator.Validate(Valid() with { FullName = null });
+
+        Assert.True(result.IsValid);
+    }
+
     [Fact]
     public void Validate_EmptyFullName_HasFullNameError()
     {
@@ -54,5 +144,13 @@ public class UpdateUserRequestValidatorTests
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, e => e.PropertyName == nameof(UpdateUserRequest.FullName));
+    }
+
+    [Fact]
+    public void Validate_NullIsActive_IsValid()
+    {
+        var result = _validator.Validate(Valid() with { IsActive = null });
+
+        Assert.True(result.IsValid);
     }
 }

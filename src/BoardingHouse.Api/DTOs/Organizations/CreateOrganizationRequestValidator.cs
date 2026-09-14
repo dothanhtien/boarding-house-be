@@ -14,6 +14,7 @@ public class CreateOrganizationRequestValidator : AbstractValidator<CreateOrgani
             .When(x => x.TaxCode is not null);
         RuleFor(x => x.Phone)
             .MaximumLength(20).WithMessage("Phone exceeds 20 characters")
+            .Matches(@"^\+?\d+$").WithMessage("Phone must contain only digits, optionally starting with +")
             .When(x => x.Phone is not null);
         RuleFor(x => x.Email)
             .EmailAddress().WithMessage("Email is invalid")

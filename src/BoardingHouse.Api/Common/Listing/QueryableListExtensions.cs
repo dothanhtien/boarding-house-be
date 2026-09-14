@@ -9,13 +9,15 @@ public static class QueryableListExtensions
         this IQueryable<TEntity> query,
         PageRequest pageRequest,
         Expression<Func<TEntity, object>> sortField,
-        bool sortDescending,
+        SortOrder sortOrder,
         CancellationToken cancellationToken = default)
         where TEntity : Entity
     {
-        query = sortDescending
+        query = sortOrder == SortOrder.Desc
             ? query.OrderByDescending(sortField).ThenBy(e => e.Id)
             : query.OrderBy(sortField).ThenBy(e => e.Id);
+
+        query = query.AsNoTracking();
 
         var totalItems = await query.CountAsync(cancellationToken);
 

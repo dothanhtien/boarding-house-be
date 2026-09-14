@@ -70,12 +70,10 @@ Accept: application/json
 ###
 
 ### Update user
-PUT {{HostAddress}}/api/users/{{userId}}
+PATCH {{HostAddress}}/api/users/{{userId}}
 Content-Type: application/json
 
 {
-  "phone": "0987654321",
-  "fullName": "New User Updated",
   "isActive": true
 }
 

@@ -46,7 +46,7 @@ public class UserService(
         }
 
         var sortField = SortableFields.GetValueOrDefault(query.SortBy ?? "", SortableFields[""]);
-        var paged = await users.ToPagedResultAsync(query, sortField, query.SortDescending, cancellationToken);
+        var paged = await users.ToPagedResultAsync(query, sortField, query.SortOrder, cancellationToken);
 
         return new PagedResult<UserResponse>
         {
@@ -105,12 +105,54 @@ public class UserService(
         var user = await userRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new NotFoundAppException($"User '{id}' not found");
 
-        user.Phone = request.Phone;
-        user.FullName = request.FullName;
-        user.IsActive = request.IsActive;
+        if (request.Email is not null)
+        {
+            var email = request.Email.Trim().ToLowerInvariant();
 
-        userRepository.Update(user);
-        await context.SaveChangesAsync(cancellationToken);
+            if (email != user.Email &&
+                await userRepository.ExistsByEmailExcludingUserAsync(email, user.Id, cancellationToken))
+            {
+                logger.LogWarning("Update user failed: email already in use ({Email})", email);
+                throw new ConflictAppException("Email already in use");
+            }
+
+            user.Email = email;
+        }
+
+        if (request.Phone is not null)
+        {
+            if (request.Phone != user.Phone &&
+                request.Phone != string.Empty &&
+                await userRepository.ExistsByPhoneExcludingUserAsync(request.Phone, user.Id, cancellationToken))
+            {
+                logger.LogWarning("Update user failed: phone already in use ({UserId})", id);
+                throw new ConflictAppException("Phone already in use");
+            }
+
+            user.Phone = request.Phone;
+        }
+
+        if (request.FullName is not null)
+        {
+            user.FullName = request.FullName;
+        }
+
+        if (request.IsActive is not null)
+        {
+            user.IsActive = request.IsActive.Value;
+        }
+
+        try
+        {
+            userRepository.Update(user);
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+        {
+            logger.LogWarning("Update user failed: email or phone already in use ({UserId})", id);
+            throw new ConflictAppException("Email or phone already in use");
+        }
+
         await userCache.InvalidateAsync(user.Id, cancellationToken);
 
         logger.LogInformation("User updated ({UserId})", user.Id);

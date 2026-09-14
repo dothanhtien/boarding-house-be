@@ -91,9 +91,9 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         return request;
     }
 
-    private static HttpRequestMessage AuthorizedPut<T>(string url, string accessToken, T body)
+    private static HttpRequestMessage AuthorizedPatch<T>(string url, string accessToken, T body)
     {
-        var request = new HttpRequestMessage(HttpMethod.Put, url)
+        var request = new HttpRequestMessage(HttpMethod.Patch, url)
         {
             Content = JsonContent.Create(body)
         };
@@ -367,7 +367,7 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
 
         await factory.GrantPlatformAdminRoleAsync(userId);
 
-        var updateResponse = await _client.SendAsync(AuthorizedPut($"/api/users/{userId}", accessToken, new UpdateUserRequest
+        var updateResponse = await _client.SendAsync(AuthorizedPatch($"/api/users/{userId}", accessToken, new UpdateUserRequest
         {
             Phone = "0900000000",
             FullName = "Test User",

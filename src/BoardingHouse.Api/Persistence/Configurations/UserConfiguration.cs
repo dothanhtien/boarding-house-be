@@ -11,7 +11,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.HasIndex(u => u.Email).IsUnique()
             .HasFilter("deleted_at IS NULL");
         builder.HasIndex(u => u.Phone).IsUnique()
-            .HasFilter("phone IS NOT NULL AND deleted_at IS NULL");
+            .HasFilter("phone IS NOT NULL AND phone != '' AND deleted_at IS NULL");
         builder.HasIndex(u => u.IsActive);
 
         builder.Property(u => u.Email).HasMaxLength(255);

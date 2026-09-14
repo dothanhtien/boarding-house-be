@@ -40,7 +40,7 @@ public class OrganizationService(
         }
 
         var sortField = SortableFields.GetValueOrDefault(query.SortBy ?? "", SortableFields[""]);
-        var paged = await organizations.ToPagedResultAsync(query, sortField, query.SortDescending, cancellationToken);
+        var paged = await organizations.ToPagedResultAsync(query, sortField, query.SortOrder, cancellationToken);
 
         return new PagedResult<OrganizationResponse>
         {

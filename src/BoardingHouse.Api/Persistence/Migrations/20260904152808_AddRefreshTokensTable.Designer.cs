@@ -165,7 +165,7 @@ namespace BoardingHouse.Api.Persistence.Migrations
                     b.HasIndex("Phone")
                         .IsUnique()
                         .HasDatabaseName("ix_users_phone")
-                        .HasFilter("phone IS NOT NULL AND deleted_at IS NULL");
+                        .HasFilter("phone IS NOT NULL AND phone != '' AND deleted_at IS NULL");
 
                     b.ToTable("users", (string)null);
                 });
