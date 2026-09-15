@@ -6,6 +6,19 @@ public class UpdateOrganizationSettingsRequestValidator : AbstractValidator<Upda
 {
     public UpdateOrganizationSettingsRequestValidator()
     {
+        RuleFor(x => x)
+            .Must(x =>
+                x.DefaultBillingDay is not null ||
+                x.LateFeeType is not null ||
+                x.LateFeeValue is not null ||
+                x.LateFeeGraceDays is not null ||
+                x.VatRate is not null ||
+                x.BankAccountNumber is not null ||
+                x.BankName is not null ||
+                x.BankAccountName is not null)
+            .WithMessage("At least one field must be provided")
+            .WithName("Request");
+
         RuleFor(x => x.DefaultBillingDay)
             .InclusiveBetween(1, 28).WithMessage("Default billing day must be between 1 and 28")
             .When(x => x.DefaultBillingDay is not null);
