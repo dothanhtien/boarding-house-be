@@ -23,29 +23,25 @@ public class RbacSeeder
         ("organization-setting", "update", "Update organization settings"),
     ];
 
+    private static readonly (string Slug, string Name, string Description, string[] Permissions)[] RoleSeeds =
+    [
+        ("platform_admin", "Platform Admin", "Full platform administration rights", ["*"]),
+        ("platform_staff", "Platform Staff", "Platform staff — limited permissions",
+            ["user:read", "role:read"]),
+    ];
+
     public static async Task SeedAsync(AppDbContext context, CancellationToken cancellationToken = default)
     {
         var permissionsByKey = await SeedPermissionsAsync(context, cancellationToken);
 
-        await SeedRoleAsync(
-            context,
-            slug: "platform_admin",
-            name: "Platform Admin",
-            description: "Full platform administration rights",
-            permissions: permissionsByKey.Values,
-            cancellationToken: cancellationToken);
+        foreach (var seed in RoleSeeds)
+        {
+            var permissions = seed.Permissions.Contains("*")
+                ? permissionsByKey.Values
+                : seed.Permissions.Select(p => ResolvePermission(p, seed.Slug, permissionsByKey));
 
-        await SeedRoleAsync(
-            context,
-            slug: "platform_staff",
-            name: "Platform Staff",
-            description: "Platform staff — limited permissions",
-            permissions:
-            [
-                permissionsByKey[("user", "read")],
-                permissionsByKey[("role", "read")]
-            ],
-            cancellationToken: cancellationToken);
+            await SeedRoleAsync(context, seed.Slug, seed.Name, seed.Description, permissions, cancellationToken);
+        }
     }
 
     private static async Task<Dictionary<(string Resource, string Action), Permission>> SeedPermissionsAsync(
@@ -70,6 +66,16 @@ public class RbacSeeder
             existing.Add(permission);
         }
 
+        var desiredKeys = PermissionSeeds.Select(s => (s.Resource, s.Action)).ToHashSet();
+        var toRevoke = existing.Where(p => !desiredKeys.Contains((p.Resource, p.Action))).ToList();
+
+        context.Permissions.RemoveRange(toRevoke);
+
+        foreach (var permission in toRevoke)
+        {
+            existing.Remove(permission);
+        }
+
         try
         {
             await context.SaveChangesAsync(cancellationToken);
@@ -82,6 +88,28 @@ public class RbacSeeder
         }
 
         return existing.ToDictionary(p => (p.Resource, p.Action));
+    }
+
+    private static Permission ResolvePermission(
+        string key,
+        string roleSlug,
+        Dictionary<(string Resource, string Action), Permission> permissionsByKey)
+    {
+        var parts = key.Split(":", 2);
+
+        if (parts.Length != 2)
+        {
+            throw new InvalidOperationException(
+                $"Invalid permission \"{key}\" in RoleSeeds[\"{roleSlug}\"] - Expected format \"resource:action\"");
+        }
+
+        if (!permissionsByKey.TryGetValue((parts[0], parts[1]), out var permission))
+        {
+            throw new InvalidOperationException(
+                $"Permission \"{key}\" in RoleSeeds[\"{roleSlug}\"] not found in PermissionSeeds.");
+        }
+
+        return permission;
     }
 
     private static async Task SeedRoleAsync(AppDbContext context,
@@ -108,6 +136,7 @@ public class RbacSeeder
             context.Roles.Add(role);
         }
 
+        var desiredPermissionIds = permissions.Select(p => p.Id).ToHashSet();
         var grantedPermissionIds = role.RolePermissions.Select(rp => rp.PermissionId).ToHashSet();
 
         foreach (var permission in permissions)
@@ -121,6 +150,12 @@ public class RbacSeeder
                 CreatedBy = SentinelActors.System
             });
         }
+
+        var toRevoke = role.RolePermissions
+            .Where(rp => !desiredPermissionIds.Contains(rp.PermissionId))
+            .ToList();
+
+        context.RolePermissions.RemoveRange(toRevoke);
 
         try
         {
