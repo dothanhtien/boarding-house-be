@@ -1,6 +1,7 @@
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Exceptions;
+using BoardingHouse.Api.Services.Caching;
 using Microsoft.EntityFrameworkCore;
 
 namespace BoardingHouse.Api.Persistence.Seed;
@@ -30,9 +31,12 @@ public class RbacSeeder
             ["user:read", "role:read"]),
     ];
 
-    public static async Task SeedAsync(AppDbContext context, CancellationToken cancellationToken = default)
+    public static async Task SeedAsync(
+        AppDbContext context,
+        IRolePermissionCache? rolePermissionCache = null,
+        CancellationToken cancellationToken = default)
     {
-        var permissionsByKey = await SeedPermissionsAsync(context, cancellationToken);
+        var (permissionsByKey, _) = await SeedPermissionsAsync(context, rolePermissionCache, cancellationToken);
 
         foreach (var seed in RoleSeeds)
         {
@@ -40,12 +44,13 @@ public class RbacSeeder
                 ? permissionsByKey.Values
                 : seed.Permissions.Select(p => ResolvePermission(p, seed.Slug, permissionsByKey));
 
-            await SeedRoleAsync(context, seed.Slug, seed.Name, seed.Description, permissions, cancellationToken);
+            await SeedRoleAsync(context, seed.Slug, seed.Name, seed.Description, permissions, rolePermissionCache, cancellationToken);
         }
     }
 
-    private static async Task<Dictionary<(string Resource, string Action), Permission>> SeedPermissionsAsync(
+    private static async Task<(Dictionary<(string Resource, string Action), Permission> Permissions, List<Guid> AffectedRoleIds)> SeedPermissionsAsync(
         AppDbContext context,
+        IRolePermissionCache? rolePermissionCache,
         CancellationToken cancellationToken)
     {
         var existing = await context.Permissions.ToListAsync(cancellationToken);
@@ -69,6 +74,14 @@ public class RbacSeeder
         var desiredKeys = PermissionSeeds.Select(s => (s.Resource, s.Action)).ToHashSet();
         var toRevoke = existing.Where(p => !desiredKeys.Contains((p.Resource, p.Action))).ToList();
 
+        var affectedRoleIds = toRevoke.Count == 0
+            ? []
+            : await context.RolePermissions
+                .Where(rp => toRevoke.Select(p => p.Id).Contains(rp.PermissionId))
+                .Select(rp => rp.RoleId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
         context.Permissions.RemoveRange(toRevoke);
 
         foreach (var permission in toRevoke)
@@ -79,15 +92,24 @@ public class RbacSeeder
         try
         {
             await context.SaveChangesAsync(cancellationToken);
+
+            if (rolePermissionCache is not null)
+            {
+                foreach (var roleId in affectedRoleIds)
+                {
+                    await rolePermissionCache.InvalidateAsync(roleId, cancellationToken);
+                }
+            }
         }
         catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
             // Another instance seeded concurrently; reload to pick up its rows.
             context.ChangeTracker.Clear();
             existing = await context.Permissions.ToListAsync(cancellationToken);
+            affectedRoleIds = [];
         }
 
-        return existing.ToDictionary(p => (p.Resource, p.Action));
+        return (existing.ToDictionary(p => (p.Resource, p.Action)), affectedRoleIds);
     }
 
     private static Permission ResolvePermission(
@@ -117,6 +139,7 @@ public class RbacSeeder
         string name,
         string description,
         IEnumerable<Permission> permissions,
+        IRolePermissionCache? rolePermissionCache,
         CancellationToken cancellationToken)
     {
         var role = await context.Roles
@@ -139,6 +162,8 @@ public class RbacSeeder
         var desiredPermissionIds = permissions.Select(p => p.Id).ToHashSet();
         var grantedPermissionIds = role.RolePermissions.Select(rp => rp.PermissionId).ToHashSet();
 
+        var granted = false;
+
         foreach (var permission in permissions)
         {
             if (!grantedPermissionIds.Add(permission.Id)) continue;
@@ -149,6 +174,7 @@ public class RbacSeeder
                 PermissionId = permission.Id,
                 CreatedBy = SentinelActors.System
             });
+            granted = true;
         }
 
         var toRevoke = role.RolePermissions
@@ -160,6 +186,11 @@ public class RbacSeeder
         try
         {
             await context.SaveChangesAsync(cancellationToken);
+
+            if (rolePermissionCache is not null && (granted || toRevoke.Count > 0))
+            {
+                await rolePermissionCache.InvalidateAsync(role.Id, cancellationToken);
+            }
         }
         catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {

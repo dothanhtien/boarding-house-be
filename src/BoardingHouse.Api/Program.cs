@@ -137,7 +137,8 @@ try
     {
         using var seedScope = app.Services.CreateScope();
         var seedDb = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await RbacSeeder.SeedAsync(seedDb);
+        var seedRolePermissionCache = seedScope.ServiceProvider.GetRequiredService<IRolePermissionCache>();
+        await RbacSeeder.SeedAsync(seedDb, seedRolePermissionCache);
         Log.Information("RBAC seed completed");
         return;
     }
@@ -165,8 +166,9 @@ try
     {
         using var devSeedScope = app.Services.CreateScope();
         var devSeedDb = devSeedScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var devSeedRolePermissionCache = devSeedScope.ServiceProvider.GetRequiredService<IRolePermissionCache>();
         await devSeedDb.Database.MigrateAsync();
-        await RbacSeeder.SeedAsync(devSeedDb);
+        await RbacSeeder.SeedAsync(devSeedDb, devSeedRolePermissionCache);
     }
 
     app.UseExceptionHandler();
