@@ -43,7 +43,7 @@ public class OrganizationsController(
             new ApiResponse<OrganizationResponse> { Data = organization });
     }
 
-    [HttpPut("{id:guid}")]
+    [HttpPatch("{id:guid}")]
     [RequirePermission("organization", "update")]
     public async Task<ActionResult<ApiResponse<OrganizationResponse>>> Update(Guid id, UpdateOrganizationRequest request, CancellationToken cancellationToken)
     {
@@ -67,7 +67,7 @@ public class OrganizationsController(
         return Ok(new ApiResponse<OrganizationSettingsResponse> { Data = settings });
     }
 
-    [HttpPut("{organizationId:guid}/settings")]
+    [HttpPatch("{organizationId:guid}/settings")]
     [RequirePermission("organization-setting", "update")]
     public async Task<ActionResult<ApiResponse<OrganizationSettingsResponse>>> UpdateSettings(
         Guid organizationId, UpdateOrganizationSettingsRequest request, CancellationToken cancellationToken)

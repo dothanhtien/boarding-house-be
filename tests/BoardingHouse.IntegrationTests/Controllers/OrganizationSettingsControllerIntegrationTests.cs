@@ -96,7 +96,7 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
     {
         var organizationId = await CreateOrganizationAsync();
 
-        var response = await _client.PutAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
+        var response = await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
         {
             VatRate = 8,
             DefaultBillingDay = 5,
@@ -124,8 +124,8 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
     {
         var organizationId = await CreateOrganizationAsync();
 
-        await _client.PutAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest { VatRate = 8 });
-        var secondResponse = await _client.PutAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest { VatRate = 10 });
+        await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest { VatRate = 8 });
+        var secondResponse = await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest { VatRate = 10 });
 
         Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
         var updated = (await secondResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationSettingsResponse>>(JsonOptions))?.Data;
@@ -138,7 +138,7 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
     {
         var organizationId = await CreateOrganizationAsync();
 
-        var response = await _client.PutAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
+        var response = await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
         {
             LateFeeType = LateFeeType.Fixed
         });
@@ -151,7 +151,7 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
     {
         var organizationId = await CreateOrganizationAsync();
 
-        var response = await _client.PutAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
+        var response = await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
         {
             DefaultBillingDay = 0
         });
@@ -164,11 +164,11 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
     {
         var organizationId = await CreateOrganizationAsync();
 
-        var firstResponse = await _client.PutAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
+        var firstResponse = await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
         {
             DefaultBillingDay = 1
         });
-        var lastResponse = await _client.PutAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
+        var lastResponse = await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
         {
             DefaultBillingDay = 28
         });
@@ -188,9 +188,41 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
     [Fact]
     public async Task UpdateSettings_UnknownOrganizationId_Returns404()
     {
-        var response = await _client.PutAsJsonAsync($"/api/organizations/{Guid.NewGuid()}/settings", new UpdateOrganizationSettingsRequest());
+        var response = await _client.PatchAsJsonAsync($"/api/organizations/{Guid.NewGuid()}/settings", new UpdateOrganizationSettingsRequest { VatRate = 8 });
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_EmptyBody_Returns400()
+    {
+        var organizationId = await CreateOrganizationAsync();
+
+        var response = await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest());
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_OnlyOneField_KeepsOtherFieldsUnchanged()
+    {
+        var organizationId = await CreateOrganizationAsync();
+
+        await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
+        {
+            VatRate = 8,
+            DefaultBillingDay = 5
+        });
+
+        var response = await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
+        {
+            VatRate = 10
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationSettingsResponse>>(JsonOptions))?.Data;
+        Assert.Equal(10, updated!.VatRate);
+        Assert.Equal(5, updated.DefaultBillingDay);
     }
 
     [Fact]

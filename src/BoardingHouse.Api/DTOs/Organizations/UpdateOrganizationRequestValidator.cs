@@ -6,9 +6,24 @@ public class UpdateOrganizationRequestValidator : AbstractValidator<UpdateOrgani
 {
     public UpdateOrganizationRequestValidator()
     {
+        RuleFor(x => x)
+            .Must(x =>
+                x.Name is not null ||
+                x.TaxCode is not null ||
+                x.Phone is not null ||
+                x.Email is not null ||
+                x.Province is not null ||
+                x.District is not null ||
+                x.Ward is not null ||
+                x.Address is not null ||
+                x.IsActive is not null)
+            .WithMessage("At least one field must be provided")
+            .WithName("Request");
+
         RuleFor(x => x.Name)
             .NotEmpty().WithMessage("Name is required")
-            .MaximumLength(255).WithMessage("Name must not exceed 255 characters");
+            .MaximumLength(255).WithMessage("Name must not exceed 255 characters")
+            .When(x => x.Name is not null);
         RuleFor(x => x.TaxCode)
             .MaximumLength(20).WithMessage("Tax code exceeds 20 characters")
             .When(x => x.TaxCode is not null);

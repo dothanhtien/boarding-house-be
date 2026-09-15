@@ -122,18 +122,10 @@ Accept: application/json
 ###
 
 ### Update organization
-PUT {{HostAddress}}/api/organizations/{{organizationId}}
+PATCH {{HostAddress}}/api/organizations/{{organizationId}}
 Content-Type: application/json
 
 {
-  "name": "Sunrise Boarding House Updated",
-  "taxCode": "0312345678",
-  "phone": "0987654321",
-  "email": "contact@sunrise.example.com",
-  "province": "Ho Chi Minh",
-  "district": "District 1",
-  "ward": "Ben Nghe",
-  "address": "123 Le Loi",
   "isActive": true
 }
 
@@ -151,18 +143,11 @@ Accept: application/json
 ###
 
 ### Update organization settings
-PUT {{HostAddress}}/api/organizations/{{organizationId}}/settings
+PATCH {{HostAddress}}/api/organizations/{{organizationId}}/settings
 Content-Type: application/json
 
 {
-  "defaultBillingDay": 5,
-  "lateFeeType": "Fixed",
-  "lateFeeValue": 50000,
-  "lateFeeGraceDays": 3,
-  "vatRate": 8,
-  "bankAccountNumber": "0123456789",
-  "bankName": "Vietcombank",
-  "bankAccountName": "SUNRISE BOARDING HOUSE"
+  "vatRate": 8
 }
 
 ###

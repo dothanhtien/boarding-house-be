@@ -2,6 +2,7 @@ using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Organizations;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Exceptions;
+using BoardingHouse.Api.Mappings;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
 using Mapster;
@@ -38,7 +39,7 @@ public class OrganizationSettingsService(
         var isNew = settings is null;
         settings ??= new OrganizationSettings { OrganizationId = organizationId };
 
-        ApplyRequest(settings, request);
+        request.Adapt(settings, OrganizationSettingsMappingConfig.UpdateConfig);
         settings.UpdatedAt = DateTimeOffset.UtcNow;
         settings.UpdatedBy = currentUserAccessor.RequiredUser.Id;
 
@@ -59,7 +60,7 @@ public class OrganizationSettingsService(
                 settings = await organizationSettingsRepository.GetByOrganizationIdAsync(organizationId, cancellationToken)
                     ?? throw new ConflictAppException("Organization settings could not be saved, please retry");
 
-                ApplyRequest(settings, request);
+                request.Adapt(settings, OrganizationSettingsMappingConfig.UpdateConfig);
                 settings.UpdatedAt = DateTimeOffset.UtcNow;
                 settings.UpdatedBy = currentUserAccessor.RequiredUser.Id;
             }
@@ -79,17 +80,5 @@ public class OrganizationSettingsService(
         {
             throw new NotFoundAppException($"Organization {organizationId} not found");
         }
-    }
-
-    private static void ApplyRequest(OrganizationSettings settings, UpdateOrganizationSettingsRequest request)
-    {
-        settings.DefaultBillingDay = request.DefaultBillingDay;
-        settings.LateFeeType = request.LateFeeType;
-        settings.LateFeeValue = request.LateFeeValue;
-        settings.LateFeeGraceDays = request.LateFeeGraceDays;
-        settings.VatRate = request.VatRate;
-        settings.BankAccountNumber = request.BankAccountNumber;
-        settings.BankName = request.BankName;
-        settings.BankAccountName = request.BankAccountName;
     }
 }

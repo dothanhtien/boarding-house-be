@@ -8,7 +8,23 @@ public class UpdateOrganizationSettingsRequestValidatorTests
 {
     private readonly UpdateOrganizationSettingsRequestValidator _validator = new();
 
-    private static UpdateOrganizationSettingsRequest ValidRequest() => new();
+    private static UpdateOrganizationSettingsRequest ValidRequest() => new() { VatRate = 8 };
+
+    [Fact]
+    public void Validate_AllFieldsNull_HasError()
+    {
+        var result = _validator.TestValidate(new UpdateOrganizationSettingsRequest());
+
+        result.ShouldHaveValidationErrorFor("Request");
+    }
+
+    [Fact]
+    public void Validate_OnlyOneFieldProvided_IsValid()
+    {
+        var result = _validator.TestValidate(new UpdateOrganizationSettingsRequest { DefaultBillingDay = 5 });
+
+        result.ShouldNotHaveAnyValidationErrors();
+    }
 
     [Fact]
     public void Validate_DefaultBillingDayZero_HasError()
