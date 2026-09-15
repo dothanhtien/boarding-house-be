@@ -1,3 +1,5 @@
+using BoardingHouse.Api.Common;
+using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Persistence.Seed;
 using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
@@ -67,5 +69,45 @@ public class RbacSeederTests(PostgresContainerFixture fixture) : IClassFixture<P
         var roleCountAfterSecondRun = await secondRun.Roles.CountAsync();
         Assert.Equal(permissionCountAfterFirstRun, permissionCountAfterSecondRun);
         Assert.Equal(roleCountAfterFirstRun, roleCountAfterSecondRun);
+    }
+
+    [Fact]
+    public async Task SeedAsync_PermissionGrantedOutsideRoleSeeds_RevokesFromRole_ButKeepsPermissionDefinition()
+    {
+        await using var context = fixture.CreateContext();
+
+        await RbacSeeder.SeedAsync(context);
+
+        var staff = await context.Roles.FirstAsync(r => r.Slug == "platform_staff");
+        var userCreate = await context.Permissions.SingleAsync(p => p.Resource == "user" && p.Action == "create");
+        context.RolePermissions.Add(new RolePermission { RoleId = staff.Id, PermissionId = userCreate.Id, CreatedBy = SentinelActors.System });
+        await context.SaveChangesAsync();
+
+        await RbacSeeder.SeedAsync(context);
+
+        var after = await context.Roles.Include(r => r.RolePermissions)
+            .FirstAsync(r => r.Slug == "platform_staff");
+        Assert.DoesNotContain(after.RolePermissions, rp => rp.PermissionId == userCreate.Id);
+        Assert.True(await context.Permissions.AnyAsync(p => p.Id == userCreate.Id));
+    }
+
+    [Fact]
+    public async Task SeedAsync_PermissionNotInPermissionSeeds_DeletesPermission_AndCascadesRolePermission()
+    {
+        await using var context = fixture.CreateContext();
+
+        await RbacSeeder.SeedAsync(context);
+        var staff = await context.Roles.FirstAsync(r => r.Slug == "platform_staff");
+
+        var stray = new Permission { Resource = "stray", Action = "test", CreatedBy = SentinelActors.System };
+        context.Permissions.Add(stray);
+        await context.SaveChangesAsync();
+        context.RolePermissions.Add(new RolePermission { RoleId = staff.Id, PermissionId = stray.Id, CreatedBy = SentinelActors.System });
+        await context.SaveChangesAsync();
+
+        await RbacSeeder.SeedAsync(context);
+
+        Assert.False(await context.Permissions.AnyAsync(p => p.Id == stray.Id));
+        Assert.False(await context.RolePermissions.AnyAsync(rp => rp.PermissionId == stray.Id));
     }
 }

@@ -124,15 +124,21 @@ try
 
     var app = builder.Build();
 
-    // `dotnet BoardingHouse.Api.dll --seed-rbac`: runs the default role/permission seed then exits,
-    // without starting the web host. Used to seed manually in Production (after migrating) — seeding does
-    // NOT run automatically in Production on app startup (risk of a race condition when multiple instances start and insert
-    // duplicate rows at the same time).
+    if (args.Contains("--migrate"))
+    {
+        using var migrateScope = app.Services.CreateScope();
+        var migrateDb = migrateScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await migrateDb.Database.MigrateAsync();
+        Log.Information("Migration completed");
+        return;
+    }
+
     if (args.Contains("--seed-rbac"))
     {
         using var seedScope = app.Services.CreateScope();
         var seedDb = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await RbacSeeder.SeedAsync(seedDb);
+        var seedRolePermissionCache = seedScope.ServiceProvider.GetRequiredService<IRolePermissionCache>();
+        await RbacSeeder.SeedAsync(seedDb, seedRolePermissionCache);
         Log.Information("RBAC seed completed");
         return;
     }
@@ -160,7 +166,9 @@ try
     {
         using var devSeedScope = app.Services.CreateScope();
         var devSeedDb = devSeedScope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await RbacSeeder.SeedAsync(devSeedDb);
+        var devSeedRolePermissionCache = devSeedScope.ServiceProvider.GetRequiredService<IRolePermissionCache>();
+        await devSeedDb.Database.MigrateAsync();
+        await RbacSeeder.SeedAsync(devSeedDb, devSeedRolePermissionCache);
     }
 
     app.UseExceptionHandler();

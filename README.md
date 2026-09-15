@@ -108,18 +108,17 @@ The Scalar UI is only enabled in the `Development` environment (see `Program.cs`
 - **JWT access tokens** are short-lived (`Jwt:AccessTokenExpirationMinutes` in `appsettings.json`, default 15 min), signed with `JWT_SECRET`.
 - **Refresh tokens** are longer-lived (`Jwt:RefreshTokenExpirationDays`, default 7 days), stored in the `refresh_tokens` table, and rotated on each use (`POST /api/auth/refresh-token`); `POST /api/auth/logout` revokes one.
 - **RBAC** (`Role`, `Permission`, `RolePermission`, `UserRole` entities) models user access; default roles/permissions are populated by `RbacSeeder`.
-  - In `Development`, the seed runs automatically on every app startup.
-  - In `Production`, it does **not** run automatically (avoids a race condition if multiple instances start at once). Seed manually, after migrating, with:
+  - In `Development`, pending migrations are applied and the seed runs automatically on every app startup (see [Database migrations](#database-migrations)) — no manual step needed, including on the very first `docker compose up`.
+  - In `Production`, neither runs automatically (avoids a race condition if multiple instances start at once). Migrate, then seed manually, with:
 
     ```bash
     dotnet BoardingHouse.Api.dll --seed-rbac
     ```
 
-    This runs the seed then exits without starting the web host. Run it from the build output directory, e.g. `src/BoardingHouse.Api/bin/Debug/net10.0/`, and set `ASPNETCORE_ENVIRONMENT=Development` if you're seeding a local Postgres (otherwise there's no connection string):
+    This runs the seed then exits without starting the web host. Locally (no build/cd needed — `launchSettings.json` already sets `ASPNETCORE_ENVIRONMENT=Development`, which picks up the connection string from `appsettings.Development.json`), use `dotnet run` instead (see the note on the production image below):
 
     ```bash
-    cd src/BoardingHouse.Api
-    ASPNETCORE_ENVIRONMENT=Development dotnet bin/Debug/net10.0/BoardingHouse.Api.dll --seed-rbac
+    dotnet run --project src/BoardingHouse.Api -- --seed-rbac
     ```
 
 - **Platform admin bootstrap** (`AdminSeeder`) creates the very first `platform_admin` account. Run manually, once, after `--seed-rbac`:
@@ -148,7 +147,16 @@ dotnet ef migrations add InitialCreate \
   --output-dir Persistence/Migrations
 ```
 
-Apply pending migrations to the database:
+- **In `Development`** (local `dotnet run` or `docker compose up api`), pending migrations are applied automatically on every app startup — no manual step needed, including the first run against a fresh database.
+- **In `Production`**, migration does **not** run automatically (same race-condition reason as RBAC seeding above). Apply manually, before seeding:
+
+  ```bash
+  dotnet BoardingHouse.Api.dll --migrate
+  ```
+
+  This runs the migration then exits without starting the web host — same pattern as `--seed-rbac`/`--seed-admin` above (production image runs the command directly; locally use `dotnet run --project src/BoardingHouse.Api -- --migrate`).
+
+You can still apply migrations by hand any time with `dotnet ef database update`, e.g. right after generating one to sanity-check it:
 
 ```bash
 dotnet ef database update --project src/BoardingHouse.Api
