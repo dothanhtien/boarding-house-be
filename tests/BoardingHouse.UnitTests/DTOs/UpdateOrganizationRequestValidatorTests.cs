@@ -22,6 +22,30 @@ public class UpdateOrganizationRequestValidatorTests
     }
 
     [Fact]
+    public void Validate_AllFieldsNull_HasError()
+    {
+        var result = _validator.TestValidate(new UpdateOrganizationRequest());
+
+        result.ShouldHaveValidationErrorFor("Request");
+    }
+
+    [Fact]
+    public void Validate_OnlyOneFieldProvided_IsValid()
+    {
+        var result = _validator.TestValidate(new UpdateOrganizationRequest { IsActive = false });
+
+        result.ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Validate_NullName_HasNoError()
+    {
+        var result = _validator.TestValidate(ValidRequest() with { Name = null });
+
+        result.ShouldNotHaveValidationErrorFor(x => x.Name);
+    }
+
+    [Fact]
     public void Validate_NameExceeds255Characters_HasError()
     {
         var result = _validator.TestValidate(ValidRequest() with { Name = new string('a', 256) });

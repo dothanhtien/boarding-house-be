@@ -3,6 +3,7 @@ using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Organizations;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Exceptions;
+using BoardingHouse.Api.Mappings;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
 using Mapster;
@@ -87,15 +88,7 @@ public class OrganizationService(
         var organization = await organizationRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new NotFoundAppException($"Organization '{id}' not found");
 
-        organization.Name = request.Name;
-        organization.TaxCode = request.TaxCode;
-        organization.Phone = request.Phone;
-        organization.Email = request.Email;
-        organization.Province = request.Province;
-        organization.District = request.District;
-        organization.Ward = request.Ward;
-        organization.Address = request.Address;
-        organization.IsActive = request.IsActive;
+        request.Adapt(organization, OrganizationMappingConfig.UpdateConfig);
 
         organizationRepository.Update(organization);
         await context.SaveChangesAsync(cancellationToken);

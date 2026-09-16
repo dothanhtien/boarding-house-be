@@ -100,7 +100,7 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
         var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
 
-        var updateResponse = await _client.PutAsJsonAsync($"/api/organizations/{created!.Id}", new UpdateOrganizationRequest
+        var updateResponse = await _client.PatchAsJsonAsync($"/api/organizations/{created!.Id}", new UpdateOrganizationRequest
         {
             Name = "Updated Organization",
             IsActive = false
@@ -116,6 +116,32 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
 
         var getAfterDeleteResponse = await _client.GetAsync($"/api/organizations/{created.Id}");
         Assert.Equal(HttpStatusCode.NotFound, getAfterDeleteResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_EmptyBody_Returns400()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/organizations", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+
+        var response = await _client.PatchAsJsonAsync($"/api/organizations/{created!.Id}", new UpdateOrganizationRequest());
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_OnlyOneField_KeepsOtherFieldsUnchanged()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/organizations", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+
+        var response = await _client.PatchAsJsonAsync($"/api/organizations/{created!.Id}", new UpdateOrganizationRequest { IsActive = false });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+        Assert.False(updated!.IsActive);
+        Assert.Equal(created.Name, updated.Name);
+        Assert.Equal(created.Email, updated.Email);
     }
 
     [Fact]
@@ -198,7 +224,7 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
 
         var inactiveResponse = await _client.PostAsJsonAsync("/api/organizations", ValidCreateRequest());
         var inactive = (await inactiveResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
-        await _client.PutAsJsonAsync($"/api/organizations/{inactive!.Id}", new UpdateOrganizationRequest { Name = inactive.Name, IsActive = false });
+        await _client.PatchAsJsonAsync($"/api/organizations/{inactive!.Id}", new UpdateOrganizationRequest { IsActive = false });
 
         var filteredResponse = await _client.GetAsync("/api/organizations?isActive=false");
         var filtered = (await filteredResponse.Content.ReadFromJsonAsync<ApiResponse<PagedResult<OrganizationResponse>>>())?.Data;
