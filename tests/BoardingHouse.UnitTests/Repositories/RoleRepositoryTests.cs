@@ -1,5 +1,6 @@
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
+using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -21,6 +22,7 @@ public class RoleRepositoryTests
     {
         Name = slug,
         Slug = slug,
+        Scope = RoleScope.Platform,
         CreatedBy = SentinelActors.System
     };
 

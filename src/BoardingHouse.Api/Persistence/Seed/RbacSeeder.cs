@@ -1,5 +1,6 @@
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
+using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Services.Caching;
 using Microsoft.EntityFrameworkCore;
@@ -24,10 +25,10 @@ public class RbacSeeder
         ("organization-setting", "update", "Update organization settings"),
     ];
 
-    private static readonly (string Slug, string Name, string Description, string[] Permissions)[] RoleSeeds =
+    internal static readonly (string Slug, string Name, string Description, RoleScope Scope, string[] Permissions)[] RoleSeeds =
     [
-        ("platform_admin", "Platform Admin", "Full platform administration rights", ["*"]),
-        ("platform_staff", "Platform Staff", "Platform staff — limited permissions",
+        ("platform_admin", "Platform Admin", "Full platform administration rights", RoleScope.Platform, ["*"]),
+        ("platform_staff", "Platform Staff", "Platform staff — limited permissions", RoleScope.Platform,
             ["user:read", "role:read"]),
     ];
 
@@ -44,7 +45,7 @@ public class RbacSeeder
                 ? permissionsByKey.Values
                 : seed.Permissions.Select(p => ResolvePermission(p, seed.Slug, permissionsByKey));
 
-            await SeedRoleAsync(context, seed.Slug, seed.Name, seed.Description, permissions, rolePermissionCache, cancellationToken);
+            await SeedRoleAsync(context, seed.Slug, seed.Name, seed.Description, seed.Scope, permissions, rolePermissionCache, cancellationToken);
         }
     }
 
@@ -138,6 +139,7 @@ public class RbacSeeder
         string slug,
         string name,
         string description,
+        RoleScope scope,
         IEnumerable<Permission> permissions,
         IRolePermissionCache? rolePermissionCache,
         CancellationToken cancellationToken)
@@ -153,6 +155,7 @@ public class RbacSeeder
                 Slug = slug,
                 Name = name,
                 Description = description,
+                Scope = scope,
                 IsSystem = true,
                 CreatedBy = SentinelActors.System
             };

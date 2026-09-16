@@ -1,5 +1,6 @@
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
+using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Interceptors;
 using BoardingHouse.Api.Repositories;
@@ -27,7 +28,7 @@ public class UserRoleRepositoryTests
     {
         using var context = CreateContext();
         var userId = Guid.NewGuid();
-        var role = new Role { Name = "Admin", Slug = "admin", IsActive = true, CreatedBy = SentinelActors.System };
+        var role = new Role { Name = "Admin", Slug = "admin", Scope = RoleScope.Platform, IsActive = true, CreatedBy = SentinelActors.System };
         context.Roles.Add(role);
         context.UserRoles.Add(new UserRole { UserId = userId, Role = role, CreatedBy = SentinelActors.System });
         await context.SaveChangesAsync();
@@ -43,7 +44,7 @@ public class UserRoleRepositoryTests
     {
         using var context = CreateContext();
         var userId = Guid.NewGuid();
-        var role = new Role { Name = "Disabled", Slug = "disabled", IsActive = false, CreatedBy = SentinelActors.System };
+        var role = new Role { Name = "Disabled", Slug = "disabled", Scope = RoleScope.Platform, IsActive = false, CreatedBy = SentinelActors.System };
         context.Roles.Add(role);
         context.UserRoles.Add(new UserRole { UserId = userId, Role = role, CreatedBy = SentinelActors.System });
         await context.SaveChangesAsync();
@@ -59,7 +60,7 @@ public class UserRoleRepositoryTests
     {
         using var context = CreateContext();
         var userId = Guid.NewGuid();
-        var role = new Role { Name = "Admin", Slug = "admin", IsActive = true, CreatedBy = SentinelActors.System };
+        var role = new Role { Name = "Admin", Slug = "admin", Scope = RoleScope.Platform, IsActive = true, CreatedBy = SentinelActors.System };
         context.Roles.Add(role);
         var userRole = new UserRole { UserId = userId, Role = role, CreatedBy = SentinelActors.System };
         context.UserRoles.Add(userRole);
@@ -90,8 +91,8 @@ public class UserRoleRepositoryTests
     {
         using var context = CreateContext();
         var userId = Guid.NewGuid();
-        var roleA = new Role { Name = "Role A", Slug = "role-a", IsActive = true, CreatedBy = SentinelActors.System };
-        var roleB = new Role { Name = "Role B", Slug = "role-b", IsActive = true, CreatedBy = SentinelActors.System };
+        var roleA = new Role { Name = "Role A", Slug = "role-a", Scope = RoleScope.Platform, IsActive = true, CreatedBy = SentinelActors.System };
+        var roleB = new Role { Name = "Role B", Slug = "role-b", Scope = RoleScope.Platform, IsActive = true, CreatedBy = SentinelActors.System };
         context.Roles.AddRange(roleA, roleB);
         context.UserRoles.AddRange(
             new UserRole { UserId = userId, Role = roleA, CreatedBy = SentinelActors.System },
@@ -110,7 +111,7 @@ public class UserRoleRepositoryTests
     public async Task AddAsync_NewUserRole_PersistsToDatabase()
     {
         using var context = CreateContext();
-        var role = new Role { Name = "Admin", Slug = "admin", CreatedBy = SentinelActors.System };
+        var role = new Role { Name = "Admin", Slug = "admin", Scope = RoleScope.Platform, CreatedBy = SentinelActors.System };
         context.Roles.Add(role);
         await context.SaveChangesAsync();
 

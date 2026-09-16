@@ -1,4 +1,5 @@
 using BoardingHouse.Api.Entities;
+using BoardingHouse.Api.Persistence.Converters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -16,5 +17,9 @@ public class RoleConfiguration : IEntityTypeConfiguration<Role>
 
         builder.Property(r => r.Name).HasMaxLength(100);
         builder.Property(r => r.Slug).HasMaxLength(100);
+
+        builder.Property(r => r.Scope)
+            .HasConversion(RoleScopeDbValueConverter.Instance)
+            .HasMaxLength(20);
     }
 }
