@@ -1,4 +1,5 @@
-﻿using BoardingHouse.Api.Persistence.Converters;
+﻿using BoardingHouse.Api.Entities.Enums;
+using BoardingHouse.Api.Persistence.Converters;
 using BoardingHouse.Api.Persistence.Seed;
 using Microsoft.EntityFrameworkCore.Migrations;
 
@@ -25,6 +26,10 @@ namespace BoardingHouse.Api.Persistence.Migrations
                 migrationBuilder.Sql(
                     $"UPDATE roles SET scope = '{scopeValue}' WHERE slug = '{seed.Slug}' AND scope IS NULL;");
             }
+
+            var defaultScopeValue = RoleScopeDbValueConverter.Instance.ConvertToProvider(RoleScope.Organization) as string;
+            migrationBuilder.Sql(
+                $"UPDATE roles SET scope = '{defaultScopeValue}' WHERE scope IS NULL;");
 
             migrationBuilder.AlterColumn<string>(
                 name: "scope",
