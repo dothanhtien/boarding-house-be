@@ -1,5 +1,6 @@
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
+using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Persistence.Seed;
 using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
@@ -42,6 +43,7 @@ public class RbacSeederTests(PostgresContainerFixture fixture) : IClassFixture<P
             .SingleAsync(r => r.Slug == "platform_admin");
 
         Assert.True(admin.IsSystem);
+        Assert.Equal(RoleScope.Platform, admin.Scope);
         var grants = admin.RolePermissions.Select(rp => (rp.Permission!.Resource, rp.Permission!.Action)).ToHashSet();
 
         var allPermissions = (await context.Permissions
@@ -49,6 +51,19 @@ public class RbacSeederTests(PostgresContainerFixture fixture) : IClassFixture<P
             .ToListAsync()).ToHashSet();
 
         Assert.Equal(allPermissions, grants);
+    }
+
+    [Fact]
+    public async Task SeedAsync_CreatesPlatformStaff_WithPlatformScope()
+    {
+        await using var context = fixture.CreateContext();
+
+        await RbacSeeder.SeedAsync(context);
+
+        var staff = await context.Roles.SingleAsync(r => r.Slug == "platform_staff");
+
+        Assert.True(staff.IsSystem);
+        Assert.Equal(RoleScope.Platform, staff.Scope);
     }
 
     [Fact]
