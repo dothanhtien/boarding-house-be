@@ -23,6 +23,10 @@ public class RbacSeeder
         ("organization", "delete", "Delete an organization"),
         ("organization-setting", "read", "View organization settings"),
         ("organization-setting", "update", "Update organization settings"),
+        ("organization-member", "read", "View organization member list/details"),
+        ("organization-member", "create", "Add a member to an organization"),
+        ("organization-member", "update", "Change an organization member's role"),
+        ("organization-member", "delete", "Remove a member from an organization"),
     ];
 
     internal static readonly (string Slug, string Name, string Description, RoleScope Scope, string[] Permissions)[] RoleSeeds =
@@ -30,6 +34,14 @@ public class RbacSeeder
         ("platform_admin", "Platform Admin", "Full platform administration rights", RoleScope.Platform, ["*"]),
         ("platform_staff", "Platform Staff", "Platform staff — limited permissions", RoleScope.Platform,
             ["user:read", "role:read"]),
+        ("organization_admin", "Organization Admin", "Full rights within the organization", RoleScope.Organization,
+            [
+                "organization:read", "organization:update", "organization-setting:read", "organization-setting:update",
+                "organization-member:read", "organization-member:create", "organization-member:update", "organization-member:delete"]),
+        ("organization_staff", "Organization staff", "Manage day-to-day operations within the organization", RoleScope.Organization,
+            [
+                "organization:read", "organization-setting:read",
+                "organization-member:read", "organization-member:create", "organization-member:update", "organization-member:delete"]),
     ];
 
     public static async Task SeedAsync(

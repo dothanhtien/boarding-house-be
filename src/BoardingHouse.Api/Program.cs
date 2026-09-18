@@ -93,12 +93,14 @@ try
     builder.Services.AddScoped<IUserRoleRepository, UserRoleRepository>();
     builder.Services.AddScoped<IOrganizationRepository, OrganizationRepository>();
     builder.Services.AddScoped<IOrganizationSettingsRepository, OrganizationSettingsRepository>();
+    builder.Services.AddScoped<IOrganizationMemberRepository, OrganizationMemberRepository>();
 
     builder.Services.AddScoped<IUserService, UserService>();
     builder.Services.AddScoped<IAuthService, AuthService>();
     builder.Services.AddSingleton<ITokenService, TokenService>();
     builder.Services.AddScoped<IOrganizationService, OrganizationService>();
     builder.Services.AddScoped<IOrganizationSettingsService, OrganizationSettingsService>();
+    builder.Services.AddScoped<IOrganizationMemberService, OrganizationMemberService>();
 
     builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
     builder.Services.AddScoped<IUserCache, UserCache>();
