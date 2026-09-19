@@ -12,7 +12,8 @@ namespace BoardingHouse.Api.Controllers;
 [Authorize]
 public class OrganizationsController(
     IOrganizationService organizationService,
-    IOrganizationSettingsService organizationSettingsService) : ControllerBase
+    IOrganizationSettingsService organizationSettingsService,
+    IOrganizationMemberService organizationMemberService) : ControllerBase
 {
     [HttpGet]
     [RequirePermission("organization", "read")]
@@ -74,5 +75,44 @@ public class OrganizationsController(
     {
         var settings = await organizationSettingsService.UpsertAsync(organizationId, request, cancellationToken);
         return Ok(new ApiResponse<OrganizationSettingsResponse> { Data = settings });
+    }
+
+    [HttpGet("{organizationId:guid}/members")]
+    [RequirePermission("organization-member", "read")]
+    public async Task<ActionResult<ApiResponse<PagedResult<OrganizationMemberResponse>>>> GetMembers(
+        Guid organizationId,
+        [FromQuery] OrganizationMemberListQuery query,
+        CancellationToken cancellationToken)
+    {
+        var members = await organizationMemberService.GetByOrganizationIdAsync(organizationId, query, cancellationToken);
+        return Ok(new ApiResponse<PagedResult<OrganizationMemberResponse>> { Data = members });
+    }
+
+    [HttpPost("{organizationId:guid}/members")]
+    [RequirePermission("organization-member", "create")]
+    public async Task<ActionResult<ApiResponse<OrganizationMemberResponse>>> AddMember(
+        Guid organizationId,
+        AddOrganizationMemberRequest request,
+        CancellationToken cancellationToken)
+    {
+        var member = await organizationMemberService.AddAsync(organizationId, request, cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, new ApiResponse<OrganizationMemberResponse> { Data = member });
+    }
+
+    [HttpPut("{organizationId:guid}/members/{memberId:guid}")]
+    [RequirePermission("organization-member", "update")]
+    public async Task<ActionResult<ApiResponse<OrganizationMemberResponse>>> UpdateMemberRole(
+    Guid organizationId, Guid memberId, UpdateOrganizationMemberRequest request, CancellationToken cancellationToken)
+    {
+        var member = await organizationMemberService.UpdateRoleAsync(organizationId, memberId, request, cancellationToken);
+        return Ok(new ApiResponse<OrganizationMemberResponse> { Data = member });
+    }
+
+    [HttpDelete("{organizationId:guid}/members/{memberId:guid}")]
+    [RequirePermission("organization-member", "delete")]
+    public async Task<IActionResult> RemoveMember(Guid organizationId, Guid memberId, CancellationToken cancellationToken)
+    {
+        await organizationMemberService.RemoveAsync(organizationId, memberId, cancellationToken);
+        return NoContent();
     }
 }
