@@ -79,7 +79,7 @@ public class OrganizationsController(
 
     [HttpGet("{organizationId:guid}/members")]
     [RequirePermission("organization-member", "read")]
-    public async Task<ActionResult<ApiResponse<OrganizationMemberResponse>>> GetMembers(
+    public async Task<ActionResult<ApiResponse<PagedResult<OrganizationMemberResponse>>>> GetMembers(
         Guid organizationId,
         [FromQuery] OrganizationMemberListQuery query,
         CancellationToken cancellationToken)
