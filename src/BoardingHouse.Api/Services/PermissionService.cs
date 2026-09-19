@@ -18,7 +18,7 @@ public class PermissionService(
         return permissionsByRole.Any(permissions => permissions.Contains((resource, action)));
     }
 
-    private async Task<List<(string Resource, string Action)>> GetRolePermissionsAsync(Guid roleId, CancellationToken cancellationToken)
+    public async Task<List<(string Resource, string Action)>> GetRolePermissionsAsync(Guid roleId, CancellationToken cancellationToken = default)
     {
         var permissions = await rolePermissionCache.GetAsync(roleId, cancellationToken);
 
