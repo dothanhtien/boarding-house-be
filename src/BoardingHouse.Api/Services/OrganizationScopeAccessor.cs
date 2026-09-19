@@ -21,15 +21,13 @@ public class OrganizationScopeAccessor(
         var memberships = await organizationMemberRepository.GetActiveMembershipsByUserIdAsync(user.Id, cancellationToken);
         if (memberships.Count == 0) return OrganizationScope.None;
 
-        var permissionsByMembership = await Task.WhenAll(
-            memberships.Select(async m => (m.OrganizationId, Permissions: await permissionService.GetRolePermissionsAsync(m.RoleId, cancellationToken))));
-
         var accessibleOrganizationIds = new HashSet<Guid>();
-        foreach (var (organizationId, permissions) in permissionsByMembership)
+        foreach (var membership in memberships)
         {
+            var permissions = await permissionService.GetRolePermissionsAsync(membership.RoleId, cancellationToken);
             if (permissions.Contains((resource, action)))
             {
-                accessibleOrganizationIds.Add(organizationId);
+                accessibleOrganizationIds.Add(membership.OrganizationId);
             }
         }
 
