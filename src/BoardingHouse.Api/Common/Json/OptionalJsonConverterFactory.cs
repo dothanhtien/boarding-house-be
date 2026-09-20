@@ -28,6 +28,11 @@ file sealed class OptionalJsonConverter<T> : JsonConverter<Optional<T>>
     {
         if (reader.TokenType == JsonTokenType.Null)
         {
+            if (typeof(T).IsValueType && Nullable.GetUnderlyingType(typeof(T)) is null)
+            {
+                throw new JsonException($"Cannot convert null value to {typeof(T)}.");
+            }
+
             return new Optional<T>(default);
         }
 

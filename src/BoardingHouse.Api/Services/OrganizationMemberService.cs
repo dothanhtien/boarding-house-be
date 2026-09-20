@@ -114,6 +114,8 @@ public class OrganizationMemberService(
             throw new AppNotFoundException($"Organization member '{memberId}' not found");
         }
 
+        await EnsureNotOwnerAsync(member, cancellationToken);
+
         var role = await GetOrganizationScopedRoleAsync(request.RoleId, cancellationToken);
 
         member.RoleId = request.RoleId;
@@ -137,6 +139,8 @@ public class OrganizationMemberService(
             throw new AppNotFoundException($"Organization member '{memberId}' not found");
         }
 
+        await EnsureNotOwnerAsync(member, cancellationToken);
+
         organizationMemberRepository.SoftDelete(member);
         await context.SaveChangesAsync(cancellationToken);
 
@@ -148,6 +152,18 @@ public class OrganizationMemberService(
         if (!await organizationRepository.ExistsAsync(organizationId, cancellationToken))
         {
             throw new AppNotFoundException($"Organization '{organizationId}' not found");
+        }
+    }
+
+    private async Task EnsureNotOwnerAsync(OrganizationMember member, CancellationToken cancellationToken)
+    {
+        var ownerRole = await roleRepository.GetBySlugAsync(RoleSlugs.OrganizationAdmin, cancellationToken)
+            ?? throw new AppInternalException($"Role '{RoleSlugs.OrganizationAdmin}' not found - has RbacSeeder run?");
+
+        if (member.RoleId == ownerRole.Id)
+        {
+            throw new AppConflictException(
+                "The organization owner cannot be changed or removed here; transfer ownership via the organization update endpoint");
         }
     }
 

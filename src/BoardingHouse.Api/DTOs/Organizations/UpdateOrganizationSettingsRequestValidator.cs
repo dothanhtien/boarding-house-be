@@ -12,7 +12,16 @@ public class UpdateOrganizationSettingsRequestValidator : AbstractValidator<Upda
             .OverridePropertyName("DefaultBillingDay");
 
         RuleFor(x => x)
-            .Must(x => (EffectiveValue(x.LateFeeType) is null) == (EffectiveValue(x.LateFeeValue) is null))
+            .Must(x =>
+            {
+                if (!x.LateFeeType.IsSet && !x.LateFeeValue.IsSet)
+                {
+                    return true;
+                }
+
+                return x.LateFeeType.IsSet && x.LateFeeValue.IsSet
+                    && (x.LateFeeType.Value is null) == (x.LateFeeValue.Value is null);
+            })
             .WithMessage("Late fee type and Late fee value must be set together")
             .WithName(nameof(UpdateOrganizationSettingsRequest.LateFeeValue));
 
@@ -46,7 +55,4 @@ public class UpdateOrganizationSettingsRequestValidator : AbstractValidator<Upda
             .When(x => x.BankAccountName is { IsSet: true, Value: not null })
             .OverridePropertyName("BankAccountName");
     }
-
-    private static T? EffectiveValue<T>(BoardingHouse.Api.Common.Optional<T?> field) where T : struct =>
-        field.IsSet ? field.Value : null;
 }

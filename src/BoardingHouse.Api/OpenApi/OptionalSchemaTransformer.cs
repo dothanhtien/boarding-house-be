@@ -23,9 +23,13 @@ public sealed class OptionalSchemaTransformer : IOpenApiSchemaTransformer
         }
 
         // T itself may already be a nullable value type (e.g. Optional<int?>, used for DB-nullable
-        // columns) — unwrap it so the switch below sees the underlying primitive/enum.
+        // columns) — unwrap it so the switch below sees the underlying primitive/enum. A non-nullable
+        // value type (e.g. Optional<int>) rejects a JSON null at deserialization time (see
+        // OptionalJsonConverterFactory), so its schema must not advertise null as an accepted value.
         var genericArgument = type.GetGenericArguments()[0];
+        var isNullable = !genericArgument.IsValueType || Nullable.GetUnderlyingType(genericArgument) is not null;
         var innerType = Nullable.GetUnderlyingType(genericArgument) ?? genericArgument;
+        var nullFlag = isNullable ? JsonSchemaType.Null : default;
 
         schema.Properties?.Clear();
         schema.Required?.Clear();
@@ -34,7 +38,7 @@ public sealed class OptionalSchemaTransformer : IOpenApiSchemaTransformer
 
         if (innerType.IsEnum)
         {
-            schema.Type = JsonSchemaType.String | JsonSchemaType.Null;
+            schema.Type = JsonSchemaType.String | nullFlag;
             schema.Enum = Enum.GetNames(innerType)
                 .Select(name => (JsonNode)JsonNamingPolicy.CamelCase.ConvertName(name))
                 .ToList();
@@ -43,43 +47,43 @@ public sealed class OptionalSchemaTransformer : IOpenApiSchemaTransformer
 
         if (innerType == typeof(string))
         {
-            schema.Type = JsonSchemaType.String | JsonSchemaType.Null;
+            schema.Type = JsonSchemaType.String | nullFlag;
         }
         else if (innerType == typeof(bool))
         {
-            schema.Type = JsonSchemaType.Boolean | JsonSchemaType.Null;
+            schema.Type = JsonSchemaType.Boolean | nullFlag;
         }
         else if (innerType == typeof(int) || innerType == typeof(short) || innerType == typeof(byte))
         {
-            schema.Type = JsonSchemaType.Integer | JsonSchemaType.Null;
+            schema.Type = JsonSchemaType.Integer | nullFlag;
         }
         else if (innerType == typeof(long))
         {
-            schema.Type = JsonSchemaType.Integer | JsonSchemaType.Null;
+            schema.Type = JsonSchemaType.Integer | nullFlag;
             schema.Format = "int64";
         }
         else if (innerType == typeof(decimal) || innerType == typeof(double) || innerType == typeof(float))
         {
-            schema.Type = JsonSchemaType.Number | JsonSchemaType.Null;
+            schema.Type = JsonSchemaType.Number | nullFlag;
         }
         else if (innerType == typeof(Guid))
         {
-            schema.Type = JsonSchemaType.String | JsonSchemaType.Null;
+            schema.Type = JsonSchemaType.String | nullFlag;
             schema.Format = "uuid";
         }
         else if (innerType == typeof(DateTime) || innerType == typeof(DateTimeOffset))
         {
-            schema.Type = JsonSchemaType.String | JsonSchemaType.Null;
+            schema.Type = JsonSchemaType.String | nullFlag;
             schema.Format = "date-time";
         }
         else if (innerType == typeof(DateOnly))
         {
-            schema.Type = JsonSchemaType.String | JsonSchemaType.Null;
+            schema.Type = JsonSchemaType.String | nullFlag;
             schema.Format = "date";
         }
         else if (innerType == typeof(TimeOnly))
         {
-            schema.Type = JsonSchemaType.String | JsonSchemaType.Null;
+            schema.Type = JsonSchemaType.String | nullFlag;
             schema.Format = "time";
         }
         else
