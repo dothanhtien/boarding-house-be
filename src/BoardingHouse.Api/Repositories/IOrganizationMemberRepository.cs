@@ -16,4 +16,6 @@ public interface IOrganizationMemberRepository : IRepository<OrganizationMember>
         Expression<Func<OrganizationMember, object>> sortField,
         SortOrder sortOrder,
         CancellationToken cancellationToken = default);
+    Task<List<(Guid OrganizationId, Guid RoleId)>> GetActiveMembershipsByUserIdAsync(
+        Guid userId, CancellationToken cancellationToken = default);
 }

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using BoardingHouse.Api.Authorization;
 using BoardingHouse.Api.Common;
+using BoardingHouse.Api.Common.CurrentOrganization;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Middleware;
@@ -105,10 +106,15 @@ try
     builder.Services.AddScoped<IOrganizationMemberService, OrganizationMemberService>();
 
     builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
+    builder.Services.AddScoped<ICurrentOrganizationAccessor, CurrentOrganizationAccessor>();
+
     builder.Services.AddScoped<IUserCache, UserCache>();
     builder.Services.AddScoped<IRolePermissionCache, RolePermissionCache>();
     builder.Services.AddScoped<IPermissionService, PermissionService>();
+
+    builder.Services.AddScoped<IOrganizationScopeAccessor, OrganizationScopeAccessor>();
     builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+    builder.Services.AddScoped<IAuthorizationHandler, OrganizationScopedPermissionAuthorizationHandler>();
     builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 
     builder.Services.AddJwtAuthentication(builder.Configuration);
@@ -178,6 +184,7 @@ try
     app.UseExceptionHandler();
 
     app.UseMiddleware<CorrelationIdMiddleware>();
+    app.UseMiddleware<CurrentOrganizationMiddleware>();
 
     app.UseSerilogRequestLogging(options =>
     {
