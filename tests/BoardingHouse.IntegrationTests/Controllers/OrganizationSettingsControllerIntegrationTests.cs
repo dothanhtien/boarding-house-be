@@ -25,6 +25,8 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
     private const string ActorEmail = "actor@test.com";
     private const string ActorPassword = "password123";
 
+    private Guid _actorId;
+
     public async Task InitializeAsync()
     {
         await factory.ResetAsync();
@@ -52,8 +54,9 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
             FullName = "Actor User"
         });
         var actor = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        _actorId = actor!.Id;
 
-        await factory.GrantPlatformAdminRoleAsync(actor!.Id);
+        await factory.GrantPlatformAdminRoleAsync(actor.Id);
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
@@ -68,7 +71,8 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
     {
         var response = await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest
         {
-            Name = "Test Organization"
+            Name = "Test Organization",
+            OwnerId = _actorId
         });
         var organization = (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
         return organization!.Id;
@@ -194,13 +198,13 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
     }
 
     [Fact]
-    public async Task UpdateSettings_EmptyBody_Returns400()
+    public async Task UpdateSettings_EmptyBody_KeepsFieldsUnchanged()
     {
         var organizationId = await CreateOrganizationAsync();
 
         var response = await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest());
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]

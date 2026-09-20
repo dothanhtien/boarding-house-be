@@ -4,6 +4,7 @@ using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Services.Caching;
 using Microsoft.EntityFrameworkCore;
+using Serilog;
 
 namespace BoardingHouse.Api.Persistence.Seed;
 
@@ -31,14 +32,14 @@ public class RbacSeeder
 
     internal static readonly (string Slug, string Name, string Description, RoleScope Scope, string[] Permissions)[] RoleSeeds =
     [
-        ("platform_admin", "Platform Admin", "Full platform administration rights", RoleScope.Platform, ["*"]),
-        ("platform_staff", "Platform Staff", "Platform staff — limited permissions", RoleScope.Platform,
+        (RoleSlugs.PlatformAdmin, "Platform Admin", "Full platform administration rights", RoleScope.Platform, ["*"]),
+        (RoleSlugs.PlatformStaff, "Platform Staff", "Platform staff — limited permissions", RoleScope.Platform,
             ["user:read", "role:read"]),
-        ("organization_admin", "Organization Admin", "Full rights within the organization", RoleScope.Organization,
+        (RoleSlugs.OrganizationAdmin, "Organization Admin", "Full rights within the organization", RoleScope.Organization,
             [
                 "organization:read", "organization:update", "organization-setting:read", "organization-setting:update",
                 "organization-member:read", "organization-member:create", "organization-member:update", "organization-member:delete"]),
-        ("organization_staff", "Organization staff", "Manage day-to-day operations within the organization", RoleScope.Organization,
+        (RoleSlugs.OrganizationStaff, "Organization Staff", "Manage day-to-day operations within the organization", RoleScope.Organization,
             [
                 "organization:read", "organization-setting:read",
                 "organization-member:read", "organization-member:create", "organization-member:update", "organization-member:delete"]),
@@ -50,6 +51,7 @@ public class RbacSeeder
         CancellationToken cancellationToken = default)
     {
         var (permissionsByKey, _) = await SeedPermissionsAsync(context, rolePermissionCache, cancellationToken);
+        var permissionNamesById = permissionsByKey.Values.ToDictionary(p => p.Id, p => $"{p.Resource}:{p.Action}");
 
         foreach (var seed in RoleSeeds)
         {
@@ -57,7 +59,7 @@ public class RbacSeeder
                 ? permissionsByKey.Values
                 : seed.Permissions.Select(p => ResolvePermission(p, seed.Slug, permissionsByKey));
 
-            await SeedRoleAsync(context, seed.Slug, seed.Name, seed.Description, seed.Scope, permissions, rolePermissionCache, cancellationToken);
+            await SeedRoleAsync(context, seed.Slug, seed.Name, seed.Description, seed.Scope, permissions, permissionNamesById, rolePermissionCache, cancellationToken);
         }
     }
 
@@ -68,6 +70,8 @@ public class RbacSeeder
     {
         var existing = await context.Permissions.ToListAsync(cancellationToken);
         var existingKeys = existing.Select(p => (p.Resource, p.Action)).ToHashSet();
+
+        var added = new List<string>();
 
         foreach (var seed in PermissionSeeds)
         {
@@ -82,6 +86,7 @@ public class RbacSeeder
             };
             context.Permissions.Add(permission);
             existing.Add(permission);
+            added.Add($"{seed.Resource}:{seed.Action}");
         }
 
         var desiredKeys = PermissionSeeds.Select(s => (s.Resource, s.Action)).ToHashSet();
@@ -105,6 +110,19 @@ public class RbacSeeder
         try
         {
             await context.SaveChangesAsync(cancellationToken);
+
+            if (added.Count > 0)
+            {
+                Log.Information("RBAC permissions added: {Permissions}", added);
+            }
+
+            if (toRevoke.Count > 0)
+            {
+                Log.Warning(
+                    "RBAC permissions revoked: {Permissions} (affecting {RoleCount} role(s))",
+                    toRevoke.Select(p => $"{p.Resource}:{p.Action}"),
+                    affectedRoleIds.Count);
+            }
 
             if (rolePermissionCache is not null)
             {
@@ -153,12 +171,15 @@ public class RbacSeeder
         string description,
         RoleScope scope,
         IEnumerable<Permission> permissions,
+        Dictionary<Guid, string> permissionNamesById,
         IRolePermissionCache? rolePermissionCache,
         CancellationToken cancellationToken)
     {
         var role = await context.Roles
             .Include(r => r.RolePermissions)
             .FirstOrDefaultAsync(r => r.Slug == slug, cancellationToken);
+
+        var isNewRole = role is null;
 
         if (role is null)
         {
@@ -177,7 +198,7 @@ public class RbacSeeder
         var desiredPermissionIds = permissions.Select(p => p.Id).ToHashSet();
         var grantedPermissionIds = role.RolePermissions.Select(rp => rp.PermissionId).ToHashSet();
 
-        var granted = false;
+        var grantedNames = new List<string>();
 
         foreach (var permission in permissions)
         {
@@ -189,11 +210,17 @@ public class RbacSeeder
                 PermissionId = permission.Id,
                 CreatedBy = SentinelActors.System
             });
-            granted = true;
+            grantedNames.Add($"{permission.Resource}:{permission.Action}");
         }
+
+        var granted = grantedNames.Count > 0;
 
         var toRevoke = role.RolePermissions
             .Where(rp => !desiredPermissionIds.Contains(rp.PermissionId))
+            .ToList();
+
+        var revokedNames = toRevoke
+            .Select(rp => permissionNamesById.GetValueOrDefault(rp.PermissionId, rp.PermissionId.ToString()))
             .ToList();
 
         context.RolePermissions.RemoveRange(toRevoke);
@@ -201,6 +228,21 @@ public class RbacSeeder
         try
         {
             await context.SaveChangesAsync(cancellationToken);
+
+            if (isNewRole)
+            {
+                Log.Information("RBAC role created: {RoleSlug}", slug);
+            }
+
+            if (granted)
+            {
+                Log.Information("RBAC permissions granted to role {RoleSlug}: {Permissions}", slug, grantedNames);
+            }
+
+            if (revokedNames.Count > 0)
+            {
+                Log.Warning("RBAC permissions revoked from role {RoleSlug}: {Permissions}", slug, revokedNames);
+            }
 
             if (rolePermissionCache is not null && (granted || toRevoke.Count > 0))
             {

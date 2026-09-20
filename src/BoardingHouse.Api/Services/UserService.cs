@@ -30,23 +30,8 @@ public class UserService(
 
     public async Task<PagedResult<UserResponse>> GetAllAsync(UserListQuery query, CancellationToken cancellationToken = default)
     {
-        var users = context.Users.AsQueryable();
-
-        if (query.IsActive is not null)
-        {
-            users = users.Where(u => u.IsActive == query.IsActive);
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.Search))
-        {
-            var pattern = LikePattern.Contains(query.Search.Trim());
-            users = users.Where(u =>
-                EF.Functions.ILike(u.Email, pattern, LikePattern.EscapeCharacter) ||
-                EF.Functions.ILike(u.FullName, pattern, LikePattern.EscapeCharacter));
-        }
-
         var sortField = SortableFields.GetValueOrDefault(query.SortBy ?? "", SortableFields[""]);
-        var paged = await users.ToPagedResultAsync(query, sortField, query.SortOrder, cancellationToken);
+        var paged = await userRepository.SearchAsync(query.IsActive, query.Search, query, sortField, query.SortOrder, cancellationToken);
 
         return new PagedResult<UserResponse>
         {
@@ -59,8 +44,8 @@ public class UserService(
 
     public async Task<UserResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var user = await context.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken)
-            ?? throw new NotFoundAppException($"User '{id}' not found");
+        var user = await userRepository.GetByIdAsync(id, cancellationToken)
+            ?? throw new AppNotFoundException($"User '{id}' not found");
 
         return user.Adapt<UserResponse>();
     }
@@ -72,7 +57,7 @@ public class UserService(
         if (await userRepository.ExistsByEmailOrPhoneAsync(email, request.Phone, cancellationToken))
         {
             logger.LogWarning("Create user failed: email or phone already in use ({Email})", email);
-            throw new ConflictAppException("Email or phone already in use");
+            throw new AppConflictException("Email or phone already in use");
         }
 
         var user = new User
@@ -92,7 +77,7 @@ public class UserService(
         catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
             logger.LogWarning("Create user failed: email or phone already in use ({Email})", email);
-            throw new ConflictAppException("Email or phone already in use");
+            throw new AppConflictException("Email or phone already in use");
         }
 
         logger.LogInformation("User created ({UserId}, {Email})", user.Id, email);
@@ -103,44 +88,38 @@ public class UserService(
     public async Task<UserResponse> UpdateAsync(Guid id, UpdateUserRequest request, CancellationToken cancellationToken = default)
     {
         var user = await userRepository.GetByIdAsync(id, cancellationToken)
-            ?? throw new NotFoundAppException($"User '{id}' not found");
+            ?? throw new AppNotFoundException($"User '{id}' not found");
 
-        if (request.Email is not null)
+        if (request.Email.IsSet)
         {
-            var email = request.Email.Trim().ToLowerInvariant();
+            var email = request.Email.Value!.Trim().ToLowerInvariant();
 
             if (email != user.Email &&
                 await userRepository.ExistsByEmailExcludingUserAsync(email, user.Id, cancellationToken))
             {
                 logger.LogWarning("Update user failed: email already in use ({Email})", email);
-                throw new ConflictAppException("Email already in use");
+                throw new AppConflictException("Email already in use");
             }
 
             user.Email = email;
         }
 
-        if (request.Phone is not null)
+        if (request.Phone.IsSet)
         {
-            if (request.Phone != user.Phone &&
-                request.Phone != string.Empty &&
-                await userRepository.ExistsByPhoneExcludingUserAsync(request.Phone, user.Id, cancellationToken))
+            if (request.Phone.Value != user.Phone &&
+                request.Phone.Value != string.Empty &&
+                request.Phone.Value is not null &&
+                await userRepository.ExistsByPhoneExcludingUserAsync(request.Phone.Value, user.Id, cancellationToken))
             {
                 logger.LogWarning("Update user failed: phone already in use ({UserId})", id);
-                throw new ConflictAppException("Phone already in use");
+                throw new AppConflictException("Phone already in use");
             }
 
-            user.Phone = request.Phone;
+            user.Phone = request.Phone.Value;
         }
 
-        if (request.FullName is not null)
-        {
-            user.FullName = request.FullName;
-        }
-
-        if (request.IsActive is not null)
-        {
-            user.IsActive = request.IsActive.Value;
-        }
+        request.FullName.ApplyIfSet(v => user.FullName = v!);
+        request.IsActive.ApplyIfSet(v => user.IsActive = v);
 
         try
         {
@@ -150,7 +129,7 @@ public class UserService(
         catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
             logger.LogWarning("Update user failed: email or phone already in use ({UserId})", id);
-            throw new ConflictAppException("Email or phone already in use");
+            throw new AppConflictException("Email or phone already in use");
         }
 
         await userCache.InvalidateAsync(user.Id, cancellationToken);
@@ -163,7 +142,7 @@ public class UserService(
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var user = await userRepository.GetByIdAsync(id, cancellationToken)
-            ?? throw new NotFoundAppException($"User '{id}' not found");
+            ?? throw new AppNotFoundException($"User '{id}' not found");
 
         userRepository.SoftDelete(user);
         await context.SaveChangesAsync(cancellationToken);

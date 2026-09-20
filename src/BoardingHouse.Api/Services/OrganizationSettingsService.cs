@@ -54,11 +54,11 @@ public class OrganizationSettingsService(
             }
             catch (DbUpdateException ex) when (ex.IsUniqueViolation())
             {
-                context.Entry(settings).State = EntityState.Detached;
+                organizationSettingsRepository.Detach(settings);
                 logger.LogInformation("Organization settings creation raced with a concurrent write ({OrganizationId}); retrying as update", organizationId);
 
                 settings = await organizationSettingsRepository.GetByOrganizationIdAsync(organizationId, cancellationToken)
-                    ?? throw new ConflictAppException("Organization settings could not be saved, please retry");
+                    ?? throw new AppConflictException("Organization settings could not be saved, please retry");
 
                 request.Adapt(settings, OrganizationSettingsMappingConfig.UpdateConfig);
                 settings.UpdatedAt = DateTimeOffset.UtcNow;
@@ -78,7 +78,7 @@ public class OrganizationSettingsService(
         var exists = await organizationRepository.ExistsAsync(organizationId, cancellationToken);
         if (!exists)
         {
-            throw new NotFoundAppException($"Organization {organizationId} not found");
+            throw new AppNotFoundException($"Organization {organizationId} not found");
         }
     }
 }

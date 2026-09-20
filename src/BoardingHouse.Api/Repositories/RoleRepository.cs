@@ -14,4 +14,7 @@ public class RoleRepository(AppDbContext context) : Repository<Role>(context), I
             .Select(rp => new ValueTuple<string, string>(rp.Permission!.Resource, rp.Permission!.Action))
             .Distinct()
             .ToListAsync(cancellationToken);
+
+    public Task<Role?> GetBySlugAsync(string slug, CancellationToken cancellationToken = default) =>
+        Context.Roles.FirstOrDefaultAsync(r => r.Slug == slug && r.IsActive, cancellationToken);
 }

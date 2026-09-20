@@ -9,7 +9,8 @@ public class CreateOrganizationRequestValidatorTests
 
     private static CreateOrganizationRequest ValidRequest() => new()
     {
-        Name = "Test Organization"
+        Name = "Test Organization",
+        OwnerId = Guid.NewGuid()
     };
 
     [Fact]

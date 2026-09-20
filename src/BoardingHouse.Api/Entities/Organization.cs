@@ -13,4 +13,6 @@ public class Organization : BaseEntity
     public string? Ward { get; set; }
     public string? Address { get; set; }
     public bool IsActive { get; set; } = true;
+
+    public List<OrganizationMember> Members { get; set; } = [];
 }

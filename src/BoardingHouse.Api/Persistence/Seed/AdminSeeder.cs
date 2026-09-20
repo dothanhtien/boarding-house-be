@@ -7,7 +7,7 @@ namespace BoardingHouse.Api.Persistence.Seed;
 
 public static class AdminSeeder
 {
-    private const string PlatformAdminRoleSlug = "platform_admin";
+    private const string PlatformAdminRoleSlug = RoleSlugs.PlatformAdmin;
 
     public static async Task SeedAsync(
         AppDbContext context,

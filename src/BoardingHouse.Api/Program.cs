@@ -68,6 +68,7 @@ try
         });
         options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
         options.AddOperationTransformer<CamelCaseParameterNameTransformer>();
+        options.AddSchemaTransformer<OptionalSchemaTransformer>();
     });
 
     builder.Services.AddDbContext<AppDbContext>((sp, options) =>
@@ -97,6 +98,7 @@ try
     builder.Services.AddScoped<IOrganizationMemberRepository, OrganizationMemberRepository>();
 
     builder.Services.AddScoped<IUserService, UserService>();
+    builder.Services.AddScoped<IRoleService, RoleService>();
     builder.Services.AddScoped<IAuthService, AuthService>();
     builder.Services.AddSingleton<ITokenService, TokenService>();
     builder.Services.AddScoped<IOrganizationService, OrganizationService>();

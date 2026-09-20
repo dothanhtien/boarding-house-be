@@ -16,7 +16,7 @@ public class OrganizationMemeberConfiguration : IEntityTypeConfiguration<Organiz
         builder.HasIndex(m => m.UserId);
 
         builder.HasOne(m => m.Organization)
-            .WithMany()
+            .WithMany(o => o.Members)
             .HasForeignKey(m => m.OrganizationId)
             .OnDelete(DeleteBehavior.Cascade);
 

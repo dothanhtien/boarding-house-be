@@ -1,3 +1,5 @@
+using System.Linq.Expressions;
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -17,4 +19,30 @@ public class UserRepository(AppDbContext context) : Repository<User>(context), I
 
     public Task<bool> ExistsByPhoneExcludingUserAsync(string phone, Guid excludeUserId, CancellationToken cancellationToken = default) =>
         Context.Users.AnyAsync(u => u.Id != excludeUserId && u.Phone == phone, cancellationToken);
+
+    public async Task<PagedResult<User>> SearchAsync(
+        bool? isActive,
+        string? search,
+        PageRequest pageRequest,
+        Expression<Func<User, object>> sortField,
+        SortOrder sortOrder,
+        CancellationToken cancellationToken = default)
+    {
+        var users = Context.Users.AsQueryable();
+
+        if (isActive is not null)
+        {
+            users = users.Where(u => u.IsActive == isActive);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = LikePattern.Contains(search.Trim());
+            users = users.Where(u =>
+                EF.Functions.ILike(u.Email, pattern, LikePattern.EscapeCharacter) ||
+                EF.Functions.ILike(u.FullName, pattern, LikePattern.EscapeCharacter));
+        }
+
+        return await users.ToPagedResultAsync(pageRequest, sortField, sortOrder, cancellationToken);
+    }
 }

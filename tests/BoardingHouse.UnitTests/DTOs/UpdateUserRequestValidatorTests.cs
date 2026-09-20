@@ -23,12 +23,11 @@ public class UpdateUserRequestValidatorTests
     }
 
     [Fact]
-    public void Validate_AllFieldsNull_HasError()
+    public void Validate_AllFieldsOmitted_IsValid()
     {
         var result = _validator.Validate(new UpdateUserRequest());
 
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, e => e.PropertyName == "Request");
+        Assert.True(result.IsValid);
     }
 
     [Fact]
@@ -40,11 +39,20 @@ public class UpdateUserRequestValidatorTests
     }
 
     [Fact]
-    public void Validate_NullEmail_IsValid()
+    public void Validate_OmittedEmail_IsValid()
+    {
+        var result = _validator.Validate(Valid() with { Email = default });
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validate_ExplicitNullEmail_HasEmailError()
     {
         var result = _validator.Validate(Valid() with { Email = null });
 
-        Assert.True(result.IsValid);
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.PropertyName == nameof(UpdateUserRequest.Email));
     }
 
     [Fact]
@@ -75,7 +83,15 @@ public class UpdateUserRequestValidatorTests
     }
 
     [Fact]
-    public void Validate_NullPhone_IsValid()
+    public void Validate_OmittedPhone_IsValid()
+    {
+        var result = _validator.Validate(Valid() with { Phone = default });
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validate_ExplicitNullPhone_IsValid()
     {
         var result = _validator.Validate(Valid() with { Phone = null });
 
@@ -121,11 +137,20 @@ public class UpdateUserRequestValidatorTests
     }
 
     [Fact]
-    public void Validate_NullFullName_IsValid()
+    public void Validate_OmittedFullName_IsValid()
+    {
+        var result = _validator.Validate(Valid() with { FullName = default });
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validate_ExplicitNullFullName_HasFullNameError()
     {
         var result = _validator.Validate(Valid() with { FullName = null });
 
-        Assert.True(result.IsValid);
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.PropertyName == nameof(UpdateUserRequest.FullName));
     }
 
     [Fact]
@@ -147,9 +172,9 @@ public class UpdateUserRequestValidatorTests
     }
 
     [Fact]
-    public void Validate_NullIsActive_IsValid()
+    public void Validate_OmittedIsActive_IsValid()
     {
-        var result = _validator.Validate(Valid() with { IsActive = null });
+        var result = _validator.Validate(Valid() with { IsActive = default });
 
         Assert.True(result.IsValid);
     }

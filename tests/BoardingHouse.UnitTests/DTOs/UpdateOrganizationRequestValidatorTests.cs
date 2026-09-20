@@ -22,11 +22,11 @@ public class UpdateOrganizationRequestValidatorTests
     }
 
     [Fact]
-    public void Validate_AllFieldsNull_HasError()
+    public void Validate_AllFieldsNull_IsValid()
     {
         var result = _validator.TestValidate(new UpdateOrganizationRequest());
 
-        result.ShouldHaveValidationErrorFor("Request");
+        result.ShouldNotHaveAnyValidationErrors();
     }
 
     [Fact]
@@ -38,11 +38,19 @@ public class UpdateOrganizationRequestValidatorTests
     }
 
     [Fact]
-    public void Validate_NullName_HasNoError()
+    public void Validate_OmittedName_HasNoError()
+    {
+        var result = _validator.TestValidate(ValidRequest() with { Name = default });
+
+        result.ShouldNotHaveValidationErrorFor(x => x.Name);
+    }
+
+    [Fact]
+    public void Validate_ExplicitNullName_HasError()
     {
         var result = _validator.TestValidate(ValidRequest() with { Name = null });
 
-        result.ShouldNotHaveValidationErrorFor(x => x.Name);
+        result.ShouldHaveValidationErrorFor(x => x.Name);
     }
 
     [Fact]
@@ -51,6 +59,22 @@ public class UpdateOrganizationRequestValidatorTests
         var result = _validator.TestValidate(ValidRequest() with { Name = new string('a', 256) });
 
         result.ShouldHaveValidationErrorFor(x => x.Name);
+    }
+
+    [Fact]
+    public void Validate_NullOwnerId_HasNoError()
+    {
+        var result = _validator.TestValidate(ValidRequest() with { OwnerId = null });
+
+        result.ShouldNotHaveValidationErrorFor(x => x.OwnerId);
+    }
+
+    [Fact]
+    public void Validate_EmptyOwnerId_HasError()
+    {
+        var result = _validator.TestValidate(ValidRequest() with { OwnerId = Guid.Empty });
+
+        result.ShouldHaveValidationErrorFor(x => x.OwnerId);
     }
 
     [Fact]
