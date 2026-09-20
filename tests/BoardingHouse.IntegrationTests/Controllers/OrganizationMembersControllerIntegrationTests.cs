@@ -20,6 +20,8 @@ public class OrganizationMembersControllerIntegrationTests(PostgresApiFactory fa
     private const string ActorEmail = "actor@test.com";
     private const string ActorPassword = "password123";
 
+    private Guid _actorId;
+
     public async Task InitializeAsync()
     {
         await factory.ResetAsync();
@@ -47,8 +49,9 @@ public class OrganizationMembersControllerIntegrationTests(PostgresApiFactory fa
             FullName = "Actor User"
         });
         var actor = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        _actorId = actor!.Id;
 
-        await factory.GrantPlatformAdminRoleAsync(actor!.Id);
+        await factory.GrantPlatformAdminRoleAsync(actor.Id);
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
@@ -61,7 +64,7 @@ public class OrganizationMembersControllerIntegrationTests(PostgresApiFactory fa
 
     private async Task<Guid> CreateOrganizationAsync()
     {
-        var response = await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Test Organization" });
+        var response = await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Test Organization", OwnerId = _actorId });
         var organization = (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
 
         return organization!.Id;
@@ -247,6 +250,6 @@ public class OrganizationMembersControllerIntegrationTests(PostgresApiFactory fa
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Single(result!.Items);
-        Assert.Equal(2, result.TotalItems);
+        Assert.Equal(3, result.TotalItems);
     }
 }

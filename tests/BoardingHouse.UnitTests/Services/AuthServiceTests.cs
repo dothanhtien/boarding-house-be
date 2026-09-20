@@ -45,7 +45,7 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task RegisterAsync_EmailAlreadyExists_ThrowsConflictAppException()
+    public async Task RegisterAsync_EmailAlreadyExists_ThrowsAppConflictException()
     {
         _userRepository
             .Setup(r => r.ExistsByEmailOrPhoneAsync("taken@test.com", null, It.IsAny<CancellationToken>()))
@@ -59,7 +59,7 @@ public class AuthServiceTests
             FullName = "Test User"
         };
 
-        await Assert.ThrowsAsync<ConflictAppException>(() => _authService.RegisterAsync(request));
+        await Assert.ThrowsAsync<AppConflictException>(() => _authService.RegisterAsync(request));
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task LoginAsync_WrongPassword_ThrowsUnauthorizedAppException()
+    public async Task LoginAsync_WrongPassword_ThrowsAppUnauthorizedException()
     {
         var user = new User
         {
@@ -101,11 +101,11 @@ public class AuthServiceTests
 
         var request = new LoginRequest { Email = "user@test.com", Password = "wrong-password" };
 
-        await Assert.ThrowsAsync<UnauthorizedAppException>(() => _authService.LoginAsync(request, null, null));
+        await Assert.ThrowsAsync<AppUnauthorizedException>(() => _authService.LoginAsync(request, null, null));
     }
 
     [Fact]
-    public async Task LoginAsync_InactiveUser_ThrowsUnauthorizedAppException()
+    public async Task LoginAsync_InactiveUser_ThrowsAppUnauthorizedException()
     {
         var user = new User
         {
@@ -119,7 +119,7 @@ public class AuthServiceTests
 
         var request = new LoginRequest { Email = "user@test.com", Password = "password1" };
 
-        await Assert.ThrowsAsync<UnauthorizedAppException>(() => _authService.LoginAsync(request, null, null));
+        await Assert.ThrowsAsync<AppUnauthorizedException>(() => _authService.LoginAsync(request, null, null));
     }
 
     [Fact]
@@ -146,18 +146,18 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task RefreshTokenAsync_TokenNotFound_ThrowsUnauthorizedAppException()
+    public async Task RefreshTokenAsync_TokenNotFound_ThrowsAppUnauthorizedException()
     {
         _tokenService.Setup(t => t.HashToken("unknown")).Returns("unknown-hash");
         _refreshTokenRepository
             .Setup(r => r.GetByTokenHashAsync("unknown-hash", It.IsAny<CancellationToken>()))
             .ReturnsAsync((RefreshToken?)null);
 
-        await Assert.ThrowsAsync<UnauthorizedAppException>(() => _authService.RefreshTokenAsync("unknown", null, null));
+        await Assert.ThrowsAsync<AppUnauthorizedException>(() => _authService.RefreshTokenAsync("unknown", null, null));
     }
 
     [Fact]
-    public async Task RefreshTokenAsync_AlreadyRevoked_ThrowsUnauthorizedAppException_AndRevokesActiveChain()
+    public async Task RefreshTokenAsync_AlreadyRevoked_ThrowsAppUnauthorizedException_AndRevokesActiveChain()
     {
         var userId = Guid.NewGuid();
         var revokedToken = new RefreshToken
@@ -182,14 +182,14 @@ public class AuthServiceTests
             .Setup(r => r.GetActiveByUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync([otherActiveToken]);
 
-        await Assert.ThrowsAsync<UnauthorizedAppException>(() => _authService.RefreshTokenAsync("stolen-token", null, null));
+        await Assert.ThrowsAsync<AppUnauthorizedException>(() => _authService.RefreshTokenAsync("stolen-token", null, null));
 
         Assert.NotNull(otherActiveToken.RevokedAt);
         Assert.Equal(RevokedReason.Suspicious, otherActiveToken.RevokedReason);
     }
 
     [Fact]
-    public async Task RefreshTokenAsync_Expired_ThrowsUnauthorizedAppException()
+    public async Task RefreshTokenAsync_Expired_ThrowsAppUnauthorizedException()
     {
         var token = new RefreshToken
         {
@@ -203,7 +203,7 @@ public class AuthServiceTests
             .Setup(r => r.GetByTokenHashAsync("expired-hash", It.IsAny<CancellationToken>()))
             .ReturnsAsync(token);
 
-        await Assert.ThrowsAsync<UnauthorizedAppException>(() => _authService.RefreshTokenAsync("expired-token", null, null));
+        await Assert.ThrowsAsync<AppUnauthorizedException>(() => _authService.RefreshTokenAsync("expired-token", null, null));
     }
 
     [Fact]

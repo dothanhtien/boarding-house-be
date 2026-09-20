@@ -30,13 +30,13 @@ public class GlobalExceptionHandlerTests
     }
 
     [Fact]
-    public async Task TryHandleAsync_NotFoundAppException_Returns404WithMessageAndCorrelationId()
+    public async Task TryHandleAsync_AppNotFoundException_Returns404WithMessageAndCorrelationId()
     {
         var handler = CreateHandler(Environments.Production);
         var (context, body) = CreateHttpContext();
         context.Items["CorrelationId"] = "test-correlation-id";
 
-        var handled = await handler.TryHandleAsync(context, new NotFoundAppException("User not found"), CancellationToken.None);
+        var handled = await handler.TryHandleAsync(context, new AppNotFoundException("User not found"), CancellationToken.None);
 
         Assert.True(handled);
         Assert.Equal(StatusCodes.Status404NotFound, context.Response.StatusCode);
@@ -47,12 +47,12 @@ public class GlobalExceptionHandlerTests
     }
 
     [Fact]
-    public async Task TryHandleAsync_ConflictAppException_Returns409WithMessage()
+    public async Task TryHandleAsync_AppConflictException_Returns409WithMessage()
     {
         var handler = CreateHandler(Environments.Production);
         var (context, body) = CreateHttpContext();
 
-        var handled = await handler.TryHandleAsync(context, new ConflictAppException("Email already exists"), CancellationToken.None);
+        var handled = await handler.TryHandleAsync(context, new AppConflictException("Email already exists"), CancellationToken.None);
 
         Assert.True(handled);
         Assert.Equal(StatusCodes.Status409Conflict, context.Response.StatusCode);

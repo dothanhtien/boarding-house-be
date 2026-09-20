@@ -47,8 +47,12 @@ public class UserServiceTests
     [Fact]
     public async Task GetAllAsync_ReturnsAllUsersAsResponses()
     {
-        _context.Users.AddRange(NewUser("a@test.com"), NewUser("b@test.com"));
-        await _context.SaveChangesAsync();
+        var users = new List<User> { NewUser("a@test.com"), NewUser("b@test.com") };
+        _userRepository
+            .Setup(r => r.SearchAsync(
+                It.IsAny<bool?>(), It.IsAny<string?>(), It.IsAny<PageRequest>(),
+                It.IsAny<System.Linq.Expressions.Expression<Func<User, object>>>(), It.IsAny<SortOrder>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<User> { Items = users, Page = 1, PageSize = 20, TotalItems = users.Count });
 
         var result = await _userService.GetAllAsync(new UserListQuery());
 
@@ -61,8 +65,7 @@ public class UserServiceTests
     public async Task GetByIdAsync_ExistingId_ReturnsUserResponse()
     {
         var user = NewUser();
-        _context.Users.Add(user);
-        await _context.SaveChangesAsync();
+        _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var result = await _userService.GetByIdAsync(user.Id);
 
@@ -71,13 +74,15 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task GetByIdAsync_UnknownId_ThrowsNotFoundAppException()
+    public async Task GetByIdAsync_UnknownId_ThrowsAppNotFoundException()
     {
-        await Assert.ThrowsAsync<NotFoundAppException>(() => _userService.GetByIdAsync(Guid.NewGuid()));
+        _userRepository.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
+
+        await Assert.ThrowsAsync<AppNotFoundException>(() => _userService.GetByIdAsync(Guid.NewGuid()));
     }
 
     [Fact]
-    public async Task CreateAsync_EmailOrPhoneAlreadyInUse_ThrowsConflictAppException()
+    public async Task CreateAsync_EmailOrPhoneAlreadyInUse_ThrowsAppConflictException()
     {
         _userRepository
             .Setup(r => r.ExistsByEmailOrPhoneAsync("taken@test.com", null, It.IsAny<CancellationToken>()))
@@ -91,7 +96,7 @@ public class UserServiceTests
             PasswordConfirmation = "password"
         };
 
-        await Assert.ThrowsAsync<ConflictAppException>(() => _userService.CreateAsync(request));
+        await Assert.ThrowsAsync<AppConflictException>(() => _userService.CreateAsync(request));
     }
 
     [Fact]
@@ -187,7 +192,7 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_ConcurrentUniqueViolation_ThrowsConflictAppException()
+    public async Task CreateAsync_ConcurrentUniqueViolation_ThrowsAppConflictException()
     {
         _userRepository
             .Setup(r => r.ExistsByEmailOrPhoneAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
@@ -218,7 +223,7 @@ public class UserServiceTests
             PasswordConfirmation = "password"
         };
 
-        await Assert.ThrowsAsync<ConflictAppException>(() => service.CreateAsync(request));
+        await Assert.ThrowsAsync<AppConflictException>(() => service.CreateAsync(request));
     }
 
     [Fact]
@@ -257,13 +262,13 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task UpdateAsync_UnknownId_ThrowsNotFoundAppException()
+    public async Task UpdateAsync_UnknownId_ThrowsAppNotFoundException()
     {
         _userRepository.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
         var request = new UpdateUserRequest { FullName = "New Name", IsActive = true };
 
-        await Assert.ThrowsAsync<NotFoundAppException>(() => _userService.UpdateAsync(Guid.NewGuid(), request));
+        await Assert.ThrowsAsync<AppNotFoundException>(() => _userService.UpdateAsync(Guid.NewGuid(), request));
     }
 
     [Fact]
@@ -332,7 +337,7 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task UpdateAsync_EmailAlreadyUsedByAnotherUser_ThrowsConflictAppException()
+    public async Task UpdateAsync_EmailAlreadyUsedByAnotherUser_ThrowsAppConflictException()
     {
         var user = NewUser();
         _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
@@ -340,7 +345,7 @@ public class UserServiceTests
 
         var request = new UpdateUserRequest { Email = "taken@test.com" };
 
-        await Assert.ThrowsAsync<ConflictAppException>(() => _userService.UpdateAsync(user.Id, request));
+        await Assert.ThrowsAsync<AppConflictException>(() => _userService.UpdateAsync(user.Id, request));
         _userRepository.Verify(r => r.Update(It.IsAny<User>()), Times.Never);
     }
 
@@ -359,7 +364,7 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task UpdateAsync_PhoneAlreadyUsedByAnotherUser_ThrowsConflictAppException()
+    public async Task UpdateAsync_PhoneAlreadyUsedByAnotherUser_ThrowsAppConflictException()
     {
         var user = NewUser();
         _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
@@ -367,16 +372,16 @@ public class UserServiceTests
 
         var request = new UpdateUserRequest { Phone = "0911111111" };
 
-        await Assert.ThrowsAsync<ConflictAppException>(() => _userService.UpdateAsync(user.Id, request));
+        await Assert.ThrowsAsync<AppConflictException>(() => _userService.UpdateAsync(user.Id, request));
         _userRepository.Verify(r => r.Update(It.IsAny<User>()), Times.Never);
     }
 
     [Fact]
-    public async Task DeleteAsync_UnknownId_ThrowsNotFoundAppException()
+    public async Task DeleteAsync_UnknownId_ThrowsAppNotFoundException()
     {
         _userRepository.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
 
-        await Assert.ThrowsAsync<NotFoundAppException>(() => _userService.DeleteAsync(Guid.NewGuid()));
+        await Assert.ThrowsAsync<AppNotFoundException>(() => _userService.DeleteAsync(Guid.NewGuid()));
     }
 
     [Fact]

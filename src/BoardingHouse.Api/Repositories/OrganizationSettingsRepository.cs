@@ -13,4 +13,6 @@ public class OrganizationSettingsRepository(AppDbContext context) : IOrganizatio
         context.OrganizationSettings.AddAsync(settings, cancellationToken).AsTask();
 
     public void Update(OrganizationSettings settings) => context.OrganizationSettings.Update(settings);
+
+    public void Detach(OrganizationSettings settings) => context.Entry(settings).State = EntityState.Detached;
 }

@@ -35,22 +35,14 @@ public class OrganizationMemberService(
     {
         await EnsureOrganizationExistsAsync(organizationId, cancellationToken);
 
-        var members = context.OrganizationMembers
-            .Include(m => m.User)
-            .Include(m => m.Role)
-            .Where(m => m.OrganizationId == organizationId)
-            .AsQueryable();
-
-        if (!string.IsNullOrWhiteSpace(query.Search))
-        {
-            var pattern = LikePattern.Contains(query.Search.Trim());
-            members = members.Where(m =>
-                EF.Functions.ILike(m.User!.Email, pattern, LikePattern.EscapeCharacter) ||
-                EF.Functions.ILike(m.User!.FullName, pattern, LikePattern.EscapeCharacter));
-        }
-
         var sortField = SortableFields.GetValueOrDefault(query.SortBy ?? "", SortableFields[""]);
-        var paged = await members.ToPagedResultAsync(query, sortField, query.SortOrder, cancellationToken);
+        var paged = await organizationMemberRepository.SearchByOrganizationIdAsync(
+            organizationId,
+            query.Search,
+            query,
+            sortField,
+            query.SortOrder,
+            cancellationToken);
 
         return new PagedResult<OrganizationMemberResponse>
         {
@@ -69,7 +61,7 @@ public class OrganizationMemberService(
         await EnsureOrganizationExistsAsync(organizationId, cancellationToken);
 
         var user = await userRepository.GetByIdAsync(request.UserId, cancellationToken)
-            ?? throw new NotFoundAppException($"User '{request.UserId}' not found");
+            ?? throw new AppNotFoundException($"User '{request.UserId}' not found");
 
         var role = await GetOrganizationScopedRoleAsync(request.RoleId, cancellationToken);
 
@@ -78,7 +70,7 @@ public class OrganizationMemberService(
         if (existing is not null)
         {
             logger.LogWarning("Add organization member failed: user already a member ({OrganizationId}, {UserId})", organizationId, request.UserId);
-            throw new ConflictAppException("User is already a member of this organization");
+            throw new AppConflictException("User is already a member of this organization");
         }
 
         var member = new OrganizationMember
@@ -97,7 +89,7 @@ public class OrganizationMemberService(
         catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
             logger.LogWarning("Add organization member failed: user already a member ({OrganizationId}, {UserId})", organizationId, request.UserId);
-            throw new ConflictAppException("User is already a member of this organization");
+            throw new AppConflictException("User is already a member of this organization");
         }
 
         logger.LogInformation("Organization member added ({OrganizationId}, {MemberId})", organizationId, member.Id);
@@ -116,10 +108,11 @@ public class OrganizationMemberService(
     {
         await EnsureOrganizationExistsAsync(organizationId, cancellationToken);
 
-        var member = await context.OrganizationMembers
-            .Include(m => m.User)
-            .FirstOrDefaultAsync(m => m.Id == memberId && m.OrganizationId == organizationId, cancellationToken)
-            ?? throw new NotFoundAppException($"Organization member '{memberId}' not found");
+        var member = await organizationMemberRepository.GetByIdWithUserAsync(memberId, cancellationToken);
+        if (member is null || member.OrganizationId != organizationId)
+        {
+            throw new AppNotFoundException($"Organization member '{memberId}' not found");
+        }
 
         var role = await GetOrganizationScopedRoleAsync(request.RoleId, cancellationToken);
 
@@ -141,7 +134,7 @@ public class OrganizationMemberService(
         var member = await organizationMemberRepository.GetByIdAsync(memberId, cancellationToken);
         if (member is null || member.OrganizationId != organizationId)
         {
-            throw new NotFoundAppException($"Organization member '{memberId}' not found");
+            throw new AppNotFoundException($"Organization member '{memberId}' not found");
         }
 
         organizationMemberRepository.SoftDelete(member);
@@ -154,18 +147,18 @@ public class OrganizationMemberService(
     {
         if (!await organizationRepository.ExistsAsync(organizationId, cancellationToken))
         {
-            throw new NotFoundAppException($"Organization '{organizationId}' not found");
+            throw new AppNotFoundException($"Organization '{organizationId}' not found");
         }
     }
 
     private async Task<Role> GetOrganizationScopedRoleAsync(Guid roleId, CancellationToken cancellationToken)
     {
         var role = await roleRepository.GetByIdAsync(roleId, cancellationToken)
-            ?? throw new NotFoundAppException($"Role '{roleId}' not found");
+            ?? throw new AppNotFoundException($"Role '{roleId}' not found");
 
         if (role.Scope != RoleScope.Organization)
         {
-            throw new ValidationAppException("Role must be an organization-scoped role");
+            throw new AppValidationException("Role must be an organization-scoped role");
         }
 
         return role;

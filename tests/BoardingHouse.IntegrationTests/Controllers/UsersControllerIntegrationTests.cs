@@ -318,14 +318,16 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
     }
 
     [Fact]
-    public async Task Update_EmptyBody_Returns400()
+    public async Task Update_EmptyBody_KeepsFieldsUnchanged()
     {
         var createResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest());
         var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
 
         var response = await _client.PatchAsJsonAsync($"/api/users/{created!.Id}", new UpdateUserRequest());
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        Assert.Equal(created.Email, updated!.Email);
     }
 
     [Fact]

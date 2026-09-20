@@ -27,7 +27,7 @@ public class AuthService(
         if (await userRepository.ExistsByEmailOrPhoneAsync(email, request.Phone, cancellationToken))
         {
             logger.LogWarning("Registration failed: email or phone already in use ({Email})", email);
-            throw new ConflictAppException("Email or phone already in use");
+            throw new AppConflictException("Email or phone already in use");
         }
 
         var user = new User
@@ -60,7 +60,7 @@ public class AuthService(
             || !user.IsActive)
         {
             logger.LogWarning("Login failed for {Email} from {IpAddress}", request.Email, ipAddress);
-            throw new UnauthorizedAppException("Email or password is invalid");
+            throw new AppUnauthorizedException("Email or password is invalid");
         }
 
         user.LastLoginAt = DateTimeOffset.UtcNow;
@@ -86,7 +86,7 @@ public class AuthService(
         if (existingToken is null)
         {
             logger.LogWarning("Refresh token failed: token not found ({IpAddress})", ipAddress);
-            throw new UnauthorizedAppException("Invalid refresh token");
+            throw new AppUnauthorizedException("Invalid refresh token");
         }
 
         if (existingToken.RevokedAt is not null)
@@ -104,22 +104,22 @@ public class AuthService(
 
             await context.SaveChangesAsync(cancellationToken);
 
-            throw new UnauthorizedAppException("Refresh token has been revoked; please log in again");
+            throw new AppUnauthorizedException("Refresh token has been revoked; please log in again");
         }
 
         if (existingToken.ExpiresAt < DateTimeOffset.UtcNow)
         {
             logger.LogWarning("Refresh token failed: token expired for user {UserId}", existingToken.UserId);
-            throw new UnauthorizedAppException("Refresh token has expired");
+            throw new AppUnauthorizedException("Refresh token has expired");
         }
 
         var user = await userRepository.GetByIdAsync(existingToken.UserId, cancellationToken)
-            ?? throw new UnauthorizedAppException("Invalid refresh token");
+            ?? throw new AppUnauthorizedException("Invalid refresh token");
 
         if (!user.IsActive)
         {
             logger.LogWarning("Refresh token failed: user {UserId} is inactive", user.Id);
-            throw new UnauthorizedAppException("Invalid refresh token");
+            throw new AppUnauthorizedException("Invalid refresh token");
         }
 
         var newRefreshToken = tokenService.GenerateRefreshToken();

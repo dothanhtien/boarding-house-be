@@ -11,11 +11,11 @@ public class UpdateOrganizationSettingsRequestValidatorTests
     private static UpdateOrganizationSettingsRequest ValidRequest() => new() { VatRate = 8 };
 
     [Fact]
-    public void Validate_AllFieldsNull_HasError()
+    public void Validate_AllFieldsNull_IsValid()
     {
         var result = _validator.TestValidate(new UpdateOrganizationSettingsRequest());
 
-        result.ShouldHaveValidationErrorFor("Request");
+        result.ShouldNotHaveAnyValidationErrors();
     }
 
     [Fact]

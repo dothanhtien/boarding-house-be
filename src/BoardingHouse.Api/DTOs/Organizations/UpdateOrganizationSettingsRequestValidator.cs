@@ -6,50 +6,47 @@ public class UpdateOrganizationSettingsRequestValidator : AbstractValidator<Upda
 {
     public UpdateOrganizationSettingsRequestValidator()
     {
-        RuleFor(x => x)
-            .Must(x =>
-                x.DefaultBillingDay is not null ||
-                x.LateFeeType is not null ||
-                x.LateFeeValue is not null ||
-                x.LateFeeGraceDays is not null ||
-                x.VatRate is not null ||
-                x.BankAccountNumber is not null ||
-                x.BankName is not null ||
-                x.BankAccountName is not null)
-            .WithMessage("At least one field must be provided")
-            .WithName("Request");
-
-        RuleFor(x => x.DefaultBillingDay)
+        RuleFor(x => x.DefaultBillingDay.Value)
             .InclusiveBetween(1, 28).WithMessage("Default billing day must be between 1 and 28")
-            .When(x => x.DefaultBillingDay is not null);
+            .When(x => x.DefaultBillingDay is { IsSet: true, Value: not null })
+            .OverridePropertyName("DefaultBillingDay");
 
         RuleFor(x => x)
-            .Must(x => (x.LateFeeType is null) == (x.LateFeeValue is null))
+            .Must(x => (EffectiveValue(x.LateFeeType) is null) == (EffectiveValue(x.LateFeeValue) is null))
             .WithMessage("Late fee type and Late fee value must be set together")
             .WithName(nameof(UpdateOrganizationSettingsRequest.LateFeeValue));
 
-        RuleFor(x => x.LateFeeType)
+        RuleFor(x => x.LateFeeType.Value)
             .IsInEnum().WithMessage("Late fee type is invalid")
-            .When(x => x.LateFeeType is not null);
+            .When(x => x.LateFeeType is { IsSet: true, Value: not null })
+            .OverridePropertyName("LateFeeType");
 
-        RuleFor(x => x.LateFeeGraceDays)
+        RuleFor(x => x.LateFeeGraceDays.Value)
             .GreaterThanOrEqualTo(0).WithMessage("Late fee grace days must not be negative")
-            .When(x => x.LateFeeGraceDays is not null);
+            .When(x => x.LateFeeGraceDays is { IsSet: true, Value: not null })
+            .OverridePropertyName("LateFeeGraceDays");
 
-        RuleFor(x => x.VatRate)
+        RuleFor(x => x.VatRate.Value)
             .InclusiveBetween(0, 100).WithMessage("Vat rate must be between 0 and 100")
-            .When(x => x.VatRate is not null);
+            .When(x => x.VatRate is { IsSet: true, Value: not null })
+            .OverridePropertyName("VatRate");
 
-        RuleFor(x => x.BankAccountNumber)
+        RuleFor(x => x.BankAccountNumber.Value)
             .MaximumLength(50).WithMessage("Bank account number exceeds 50 characters")
-            .When(x => x.BankAccountNumber is not null);
+            .When(x => x.BankAccountNumber is { IsSet: true, Value: not null })
+            .OverridePropertyName("BankAccountNumber");
 
-        RuleFor(x => x.BankName)
+        RuleFor(x => x.BankName.Value)
             .MaximumLength(100).WithMessage("Bank name exceeds 100 characters")
-            .When(x => x.BankName is not null);
+            .When(x => x.BankName is { IsSet: true, Value: not null })
+            .OverridePropertyName("BankName");
 
-        RuleFor(x => x.BankAccountName)
+        RuleFor(x => x.BankAccountName.Value)
             .MaximumLength(100).WithMessage("Bank account name exceeds 100 characters")
-            .When(x => x.BankAccountName is not null);
+            .When(x => x.BankAccountName is { IsSet: true, Value: not null })
+            .OverridePropertyName("BankAccountName");
     }
+
+    private static T? EffectiveValue<T>(BoardingHouse.Api.Common.Optional<T?> field) where T : struct =>
+        field.IsSet ? field.Value : null;
 }

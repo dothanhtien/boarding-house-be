@@ -14,4 +14,5 @@ public record OrganizationResponse
     public required bool IsActive { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset? UpdatedAt { get; init; }
+    public List<OrganizationMemberResponse>? Members { get; init; }
 }

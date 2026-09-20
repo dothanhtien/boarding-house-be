@@ -1,9 +1,19 @@
+using System.Text.Json.Serialization;
+using BoardingHouse.Api.Common;
+
 namespace BoardingHouse.Api.DTOs.Users;
 
 public record UpdateUserRequest
 {
-    public string? Email { get; init; }
-    public string? Phone { get; init; }
-    public string? FullName { get; init; }
-    public bool? IsActive { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<string> Email { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<string> Phone { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<string> FullName { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<bool> IsActive { get; init; }
 }

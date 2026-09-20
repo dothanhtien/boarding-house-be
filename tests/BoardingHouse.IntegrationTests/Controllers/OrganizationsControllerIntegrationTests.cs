@@ -5,7 +5,10 @@ using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Organizations;
 using BoardingHouse.Api.DTOs.Users;
+using BoardingHouse.Api.Persistence;
 using BoardingHouse.IntegrationTests.Fixtures;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 
@@ -16,6 +19,8 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
 
     private const string ActorEmail = "actor@test.com";
     private const string ActorPassword = "password123";
+
+    private Guid _actorId;
 
     public async Task InitializeAsync()
     {
@@ -44,8 +49,9 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
             FullName = "Actor User"
         });
         var actor = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        _actorId = actor!.Id;
 
-        await factory.GrantPlatformAdminRoleAsync(actor!.Id);
+        await factory.GrantPlatformAdminRoleAsync(actor.Id);
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
@@ -56,10 +62,35 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));
     }
 
-    private static CreateOrganizationRequest ValidCreateRequest() => new()
+    private CreateOrganizationRequest ValidCreateRequest() => new()
     {
-        Name = "Test Organization"
+        Name = "Test Organization",
+        OwnerId = _actorId
     };
+
+    private async Task<Guid> RegisterUserAsync(string email, string phone)
+    {
+        var response = await _client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
+        {
+            Email = email,
+            Phone = phone,
+            Password = ActorPassword,
+            PasswordConfirmation = ActorPassword,
+            FullName = "Member User"
+        });
+        var user = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+
+        return user!.Id;
+    }
+
+    private async Task<Guid> GetRoleIdBySlugAsync(string slug)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var role = await context.Roles.SingleAsync(r => r.Slug == slug);
+
+        return role.Id;
+    }
 
     [Fact]
     public async Task Create_ValidRequest_Returns201WithLocationAndBody()
@@ -119,14 +150,16 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
     }
 
     [Fact]
-    public async Task Update_EmptyBody_Returns400()
+    public async Task Update_EmptyBody_KeepsFieldsUnchanged()
     {
         var createResponse = await _client.PostAsJsonAsync("/api/organizations", ValidCreateRequest());
         var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
 
         var response = await _client.PatchAsJsonAsync($"/api/organizations/{created!.Id}", new UpdateOrganizationRequest());
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+        Assert.Equal(created.Name, updated!.Name);
     }
 
     [Fact]
@@ -142,6 +175,131 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
         Assert.False(updated!.IsActive);
         Assert.Equal(created.Name, updated.Name);
         Assert.Equal(created.Email, updated.Email);
+    }
+
+    [Fact]
+    public async Task Update_OwnerIdOfNonMemberUser_AddsThemAsOrganizationAdminMember()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/organizations", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+        var newOwnerId = await RegisterUserAsync("new-owner@test.com", "0900000097");
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/organizations/{created!.Id}", new UpdateOrganizationRequest { OwnerId = newOwnerId });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var getResponse = await _client.GetAsync($"/api/organizations/{created.Id}");
+        var organization = (await getResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+
+        var member = Assert.Single(organization!.Members!, m => m.UserId == newOwnerId);
+        Assert.Equal("organization_admin", member.RoleSlug);
+    }
+
+    [Fact]
+    public async Task Update_OwnerIdChanged_RemovesPreviousOwnerFromMembers()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/organizations", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+        var newOwnerId = await RegisterUserAsync("new-owner-2@test.com", "0900000098");
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/organizations/{created!.Id}", new UpdateOrganizationRequest { OwnerId = newOwnerId });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var patched = (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+        Assert.DoesNotContain(patched!.Members!, m => m.UserId == _actorId);
+        var patchedMember = Assert.Single(patched.Members!);
+        Assert.Equal(newOwnerId, patchedMember.UserId);
+
+        var getResponse = await _client.GetAsync($"/api/organizations/{created.Id}");
+        var organization = (await getResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+
+        Assert.DoesNotContain(organization!.Members!, m => m.UserId == _actorId);
+        var member = Assert.Single(organization.Members!);
+        Assert.Equal(newOwnerId, member.UserId);
+    }
+
+    [Fact]
+    public async Task Update_OwnerIdChangedWithKeepPreviousOwnerAsStaff_DemotesPreviousOwnerToStaff()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/organizations", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+        var newOwnerId = await RegisterUserAsync("new-owner-3@test.com", "0900000103");
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/organizations/{created!.Id}",
+            new UpdateOrganizationRequest { OwnerId = newOwnerId, KeepPreviousOwnerAsStaff = true });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var patched = (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+
+        var owner = Assert.Single(patched!.Members!, m => m.UserId == newOwnerId);
+        Assert.Equal("organization_admin", owner.RoleSlug);
+
+        var previousOwner = Assert.Single(patched.Members!, m => m.UserId == _actorId);
+        Assert.Equal("organization_staff", previousOwner.RoleSlug);
+    }
+
+    [Fact]
+    public async Task Update_OwnerIdChangedTwice_OnlyLatestOwnerRemains()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/organizations", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+        var ownerB = await RegisterUserAsync("owner-b@test.com", "0900000101");
+        var ownerC = await RegisterUserAsync("owner-c@test.com", "0900000102");
+
+        var firstResponse = await _client.PatchAsJsonAsync(
+            $"/api/organizations/{created!.Id}", new UpdateOrganizationRequest { OwnerId = ownerB });
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+
+        var secondResponse = await _client.PatchAsJsonAsync(
+            $"/api/organizations/{created.Id}", new UpdateOrganizationRequest { OwnerId = ownerC });
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+
+        var getResponse = await _client.GetAsync($"/api/organizations/{created.Id}");
+        var organization = (await getResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+
+        var member = Assert.Single(organization!.Members!);
+        Assert.Equal(ownerC, member.UserId);
+    }
+
+    [Fact]
+    public async Task Update_OwnerIdOfExistingMember_PromotesThemToOrganizationAdmin()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/organizations", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+
+        var memberId = await RegisterUserAsync("staff-member@test.com", "0900000096");
+        var staffRoleId = await GetRoleIdBySlugAsync("organization_staff");
+        await _client.PostAsJsonAsync(
+            $"/api/organizations/{created!.Id}/members",
+            new AddOrganizationMemberRequest { UserId = memberId, RoleId = staffRoleId });
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/organizations/{created.Id}", new UpdateOrganizationRequest { OwnerId = memberId });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var getResponse = await _client.GetAsync($"/api/organizations/{created.Id}");
+        var organization = (await getResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+
+        var member = Assert.Single(organization!.Members!, m => m.UserId == memberId);
+        Assert.Equal("organization_admin", member.RoleSlug);
+    }
+
+    [Fact]
+    public async Task Update_OwnerIdOfUnknownUser_Returns404()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/organizations", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/organizations/{created!.Id}", new UpdateOrganizationRequest { OwnerId = Guid.NewGuid() });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]
@@ -206,8 +364,8 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
     [Fact]
     public async Task GetAll_SearchByName_ReturnsMatchingItemsOnly()
     {
-        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Coffee House" });
-        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Tea Shop" });
+        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Coffee House", OwnerId = _actorId });
+        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Tea Shop", OwnerId = _actorId });
 
         var response = await _client.GetAsync("/api/organizations?search=coffee");
         var result = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<OrganizationResponse>>>())?.Data;
@@ -241,8 +399,8 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
     [Fact]
     public async Task GetAll_SortByNameDescending_ReturnsInDescendingOrder()
     {
-        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Alpha" });
-        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Zeta" });
+        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Alpha", OwnerId = _actorId });
+        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Zeta", OwnerId = _actorId });
 
         var response = await _client.GetAsync("/api/organizations?sortBy=name&sortOrder=desc");
         var result = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<OrganizationResponse>>>())?.Data;
@@ -262,8 +420,8 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
     [Fact]
     public async Task GetAll_NoSortOrderProvided_DefaultsToDescendingByName()
     {
-        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Alpha" });
-        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Zeta" });
+        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Alpha", OwnerId = _actorId });
+        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "Zeta", OwnerId = _actorId });
 
         var response = await _client.GetAsync("/api/organizations");
         var result = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<OrganizationResponse>>>())?.Data;
@@ -286,8 +444,8 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
     [Fact]
     public async Task GetAll_SearchContainingLikeWildcards_MatchesLiterally()
     {
-        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "john_doe" });
-        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "johnxdoe" });
+        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "john_doe", OwnerId = _actorId });
+        await _client.PostAsJsonAsync("/api/organizations", new CreateOrganizationRequest { Name = "johnxdoe", OwnerId = _actorId });
 
         var response = await _client.GetAsync("/api/organizations?search=john_doe");
         var result = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<OrganizationResponse>>>())?.Data;
