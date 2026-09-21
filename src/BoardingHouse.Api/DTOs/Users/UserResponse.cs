@@ -1,3 +1,5 @@
+using BoardingHouse.Api.DTOs.Roles;
+
 namespace BoardingHouse.Api.DTOs.Users;
 
 public record UserResponse
@@ -11,4 +13,6 @@ public record UserResponse
     public required bool IsActive { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset? UpdatedAt { get; init; }
+    public RoleResponse? PlatformRole { get; init; }
+    public IReadOnlyList<UserOrganizationResponse> Organizations { get; init; } = [];
 }

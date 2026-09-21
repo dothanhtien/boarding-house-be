@@ -92,6 +92,39 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
         return role.Id;
     }
 
+    private async Task<(HttpClient Client, Guid UserId)> CreateAuthenticatedClientAsync(
+        string email, string phone, Func<Guid, Task>? beforeLogin = null)
+    {
+        var client = factory.CreateClient();
+        var registerResponse = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
+        {
+            Email = email,
+            Phone = phone,
+            Password = ActorPassword,
+            PasswordConfirmation = ActorPassword,
+            FullName = "Test User"
+        });
+        var user = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+
+        if (beforeLogin is not null)
+        {
+            await beforeLogin(user!.Id);
+        }
+
+        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Email = email, Password = ActorPassword });
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));
+
+        return (client, user!.Id);
+    }
+
+    private async Task AddMemberAsync(Guid organizationId, Guid userId, string roleSlug)
+    {
+        var roleId = await GetRoleIdBySlugAsync(roleSlug);
+        var response = await _client.PostAsJsonAsync(
+            $"/api/organizations/{organizationId}/members", new AddOrganizationMemberRequest { UserId = userId, RoleId = roleId });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
     [Fact]
     public async Task Create_ValidRequest_Returns201WithLocationAndBody()
     {
@@ -472,5 +505,82 @@ public class OrganizationsControllerIntegrationTests(PostgresApiFactory factory)
         var page2Ids = page2!.Items.Select(o => o.Id);
 
         Assert.Empty(page1Ids.Intersect(page2Ids));
+    }
+
+    [Fact]
+    public async Task GetById_UserIsMemberOfDifferentOrganization_Returns404()
+    {
+        var targetOrganizationId = await CreateOrganizationAsync();
+        var foreignOrganizationId = await CreateOrganizationAsync();
+
+        var (memberClient, memberId) = await CreateAuthenticatedClientAsync("foreign-member@test.com", "0900000110");
+        await AddMemberAsync(foreignOrganizationId, memberId, "organization_admin");
+
+        var response = await memberClient.GetAsync($"/api/organizations/{targetOrganizationId}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetById_UserIsMemberOfSameOrganization_Returns200()
+    {
+        var targetOrganizationId = await CreateOrganizationAsync();
+
+        var (memberClient, memberId) = await CreateAuthenticatedClientAsync("org-member@test.com", "0900000111");
+        await AddMemberAsync(targetOrganizationId, memberId, "organization_staff");
+
+        var response = await memberClient.GetAsync($"/api/organizations/{targetOrganizationId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetById_PlatformAdminWhoIsNotAMember_Returns200()
+    {
+        var targetOrganizationId = await CreateOrganizationAsync();
+
+        var (adminClient, _) = await CreateAuthenticatedClientAsync(
+            "other-platform-admin@test.com", "0900000112", userId => factory.GrantPlatformAdminRoleAsync(userId));
+
+        var response = await adminClient.GetAsync($"/api/organizations/{targetOrganizationId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_UserIsMemberOfDifferentOrganization_Returns404()
+    {
+        var targetOrganizationId = await CreateOrganizationAsync();
+        var foreignOrganizationId = await CreateOrganizationAsync();
+
+        var (memberClient, memberId) = await CreateAuthenticatedClientAsync("foreign-updater@test.com", "0900000113");
+        await AddMemberAsync(foreignOrganizationId, memberId, "organization_admin");
+
+        var response = await memberClient.PatchAsJsonAsync(
+            $"/api/organizations/{targetOrganizationId}", new UpdateOrganizationRequest { Name = "Hacked Name" });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_UserIsMemberOfSameOrganizationWithUpdatePermission_Returns200()
+    {
+        var targetOrganizationId = await CreateOrganizationAsync();
+
+        var (memberClient, memberId) = await CreateAuthenticatedClientAsync("org-updater@test.com", "0900000114");
+        await AddMemberAsync(targetOrganizationId, memberId, "organization_admin");
+
+        var response = await memberClient.PatchAsJsonAsync(
+            $"/api/organizations/{targetOrganizationId}", new UpdateOrganizationRequest { Name = "Updated By Member" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    private async Task<Guid> CreateOrganizationAsync()
+    {
+        var response = await _client.PostAsJsonAsync("/api/organizations", ValidCreateRequest());
+        var organization = (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
+
+        return organization!.Id;
     }
 }

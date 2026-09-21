@@ -11,6 +11,14 @@ public class UserRepository(AppDbContext context) : Repository<User>(context), I
     public Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default) =>
         Context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == email.ToLower(), cancellationToken);
 
+    public Task<User?> GetByIdWithRolesAndOrganizationsAsync(Guid id, CancellationToken cancellationToken = default) =>
+        WithRolesAndOrganizations()
+            .FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
+
+    public Task<User?> GetByEmailWithRolesAndOrganizationsAsync(string email, CancellationToken cancellationToken = default) =>
+        WithRolesAndOrganizations()
+            .FirstOrDefaultAsync(u => u.Email.ToLower() == email.ToLower(), cancellationToken);
+
     public Task<bool> ExistsByEmailOrPhoneAsync(string email, string? phone, CancellationToken cancellationToken = default) =>
         Context.Users.AnyAsync(u => u.Email.ToLower() == email.ToLower() || (phone != null && u.Phone == phone), cancellationToken);
 
@@ -45,4 +53,10 @@ public class UserRepository(AppDbContext context) : Repository<User>(context), I
 
         return await users.ToPagedResultAsync(pageRequest, sortField, sortOrder, cancellationToken);
     }
+
+    private IQueryable<User> WithRolesAndOrganizations() =>
+        Context.Users
+            .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
+            .Include(u => u.OrganizationMembers).ThenInclude(m => m.Organization)
+            .Include(u => u.OrganizationMembers).ThenInclude(m => m.Role);
 }

@@ -3,7 +3,6 @@ using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Services;
-using Mapster;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -78,9 +77,10 @@ public class AuthController(IAuthService authService, ICurrentUserAccessor curre
 
     [HttpGet("me")]
     [Authorize]
-    public ActionResult<ApiResponse<UserResponse>> Me()
+    public async Task<ActionResult<ApiResponse<UserResponse>>> Me(CancellationToken cancellationToken)
     {
-        return Ok(new ApiResponse<UserResponse> { Data = currentUserAccessor.RequiredUser.Adapt<UserResponse>() });
+        var response = await authService.GetCurrentUserAsync(currentUserAccessor.RequiredUser.Id, cancellationToken);
+        return Ok(new ApiResponse<UserResponse> { Data = response });
     }
 
     private string? GetIpAddress()

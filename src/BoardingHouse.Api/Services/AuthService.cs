@@ -47,13 +47,21 @@ public class AuthService(
         return user.Adapt<UserResponse>();
     }
 
+    public async Task<UserResponse> GetCurrentUserAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var user = await userRepository.GetByIdWithRolesAndOrganizationsAsync(userId, cancellationToken)
+            ?? throw new AppUnauthorizedException("Current user is not set on an authenticated request");
+
+        return user.Adapt<UserResponse>();
+    }
+
     public async Task<(UserResponse User, string AccessToken, DateTimeOffset AccessTokenExpiresAt, string RefreshToken, DateTimeOffset RefreshTokenExpiresAt)> LoginAsync(
         LoginRequest request,
         string? ipAddress,
         string? userAgent,
         CancellationToken cancellationToken = default)
     {
-        var user = await userRepository.GetByEmailAsync(request.Email, cancellationToken);
+        var user = await userRepository.GetByEmailWithRolesAndOrganizationsAsync(request.Email, cancellationToken);
 
         if (user is null
             || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash)
