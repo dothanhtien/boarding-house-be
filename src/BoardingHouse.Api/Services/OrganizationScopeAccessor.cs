@@ -8,7 +8,22 @@ public class OrganizationScopeAccessor(
     IPermissionService permissionService,
     IOrganizationMemberRepository organizationMemberRepository) : IOrganizationScopeAccessor
 {
-    public async Task<OrganizationScope> GetScopeAsync(string resource, string action, CancellationToken cancellationToken = default)
+    private readonly Dictionary<(string Resource, string Action), Task<OrganizationScope>> _scopeCache = [];
+
+    public Task<OrganizationScope> GetScopeAsync(string resource, string action, CancellationToken cancellationToken = default)
+    {
+        var key = (resource, action);
+        if (_scopeCache.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var scope = ComputeScopeAsync(resource, action, cancellationToken);
+        _scopeCache[key] = scope;
+        return scope;
+    }
+
+    private async Task<OrganizationScope> ComputeScopeAsync(string resource, string action, CancellationToken cancellationToken)
     {
         var user = currentUserAccessor.User;
         if (user is null) return OrganizationScope.None;

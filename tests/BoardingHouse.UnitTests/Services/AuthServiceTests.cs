@@ -6,6 +6,7 @@ using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services;
+using BoardingHouse.UnitTests.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -23,6 +24,8 @@ public class AuthServiceTests
 
     public AuthServiceTests()
     {
+        MapsterTestSupport.EnsureUserMappingRegistered();
+
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
@@ -88,6 +91,44 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task GetCurrentUserAsync_UserExists_ReturnsUserResponse_WithPlatformRoleAndOrganizations()
+    {
+        var user = new User { Email = "user@test.com", PasswordHash = "hash", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var platformAdminRole = new Role { Slug = RoleSlugs.PlatformAdmin, Name = "Platform Admin", Scope = RoleScope.Platform, CreatedBy = SentinelActors.System };
+        var organizationRole = new Role { Slug = RoleSlugs.OrganizationAdmin, Name = "Organization Admin", Scope = RoleScope.Organization, CreatedBy = SentinelActors.System };
+        var organization = new Organization { Name = "Test Org", CreatedBy = SentinelActors.System };
+        user.UserRoles = [new UserRole { UserId = user.Id, User = user, RoleId = platformAdminRole.Id, Role = platformAdminRole, CreatedBy = SentinelActors.System }];
+        user.OrganizationMembers =
+        [
+            new OrganizationMember
+            {
+                UserId = user.Id, User = user,
+                OrganizationId = organization.Id, Organization = organization,
+                RoleId = organizationRole.Id, Role = organizationRole,
+                CreatedBy = SentinelActors.System
+            }
+        ];
+
+        _userRepository.Setup(r => r.GetByIdWithRolesAndOrganizationsAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var response = await _authService.GetCurrentUserAsync(user.Id);
+
+        Assert.Equal(user.Id, response.Id);
+        Assert.Equal(RoleSlugs.PlatformAdmin, response.PlatformRole?.Slug);
+        var organizationEntry = Assert.Single(response.Organizations);
+        Assert.Equal(organization.Id, organizationEntry.OrganizationId);
+        Assert.Equal(RoleSlugs.OrganizationAdmin, organizationEntry.RoleSlug);
+    }
+
+    [Fact]
+    public async Task GetCurrentUserAsync_UserNotFound_ThrowsAppUnauthorizedException()
+    {
+        _userRepository.Setup(r => r.GetByIdWithRolesAndOrganizationsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((User?)null);
+
+        await Assert.ThrowsAsync<AppUnauthorizedException>(() => _authService.GetCurrentUserAsync(Guid.NewGuid()));
+    }
+
+    [Fact]
     public async Task LoginAsync_WrongPassword_ThrowsAppUnauthorizedException()
     {
         var user = new User
@@ -97,7 +138,7 @@ public class AuthServiceTests
             FullName = "Test User",
             CreatedBy = SentinelActors.System
         };
-        _userRepository.Setup(r => r.GetByEmailAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _userRepository.Setup(r => r.GetByEmailWithRolesAndOrganizationsAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var request = new LoginRequest { Email = "user@test.com", Password = "wrong-password" };
 
@@ -115,7 +156,7 @@ public class AuthServiceTests
             IsActive = false,
             CreatedBy = SentinelActors.System
         };
-        _userRepository.Setup(r => r.GetByEmailAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _userRepository.Setup(r => r.GetByEmailWithRolesAndOrganizationsAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
 
         var request = new LoginRequest { Email = "user@test.com", Password = "password1" };
 
@@ -127,7 +168,7 @@ public class AuthServiceTests
     {
         var user = new User { Email = "user@test.com", PasswordHash = BCrypt.Net.BCrypt.HashPassword("password1"), FullName = "Test User", CreatedBy = SentinelActors.System };
         var accessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(15);
-        _userRepository.Setup(r => r.GetByEmailAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _userRepository.Setup(r => r.GetByEmailWithRolesAndOrganizationsAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _tokenService.Setup(t => t.GenerateAccessToken(It.IsAny<User>())).Returns(("access-token", accessTokenExpiresAt));
         _tokenService.Setup(t => t.GenerateRefreshToken()).Returns("refresh-token");
         _tokenService.Setup(t => t.HashToken(It.IsAny<string>())).Returns("refresh-token-hash");

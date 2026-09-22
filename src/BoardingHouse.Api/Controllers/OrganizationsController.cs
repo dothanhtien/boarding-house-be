@@ -26,7 +26,7 @@ public class OrganizationsController(
     }
 
     [HttpGet("{id:guid}")]
-    [RequirePermission("organization", "read")]
+    [RequireOrganizationScopedPermission("organization", "read")]
     public async Task<ActionResult<ApiResponse<OrganizationResponse>>> GetById(Guid id, CancellationToken cancellationToken)
     {
         var organization = await organizationService.GetByIdAsync(id, cancellationToken);
@@ -45,7 +45,7 @@ public class OrganizationsController(
     }
 
     [HttpPatch("{id:guid}")]
-    [RequirePermission("organization", "update")]
+    [RequireOrganizationScopedPermission("organization", "update")]
     public async Task<ActionResult<ApiResponse<OrganizationResponse>>> Update(Guid id, UpdateOrganizationRequest request, CancellationToken cancellationToken)
     {
         var organization = await organizationService.UpdateAsync(id, request, cancellationToken);
@@ -61,7 +61,7 @@ public class OrganizationsController(
     }
 
     [HttpGet("{organizationId:guid}/settings")]
-    [RequirePermission("organization-setting", "read")]
+    [RequireOrganizationScopedPermission("organization-setting", "read")]
     public async Task<ActionResult<ApiResponse<OrganizationSettingsResponse>>> GetSettings(Guid organizationId, CancellationToken cancellationToken)
     {
         var settings = await organizationSettingsService.GetByOrganizationIdAsync(organizationId, cancellationToken);
@@ -69,7 +69,7 @@ public class OrganizationsController(
     }
 
     [HttpPatch("{organizationId:guid}/settings")]
-    [RequirePermission("organization-setting", "update")]
+    [RequireOrganizationScopedPermission("organization-setting", "update")]
     public async Task<ActionResult<ApiResponse<OrganizationSettingsResponse>>> UpdateSettings(
         Guid organizationId, UpdateOrganizationSettingsRequest request, CancellationToken cancellationToken)
     {

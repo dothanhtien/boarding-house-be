@@ -6,6 +6,7 @@ namespace BoardingHouse.Api.Services;
 public interface IAuthService
 {
     Task<UserResponse> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default);
+    Task<UserResponse> GetCurrentUserAsync(Guid userId, CancellationToken cancellationToken = default);
     Task<(UserResponse User, string AccessToken, DateTimeOffset AccessTokenExpiresAt, string RefreshToken, DateTimeOffset RefreshTokenExpiresAt)> LoginAsync(
         LoginRequest request, string? ipAddress, string? userAgent, CancellationToken cancellationToken = default);
     Task<(string AccessToken, DateTimeOffset AccessTokenExpiresAt, string RefreshToken, DateTimeOffset RefreshTokenExpiresAt)> RefreshTokenAsync(

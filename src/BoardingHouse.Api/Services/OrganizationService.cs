@@ -3,6 +3,7 @@ using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Organizations;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Exceptions;
+using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Mappings;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
@@ -17,6 +18,7 @@ public class OrganizationService(
     IRoleRepository roleRepository,
     AppDbContext context,
     ICurrentUserAccessor currentUserAccessor,
+    IOrganizationScopeAccessor organizationScopeAccessor,
     ILogger<OrganizationService> logger) : IOrganizationService
 {
     private static readonly Dictionary<string, Expression<Func<Organization, object>>> SortableFields = new(StringComparer.OrdinalIgnoreCase)
@@ -43,6 +45,8 @@ public class OrganizationService(
 
     public async Task<OrganizationResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        await organizationScopeAccessor.EnsureScopeAsync(id, "organization", "read", cancellationToken);
+
         var organization = await organizationRepository.GetByIdWithMembersAsync(id, cancellationToken)
             ?? throw new AppNotFoundException($"Organization '{id}' not found");
 
@@ -91,6 +95,8 @@ public class OrganizationService(
 
     public async Task<OrganizationResponse> UpdateAsync(Guid id, UpdateOrganizationRequest request, CancellationToken cancellationToken = default)
     {
+        await organizationScopeAccessor.EnsureScopeAsync(id, "organization", "update", cancellationToken);
+
         var organization = await organizationRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new AppNotFoundException($"Organization '{id}' not found");
 

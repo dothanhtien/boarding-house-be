@@ -2,6 +2,7 @@ using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Organizations;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Exceptions;
+using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Mappings;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
@@ -15,10 +16,12 @@ public class OrganizationSettingsService(
     IOrganizationRepository organizationRepository,
     AppDbContext context,
     ICurrentUserAccessor currentUserAccessor,
+    IOrganizationScopeAccessor organizationScopeAccessor,
     ILogger<OrganizationSettingsService> logger) : IOrganizationSettingsService
 {
     public async Task<OrganizationSettingsResponse> GetByOrganizationIdAsync(Guid organizationId, CancellationToken cancellationToken = default)
     {
+        await organizationScopeAccessor.EnsureScopeAsync(organizationId, "organization-setting", "read", cancellationToken);
         await EnsureOrganizationExistsAsync(organizationId, cancellationToken);
 
         var settings = await organizationSettingsRepository.GetByOrganizationIdAsync(organizationId, cancellationToken)
@@ -32,6 +35,7 @@ public class OrganizationSettingsService(
         UpdateOrganizationSettingsRequest request,
         CancellationToken cancellationToken = default)
     {
+        await organizationScopeAccessor.EnsureScopeAsync(organizationId, "organization-setting", "update", cancellationToken);
         await EnsureOrganizationExistsAsync(organizationId, cancellationToken);
 
         var settings = await organizationSettingsRepository.GetByOrganizationIdAsync(organizationId, cancellationToken);

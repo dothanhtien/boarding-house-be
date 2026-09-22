@@ -15,6 +15,7 @@ using BoardingHouse.Api.Services;
 using BoardingHouse.Api.Services.Caching;
 using FluentValidation;
 using FluentValidation.AspNetCore;
+using Mapster;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
@@ -51,6 +52,8 @@ try
     {
         options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
     });
+
+    TypeAdapterConfig.GlobalSettings.Scan(typeof(Program).Assembly);
 
     builder.Services.AddFluentValidationAutoValidation();
     builder.Services.AddValidatorsFromAssemblyContaining<Program>();

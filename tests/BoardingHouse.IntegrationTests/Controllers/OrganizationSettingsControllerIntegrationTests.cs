@@ -8,7 +8,10 @@ using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Organizations;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Entities.Enums;
+using BoardingHouse.Api.Persistence;
 using BoardingHouse.IntegrationTests.Fixtures;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 
@@ -76,6 +79,48 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
         });
         var organization = (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationResponse>>())?.Data;
         return organization!.Id;
+    }
+
+    private async Task<Guid> GetRoleIdBySlugAsync(string slug)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var role = await context.Roles.SingleAsync(r => r.Slug == slug);
+
+        return role.Id;
+    }
+
+    private async Task<(HttpClient Client, Guid UserId)> CreateAuthenticatedClientAsync(
+        string email, string phone, Func<Guid, Task>? beforeLogin = null)
+    {
+        var client = factory.CreateClient();
+        var registerResponse = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
+        {
+            Email = email,
+            Phone = phone,
+            Password = ActorPassword,
+            PasswordConfirmation = ActorPassword,
+            FullName = "Test User"
+        });
+        var user = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+
+        if (beforeLogin is not null)
+        {
+            await beforeLogin(user!.Id);
+        }
+
+        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Email = email, Password = ActorPassword });
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));
+
+        return (client, user!.Id);
+    }
+
+    private async Task AddMemberAsync(Guid organizationId, Guid userId, string roleSlug)
+    {
+        var roleId = await GetRoleIdBySlugAsync(roleSlug);
+        var response = await _client.PostAsJsonAsync(
+            $"/api/organizations/{organizationId}/members", new AddOrganizationMemberRequest { UserId = userId, RoleId = roleId });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
 
     [Fact]
@@ -266,5 +311,61 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
         var response = await unprivilegedClient.GetAsync($"/api/organizations/{organizationId}/settings");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetSettings_UserIsMemberOfDifferentOrganization_Returns404()
+    {
+        var targetOrganizationId = await CreateOrganizationAsync();
+        var foreignOrganizationId = await CreateOrganizationAsync();
+
+        var (memberClient, memberId) = await CreateAuthenticatedClientAsync("foreign-settings-member@test.com", "0900000120");
+        await AddMemberAsync(foreignOrganizationId, memberId, "organization_admin");
+
+        var response = await memberClient.GetAsync($"/api/organizations/{targetOrganizationId}/settings");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetSettings_UserIsMemberOfSameOrganization_Returns200()
+    {
+        var targetOrganizationId = await CreateOrganizationAsync();
+
+        var (memberClient, memberId) = await CreateAuthenticatedClientAsync("settings-member@test.com", "0900000121");
+        await AddMemberAsync(targetOrganizationId, memberId, "organization_staff");
+
+        var response = await memberClient.GetAsync($"/api/organizations/{targetOrganizationId}/settings");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_UserIsMemberOfDifferentOrganization_Returns404()
+    {
+        var targetOrganizationId = await CreateOrganizationAsync();
+        var foreignOrganizationId = await CreateOrganizationAsync();
+
+        var (memberClient, memberId) = await CreateAuthenticatedClientAsync("foreign-settings-updater@test.com", "0900000122");
+        await AddMemberAsync(foreignOrganizationId, memberId, "organization_admin");
+
+        var response = await memberClient.PatchAsJsonAsync(
+            $"/api/organizations/{targetOrganizationId}/settings", new UpdateOrganizationSettingsRequest { VatRate = 8 });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_PlatformAdminWhoIsNotAMember_Returns200()
+    {
+        var targetOrganizationId = await CreateOrganizationAsync();
+
+        var (adminClient, _) = await CreateAuthenticatedClientAsync(
+            "other-settings-admin@test.com", "0900000123", userId => factory.GrantPlatformAdminRoleAsync(userId));
+
+        var response = await adminClient.PatchAsJsonAsync(
+            $"/api/organizations/{targetOrganizationId}/settings", new UpdateOrganizationSettingsRequest { VatRate = 8 });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 }

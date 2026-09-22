@@ -7,6 +7,7 @@ using System.Text;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Users;
+using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
@@ -311,6 +312,46 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
         Assert.Equal(userId, body!.Id);
+    }
+
+    [Fact]
+    public async Task Me_UserWithPlatformRoleAndOrganizationMembership_ReturnsEnrichedResponse()
+    {
+        var (userId, accessToken, _) = await RegisterAndLoginAsync();
+        await factory.GrantPlatformAdminRoleAsync(userId);
+
+        Guid organizationId;
+        string organizationRoleSlug;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var organizationRole = await context.Roles.SingleAsync(r => r.Slug == "organization_admin");
+            var organization = new Organization { Name = "Member Org", CreatedBy = SentinelActors.System };
+            context.Organizations.Add(organization);
+            await context.SaveChangesAsync();
+
+            context.OrganizationMembers.Add(new OrganizationMember
+            {
+                OrganizationId = organization.Id,
+                UserId = userId,
+                RoleId = organizationRole.Id,
+                CreatedBy = SentinelActors.System
+            });
+            await context.SaveChangesAsync();
+
+            organizationId = organization.Id;
+            organizationRoleSlug = organizationRole.Slug;
+        }
+
+        var response = await _client.SendAsync(AuthorizedGet("/api/auth/me", accessToken));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        Assert.Equal("platform_admin", body!.PlatformRole?.Slug);
+        var organizationEntry = Assert.Single(body.Organizations);
+        Assert.Equal(organizationId, organizationEntry.OrganizationId);
+        Assert.Equal("Member Org", organizationEntry.OrganizationName);
+        Assert.Equal(organizationRoleSlug, organizationEntry.RoleSlug);
     }
 
     [Fact]
