@@ -38,6 +38,13 @@ public class PostgresContainerFixture : IAsyncLifetime
     {
         await using var context = CreateContext();
         await context.Database.ExecuteSqlRawAsync(
-            "TRUNCATE TABLE users, refresh_tokens, roles, permissions, user_roles, role_permissions, organizations, organization_settings, properties CASCADE");
+            """
+            TRUNCATE TABLE
+                users, refresh_tokens,
+                roles, permissions, user_roles, role_permissions,
+                organizations, organization_settings,
+                properties, rooms
+            CASCADE
+            """);
     }
 }

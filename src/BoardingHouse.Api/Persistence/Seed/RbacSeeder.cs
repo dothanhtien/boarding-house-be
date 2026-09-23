@@ -32,6 +32,10 @@ public class RbacSeeder
         ("property", "create", "Create a new property"),
         ("property", "update", "Update property information"),
         ("property", "delete", "Delete a property"),
+        ("room", "read", "View room list/details"),
+        ("room", "create", "Create a new room"),
+        ("room", "update", "Update room information"),
+        ("room", "delete", "Delete a room"),
     ];
 
     internal static readonly (string Slug, string Name, string Description, RoleScope Scope, string[] Permissions)[] RoleSeeds =
@@ -40,17 +44,19 @@ public class RbacSeeder
         (RoleSlugs.PlatformStaff, "Platform Staff", "Platform staff — limited permissions", RoleScope.Platform,
             [
                 "user:read", "role:read", "organization:read", "organization-setting:read",
-                "organization-member:read", "property:read"]),
+                "organization-member:read", "property:read", "room:read"]),
         (RoleSlugs.OrganizationAdmin, "Organization Admin", "Full rights within the organization", RoleScope.Organization,
             [
                 "organization:read", "organization:update", "organization-setting:read", "organization-setting:update",
                 "organization-member:read", "organization-member:create", "organization-member:update", "organization-member:delete",
-                "property:read", "property:create", "property:update", "property:delete"]),
+                "property:read", "property:create", "property:update", "property:delete",
+                "room:read", "room:create", "room:update", "room:delete"]),
         (RoleSlugs.OrganizationStaff, "Organization staff", "Manage day-to-day operations within the organization", RoleScope.Organization,
             [
                 "organization:read", "organization-setting:read",
                 "organization-member:read", "organization-member:create", "organization-member:update", "organization-member:delete",
-                "property:read", "property:create", "property:update", "property:delete"]),
+                "property:read", "property:create", "property:update", "property:delete",
+                "room:read", "room:create", "room:update", "room:delete"]),
     ];
 
     public static async Task SeedAsync(
