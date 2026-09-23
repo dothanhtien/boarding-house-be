@@ -1,9 +1,12 @@
+using BoardingHouse.Api.Common;
 using FluentValidation;
 
 namespace BoardingHouse.Api.DTOs.Rooms;
 
 public class UpdateRoomRequestValidator : AbstractValidator<UpdateRoomRequest>
 {
+    private const int MaxAmenityChangesPerRequest = 20;
+
     public UpdateRoomRequestValidator()
     {
         RuleFor(x => x.RoomNumber.Value)
@@ -52,5 +55,20 @@ public class UpdateRoomRequestValidator : AbstractValidator<UpdateRoomRequest>
             .WithMessage("DepositAmount must not exceed 18 digits in total, with at most 2 decimal places")
             .When(x => x.DepositAmount is { IsSet: true, Value: not null })
             .OverridePropertyName("DepositAmount");
+
+        RuleFor(x => x.Amenities.Value)
+            .NotNull().WithMessage("Amenities must not be null — omit the field to leave amenities unchanged")
+            .Must(a => a is null || a.Count <= MaxAmenityChangesPerRequest)
+            .WithMessage($"Amenities must not contain more than {MaxAmenityChangesPerRequest} changes per request")
+            .Must(a => a is null || a.Where(x => x?.Id is not null).Select(x => x!.Id).AllUnique())
+            .WithMessage("Each amenity Id must appear at most once")
+            .When(x => x.Amenities.IsSet)
+            .OverridePropertyName("Amenities");
+
+        RuleForEach(x => x.Amenities.Value)
+            .NotNull().WithMessage("Amenity must not be null")
+            .SetValidator(new UpdateRoomAmenityRequestValidator())
+            .When(x => x.Amenities is { IsSet: true, Value: not null })
+            .OverridePropertyName("Amenities");
     }
 }

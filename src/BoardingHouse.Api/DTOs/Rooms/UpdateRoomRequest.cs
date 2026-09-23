@@ -32,4 +32,9 @@ public record UpdateRoomRequest
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public Optional<string> Note { get; init; }
+
+    // Merged by Id: items without Id are added, items with Id are updated (or deleted with IsDeleted = true);
+    // amenities not listed are left unchanged.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<List<UpdateRoomAmenityRequest>> Amenities { get; init; }
 }
