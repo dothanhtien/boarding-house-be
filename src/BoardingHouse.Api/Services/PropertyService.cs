@@ -16,6 +16,7 @@ namespace BoardingHouse.Api.Services;
 public class PropertyService(
     IPropertyRepository propertyRepository,
     IOrganizationRepository organizationRepository,
+    IRoomRepository roomRepository,
     IOrganizationScopeAccessor organizationScopeAccessor,
     ICurrentOrganizationAccessor currentOrganizationAccessor,
     ICurrentUserAccessor currentUserAccessor,
@@ -140,14 +141,23 @@ public class PropertyService(
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var property = await propertyRepository.GetByIdAsync(id, cancellationToken)
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        var property = await propertyRepository.GetByIdForUpdateAsync(id, cancellationToken)
             ?? throw new AppNotFoundException($"Property '{id}' not found");
 
         await organizationScopeAccessor.EnsureScopeAsync(
             property.OrganizationId, "property", "delete", $"Property '{id}' not found", cancellationToken);
 
+        if (await roomRepository.ExistsByPropertyIdAsync(id, cancellationToken))
+        {
+            logger.LogWarning("Delete property failed: property still has rooms ({PropertyId})", id);
+            throw new AppConflictException("Cannot delete a property that still has rooms — delete its rooms first");
+        }
+
         propertyRepository.SoftDelete(property);
         await context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         logger.LogInformation("Property soft-deleted ({PropertyId})", property.Id);
     }

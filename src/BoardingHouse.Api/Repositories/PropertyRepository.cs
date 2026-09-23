@@ -8,6 +8,12 @@ namespace BoardingHouse.Api.Repositories;
 
 public class PropertyRepository(AppDbContext context) : Repository<Property>(context), IPropertyRepository
 {
+    public Task<Property?> GetByIdForShareAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Context.Properties.FromSql($"SELECT * FROM properties WHERE id = {id} FOR SHARE").FirstOrDefaultAsync(cancellationToken);
+
+    public Task<Property?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Context.Properties.FromSql($"SELECT * FROM properties WHERE id = {id} FOR UPDATE").FirstOrDefaultAsync(cancellationToken);
+
     public async Task<PagedResult<Property>> SearchAsync(
         Guid? organizationId,
         IReadOnlySet<Guid>? allowedOrganizationIds,

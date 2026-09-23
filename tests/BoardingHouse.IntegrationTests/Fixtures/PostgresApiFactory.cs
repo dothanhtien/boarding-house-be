@@ -52,7 +52,14 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         using var scope = Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await context.Database.ExecuteSqlRawAsync(
-            "TRUNCATE TABLE users, refresh_tokens, roles, permissions, user_roles, role_permissions, organizations, organization_settings, properties CASCADE");
+            """
+            TRUNCATE TABLE
+                users, refresh_tokens,
+                roles, permissions, user_roles, role_permissions,
+                organizations, organization_settings,
+                properties, rooms
+            CASCADE
+            """);
 
         var redisOptions = ConfigurationOptions.Parse(_redis.GetConnectionString());
         redisOptions.AllowAdmin = true;
