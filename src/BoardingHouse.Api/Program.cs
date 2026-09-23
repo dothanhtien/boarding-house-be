@@ -99,6 +99,7 @@ try
     builder.Services.AddScoped<IOrganizationRepository, OrganizationRepository>();
     builder.Services.AddScoped<IOrganizationSettingsRepository, OrganizationSettingsRepository>();
     builder.Services.AddScoped<IOrganizationMemberRepository, OrganizationMemberRepository>();
+    builder.Services.AddScoped<IPropertyRepository, PropertyRepository>();
 
     builder.Services.AddScoped<IUserService, UserService>();
     builder.Services.AddScoped<IRoleService, RoleService>();
@@ -107,12 +108,14 @@ try
     builder.Services.AddScoped<IOrganizationService, OrganizationService>();
     builder.Services.AddScoped<IOrganizationSettingsService, OrganizationSettingsService>();
     builder.Services.AddScoped<IOrganizationMemberService, OrganizationMemberService>();
+    builder.Services.AddScoped<IPropertyService, PropertyService>();
 
     builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
     builder.Services.AddScoped<ICurrentOrganizationAccessor, CurrentOrganizationAccessor>();
 
     builder.Services.AddScoped<IUserCache, UserCache>();
     builder.Services.AddScoped<IRolePermissionCache, RolePermissionCache>();
+    builder.Services.AddScoped<IOrganizationMembershipCache, OrganizationMembershipCache>();
     builder.Services.AddScoped<IPermissionService, PermissionService>();
 
     builder.Services.AddScoped<IOrganizationScopeAccessor, OrganizationScopeAccessor>();

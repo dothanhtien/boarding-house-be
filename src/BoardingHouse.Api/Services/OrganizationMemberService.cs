@@ -6,6 +6,7 @@ using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
+using BoardingHouse.Api.Services.Caching;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,6 +19,7 @@ public class OrganizationMemberService(
     IRoleRepository roleRepository,
     AppDbContext context,
     ICurrentUserAccessor currentUserAccessor,
+    IOrganizationMembershipCache organizationMembershipCache,
     ILogger<OrganizationMemberService> logger) : IOrganizationMemberService
 {
     private static readonly Dictionary<string, Expression<Func<OrganizationMember, object>>> SortableFields =
@@ -92,6 +94,8 @@ public class OrganizationMemberService(
             throw new AppConflictException("User is already a member of this organization");
         }
 
+        await organizationMembershipCache.InvalidateAsync(request.UserId, cancellationToken);
+
         logger.LogInformation("Organization member added ({OrganizationId}, {MemberId})", organizationId, member.Id);
 
         member.User = user;
@@ -124,6 +128,8 @@ public class OrganizationMemberService(
         organizationMemberRepository.Update(member);
         await context.SaveChangesAsync(cancellationToken);
 
+        await organizationMembershipCache.InvalidateAsync(member.UserId, cancellationToken);
+
         logger.LogInformation("Organization member role updated ({OrganizationId}, {MemberId})", organizationId, memberId);
 
         return member.Adapt<OrganizationMemberResponse>();
@@ -143,6 +149,8 @@ public class OrganizationMemberService(
 
         organizationMemberRepository.SoftDelete(member);
         await context.SaveChangesAsync(cancellationToken);
+
+        await organizationMembershipCache.InvalidateAsync(member.UserId, cancellationToken);
 
         logger.LogInformation("Organization member removed ({OrganizationId}, {MemberId})", organizationId, memberId);
     }
