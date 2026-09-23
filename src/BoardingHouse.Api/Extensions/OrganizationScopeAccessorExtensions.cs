@@ -10,12 +10,13 @@ public static class OrganizationScopeAccessorExtensions
         Guid organizationId,
         string resource,
         string action,
+        string? notFoundMessage = null,
         CancellationToken cancellationToken = default)
     {
         var scope = await organizationScopeAccessor.GetScopeAsync(resource, action, cancellationToken);
         if (!scope.Includes(organizationId))
         {
-            throw new AppNotFoundException($"Organization '{organizationId}' not found");
+            throw new AppNotFoundException(notFoundMessage ?? $"Organization '{organizationId}' not found");
         }
     }
 }

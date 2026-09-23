@@ -1,12 +1,14 @@
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Repositories;
+using BoardingHouse.Api.Services.Caching;
 
 namespace BoardingHouse.Api.Services;
 
 public class OrganizationScopeAccessor(
     ICurrentUserAccessor currentUserAccessor,
     IPermissionService permissionService,
-    IOrganizationMemberRepository organizationMemberRepository) : IOrganizationScopeAccessor
+    IOrganizationMemberRepository organizationMemberRepository,
+    IOrganizationMembershipCache organizationMembershipCache) : IOrganizationScopeAccessor
 {
     private readonly Dictionary<(string Resource, string Action), Task<OrganizationScope>> _scopeCache = [];
 
@@ -33,7 +35,7 @@ public class OrganizationScopeAccessor(
             return new OrganizationScope { IsUnrestricted = true, OrganizationIds = new HashSet<Guid>() };
         }
 
-        var memberships = await organizationMemberRepository.GetActiveMembershipsByUserIdAsync(user.Id, cancellationToken);
+        var memberships = await GetMembershipsAsync(user.Id, cancellationToken);
         if (memberships.Count == 0) return OrganizationScope.None;
 
         var accessibleOrganizationIds = new HashSet<Guid>();
@@ -47,5 +49,18 @@ public class OrganizationScopeAccessor(
         }
 
         return new OrganizationScope { IsUnrestricted = false, OrganizationIds = accessibleOrganizationIds };
+    }
+
+    private async Task<List<(Guid OrganizationId, Guid RoleId)>> GetMembershipsAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var memberships = await organizationMembershipCache.GetAsync(userId, cancellationToken);
+
+        if (memberships is null)
+        {
+            memberships = await organizationMemberRepository.GetActiveMembershipsByUserIdAsync(userId, cancellationToken);
+            await organizationMembershipCache.SetAsync(userId, memberships, cancellationToken);
+        }
+
+        return memberships;
     }
 }

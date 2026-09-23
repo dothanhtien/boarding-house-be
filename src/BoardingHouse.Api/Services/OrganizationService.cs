@@ -7,6 +7,7 @@ using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Mappings;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
+using BoardingHouse.Api.Services.Caching;
 using Mapster;
 
 namespace BoardingHouse.Api.Services;
@@ -19,6 +20,7 @@ public class OrganizationService(
     AppDbContext context,
     ICurrentUserAccessor currentUserAccessor,
     IOrganizationScopeAccessor organizationScopeAccessor,
+    IOrganizationMembershipCache organizationMembershipCache,
     ILogger<OrganizationService> logger) : IOrganizationService
 {
     private static readonly Dictionary<string, Expression<Func<Organization, object>>> SortableFields = new(StringComparer.OrdinalIgnoreCase)
@@ -45,7 +47,7 @@ public class OrganizationService(
 
     public async Task<OrganizationResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        await organizationScopeAccessor.EnsureScopeAsync(id, "organization", "read", cancellationToken);
+        await organizationScopeAccessor.EnsureScopeAsync(id, "organization", "read", cancellationToken: cancellationToken);
 
         var organization = await organizationRepository.GetByIdWithMembersAsync(id, cancellationToken)
             ?? throw new AppNotFoundException($"Organization '{id}' not found");
@@ -85,6 +87,8 @@ public class OrganizationService(
         await organizationMemberRepository.AddAsync(organizationMember, cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
 
+        await organizationMembershipCache.InvalidateAsync(request.OwnerId, cancellationToken);
+
         logger.LogInformation("Organization created ({OrganizationId}) with owner ({OwnerId})", organization.Id, request.OwnerId);
 
         organizationMember.User = owner;
@@ -95,20 +99,23 @@ public class OrganizationService(
 
     public async Task<OrganizationResponse> UpdateAsync(Guid id, UpdateOrganizationRequest request, CancellationToken cancellationToken = default)
     {
-        await organizationScopeAccessor.EnsureScopeAsync(id, "organization", "update", cancellationToken);
+        await organizationScopeAccessor.EnsureScopeAsync(id, "organization", "update", cancellationToken: cancellationToken);
 
         var organization = await organizationRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new AppNotFoundException($"Organization '{id}' not found");
 
         request.Adapt(organization, OrganizationMappingConfig.UpdateConfig);
 
+        List<Guid> affectedMemberUserIds = [];
         if (request.OwnerId is not null)
         {
-            await SetOwnerAsync(id, request.OwnerId.Value, request.KeepPreviousOwnerAsStaff, cancellationToken);
+            affectedMemberUserIds = await SetOwnerAsync(id, request.OwnerId.Value, request.KeepPreviousOwnerAsStaff, cancellationToken);
         }
 
         organizationRepository.Update(organization);
         await context.SaveChangesAsync(cancellationToken);
+
+        await Task.WhenAll(affectedMemberUserIds.Select(userId => organizationMembershipCache.InvalidateAsync(userId, cancellationToken)));
 
         logger.LogInformation("Organization updated ({OrganizationId})", organization.Id);
 
@@ -133,7 +140,7 @@ public class OrganizationService(
         await roleRepository.GetBySlugAsync(slug, cancellationToken)
             ?? throw new AppInternalException($"Role '{slug}' not found - has RbacSeeder run?");
 
-    private async Task SetOwnerAsync(Guid organizationId, Guid ownerId, bool keepPreviousOwnerAsStaff, CancellationToken cancellationToken)
+    private async Task<List<Guid>> SetOwnerAsync(Guid organizationId, Guid ownerId, bool keepPreviousOwnerAsStaff, CancellationToken cancellationToken)
     {
         _ = await userRepository.GetByIdAsync(ownerId, cancellationToken)
             ?? throw new AppNotFoundException($"User '{ownerId}' not found");
@@ -165,7 +172,7 @@ public class OrganizationService(
         var previousOwners = await organizationMemberRepository.GetByOrganizationAndRoleIdAsync(organizationId, ownerRole.Id, cancellationToken);
         if (previousOwners.Count == 0)
         {
-            return;
+            return [ownerId];
         }
 
         var staffRole = keepPreviousOwnerAsStaff
@@ -188,5 +195,7 @@ public class OrganizationService(
                 logger.LogInformation("Organization owner removed ({OrganizationId}, {UserId})", organizationId, previousOwner.UserId);
             }
         }
+
+        return [ownerId, .. previousOwners.Where(m => m.UserId != ownerId).Select(m => m.UserId)];
     }
 }
