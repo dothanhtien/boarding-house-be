@@ -120,13 +120,13 @@ public class RoomService(
 
     public async Task<RoomResponse> UpdateAsync(Guid id, UpdateRoomRequest request, CancellationToken cancellationToken = default)
     {
-        var room = await roomRepository.GetByIdWithDetailsAsync(id, cancellationToken)
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+        var room = await roomRepository.GetByIdWithDetailsForUpdateAsync(id, cancellationToken)
             ?? throw new AppNotFoundException($"Room '{id}' not found");
 
         await organizationScopeAccessor.EnsureScopeAsync(
             room.Property!.OrganizationId, "room", "update", $"Room '{id}' not found", cancellationToken);
-
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
         request.Adapt(room, RoomMappingConfig.UpdateConfig);
 

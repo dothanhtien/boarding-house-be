@@ -15,6 +15,15 @@ public class RoomRepository(AppDbContext context) : Repository<Room>(context), I
             .Include(r => r.Amenities)
             .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
 
+    // Row-locks the room for the rest of the current transaction, so concurrent amenity merges are serialized
+    // and the per-room amenity limit is checked against a count no one else can change underneath.
+    public Task<Room?> GetByIdWithDetailsForUpdateAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Context.Rooms
+            .FromSql($"SELECT * FROM rooms WHERE id = {id} FOR UPDATE")
+            .Include(r => r.Property)
+            .Include(r => r.Amenities)
+            .FirstOrDefaultAsync(cancellationToken);
+
     // Entity.Id is pre-populated client-side, so an amenity merely appended to a tracked room's collection
     // would be picked up as an existing row (UPDATE → 0 rows affected). Track it as Added explicitly
     public void AddAmenity(Room room, RoomAmenity amenity)
