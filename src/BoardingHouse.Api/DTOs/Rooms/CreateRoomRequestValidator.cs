@@ -20,6 +20,8 @@ public class CreateRoomRequestValidator : AbstractValidator<CreateRoomRequest>
 
         RuleFor(x => x.Area)
             .GreaterThan(0).WithMessage("Area must be greater than 0")
+            .PrecisionScale(10, 2, ignoreTrailingZeros: true)
+            .WithMessage("Area must not exceed 10 digits in total, with at most 2 decimal places")
             .When(x => x.Area is not null);
 
         RuleFor(x => x.Capacity)
@@ -28,10 +30,14 @@ public class CreateRoomRequestValidator : AbstractValidator<CreateRoomRequest>
 
         RuleFor(x => x.MonthlyRent)
             .GreaterThan(0).WithMessage("MonthlyRent must be greater than 0")
+            .PrecisionScale(18, 2, ignoreTrailingZeros: true)
+            .WithMessage("MonthlyRent must not exceed 18 digits in total, with at most 2 decimal places")
             .When(x => x.MonthlyRent is not null);
 
         RuleFor(x => x.DepositAmount)
             .GreaterThan(0).WithMessage("DepositAmount must be greater than 0")
+            .PrecisionScale(18, 2, ignoreTrailingZeros: true)
+            .WithMessage("DepositAmount must not exceed 18 digits in total, with at most 2 decimal places")
             .When(x => x.DepositAmount is not null);
     }
 }

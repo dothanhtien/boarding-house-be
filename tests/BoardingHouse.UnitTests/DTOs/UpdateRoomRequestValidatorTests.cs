@@ -1,3 +1,4 @@
+using System.Globalization;
 using BoardingHouse.Api.DTOs.Rooms;
 using BoardingHouse.Api.Entities.Enums;
 using FluentValidation.TestHelper;
@@ -110,6 +111,60 @@ public class UpdateRoomRequestValidatorTests
         var result = _validator.TestValidate(new UpdateRoomRequest { DepositAmount = depositAmount });
 
         result.ShouldHaveValidationErrorFor("DepositAmount");
+    }
+
+    [Theory]
+    [InlineData("25.555")]
+    [InlineData("100000000")]
+    public void Validate_AreaExceedsPrecisionOrScale_HasError(string area)
+    {
+        var result = _validator.TestValidate(new UpdateRoomRequest { Area = decimal.Parse(area, CultureInfo.InvariantCulture) });
+
+        result.ShouldHaveValidationErrorFor("Area");
+    }
+
+    [Fact]
+    public void Validate_AreaAtMaxPrecisionAndScale_HasNoError()
+    {
+        var result = _validator.TestValidate(new UpdateRoomRequest { Area = 99999999.99m });
+
+        result.ShouldNotHaveValidationErrorFor("Area");
+    }
+
+    [Theory]
+    [InlineData("3000000.555")]
+    [InlineData("10000000000000000")]
+    public void Validate_MonthlyRentExceedsPrecisionOrScale_HasError(string monthlyRent)
+    {
+        var result = _validator.TestValidate(new UpdateRoomRequest { MonthlyRent = decimal.Parse(monthlyRent, CultureInfo.InvariantCulture) });
+
+        result.ShouldHaveValidationErrorFor("MonthlyRent");
+    }
+
+    [Fact]
+    public void Validate_MonthlyRentAtMaxPrecisionAndScale_HasNoError()
+    {
+        var result = _validator.TestValidate(new UpdateRoomRequest { MonthlyRent = 9999999999999999.99m });
+
+        result.ShouldNotHaveValidationErrorFor("MonthlyRent");
+    }
+
+    [Theory]
+    [InlineData("3000000.555")]
+    [InlineData("10000000000000000")]
+    public void Validate_DepositAmountExceedsPrecisionOrScale_HasError(string depositAmount)
+    {
+        var result = _validator.TestValidate(new UpdateRoomRequest { DepositAmount = decimal.Parse(depositAmount, CultureInfo.InvariantCulture) });
+
+        result.ShouldHaveValidationErrorFor("DepositAmount");
+    }
+
+    [Fact]
+    public void Validate_DepositAmountAtMaxPrecisionAndScale_HasNoError()
+    {
+        var result = _validator.TestValidate(new UpdateRoomRequest { DepositAmount = 9999999999999999.99m });
+
+        result.ShouldNotHaveValidationErrorFor("DepositAmount");
     }
 
     [Fact]

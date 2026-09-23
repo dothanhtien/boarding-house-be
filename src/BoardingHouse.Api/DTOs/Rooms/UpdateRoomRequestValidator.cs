@@ -29,6 +29,8 @@ public class UpdateRoomRequestValidator : AbstractValidator<UpdateRoomRequest>
 
         RuleFor(x => x.Area.Value)
             .GreaterThan(0).WithMessage("Area must be greater than 0")
+            .PrecisionScale(10, 2, ignoreTrailingZeros: true)
+            .WithMessage("Area must not exceed 10 digits in total, with at most 2 decimal places")
             .When(x => x.Area is { IsSet: true, Value: not null })
             .OverridePropertyName("Area");
 
@@ -39,11 +41,15 @@ public class UpdateRoomRequestValidator : AbstractValidator<UpdateRoomRequest>
 
         RuleFor(x => x.MonthlyRent.Value)
             .GreaterThan(0).WithMessage("MonthlyRent must be greater than 0")
+            .PrecisionScale(18, 2, ignoreTrailingZeros: true)
+            .WithMessage("MonthlyRent must not exceed 18 digits in total, with at most 2 decimal places")
             .When(x => x.MonthlyRent is { IsSet: true, Value: not null })
             .OverridePropertyName("MonthlyRent");
 
         RuleFor(x => x.DepositAmount.Value)
             .GreaterThan(0).WithMessage("DepositAmount must be greater than 0")
+            .PrecisionScale(18, 2, ignoreTrailingZeros: true)
+            .WithMessage("DepositAmount must not exceed 18 digits in total, with at most 2 decimal places")
             .When(x => x.DepositAmount is { IsSet: true, Value: not null })
             .OverridePropertyName("DepositAmount");
     }
