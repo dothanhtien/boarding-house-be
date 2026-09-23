@@ -593,4 +593,322 @@ public class RoomsControllerIntegrationTests(PostgresApiFactory factory)
 
         Assert.False(await context.Rooms.IgnoreQueryFilters().AnyAsync(r => r.PropertyId == _propertyId));
     }
+
+    private async Task<List<RoomAmenity>> GetAmenitiesIncludingDeletedAsync(Guid roomId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await context.RoomAmenities.IgnoreQueryFilters().Where(a => a.RoomId == roomId).ToListAsync();
+    }
+
+    private static List<CreateRoomAmenityRequest> Amenities(params (string Name, int? Quantity)[] items) =>
+        items.Select(i => new CreateRoomAmenityRequest { Name = i.Name, Quantity = i.Quantity }).ToList();
+
+    [Fact]
+    public async Task ByIdEndpoints_WithMultipleRooms_ActOnRequestedRoomOnly()
+    {
+        var first = await CreateRoomAsync(_client, ValidCreateRequest());
+        var second = await CreateRoomAsync(_client, ValidCreateRequest() with { RoomNumber = "102" });
+
+        var fetched = (await (await _client.GetAsync($"/api/rooms/{second.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Equal(second.Id, fetched.Id);
+        Assert.Equal("102", fetched.RoomNumber);
+
+        var updated = (await (await _client.PatchAsJsonAsync($"/api/rooms/{second.Id}", new UpdateRoomRequest { Note = "Second" }))
+            .Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Equal(second.Id, updated.Id);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/rooms/{second.Id}")).StatusCode);
+
+        var firstAfter = (await (await _client.GetAsync($"/api/rooms/{first.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Equal("101", firstAfter.RoomNumber);
+        Assert.Null(firstAfter.Note);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"/api/rooms/{second.Id}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Create_WithAmenities_ReturnsAmenitiesSortedByNameInAllResponses()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with
+        {
+            Amenities = Amenities(("WiFi", null), ("Air conditioner", 2), ("Balcony", null))
+        });
+
+        Assert.Equal(["Air conditioner", "Balcony", "WiFi"], created.Amenities.Select(a => a.Name));
+        Assert.Equal(2, created.Amenities.Single(a => a.Name == "Air conditioner").Quantity);
+        Assert.Null(created.Amenities.Single(a => a.Name == "WiFi").Quantity);
+
+        var fetched = (await (await _client.GetAsync($"/api/rooms/{created.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Equal(["Air conditioner", "Balcony", "WiFi"], fetched.Amenities.Select(a => a.Name));
+
+        var list = await GetRoomsAsync(_client, "/api/rooms");
+        Assert.Equal(3, list.Items.Single(r => r.Id == created.Id).Amenities.Count);
+    }
+
+    [Fact]
+    public async Task Create_WithoutAmenities_ReturnsEmptyAmenities()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest());
+
+        Assert.Empty(created.Amenities);
+    }
+
+    [Fact]
+    public async Task Create_DuplicateAmenityNames_CreatesBoth()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with
+        {
+            Amenities = Amenities(("WiFi", 1), ("WiFi", 2))
+        });
+
+        Assert.Equal(2, created.Amenities.Count(a => a.Name == "WiFi"));
+    }
+
+    [Fact]
+    public async Task Update_AmenitiesNotSent_KeepsAmenitiesUnchanged()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with { Amenities = Amenities(("WiFi", 1)) });
+
+        var response = await _client.PatchAsJsonAsync($"/api/rooms/{created.Id}", new UpdateRoomRequest { Note = "Changed" });
+
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Equal(created.Amenities.Single().Id, updated.Amenities.Single().Id);
+    }
+
+    private async Task<HttpResponseMessage> PatchAmenitiesAsync(Guid roomId, params UpdateRoomAmenityRequest[] changes) =>
+        await _client.PatchAsJsonAsync($"/api/rooms/{roomId}", new UpdateRoomRequest { Amenities = changes.ToList() });
+
+    [Fact]
+    public async Task Update_AmenityChanges_MergesByIdAndLeavesUnlistedAmenitiesUntouched()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with
+        {
+            Amenities = Amenities(("WiFi", 1), ("Bed", 1), ("Balcony", 1))
+        });
+        var wifiId = created.Amenities.Single(a => a.Name == "WiFi").Id;
+        var bedId = created.Amenities.Single(a => a.Name == "Bed").Id;
+        var balconyId = created.Amenities.Single(a => a.Name == "Balcony").Id;
+
+        // WiFi not listed, Bed quantity changed, Balcony deleted, Fridge added.
+        var response = await PatchAmenitiesAsync(created.Id,
+            new UpdateRoomAmenityRequest { Id = bedId, Quantity = 2 },
+            new UpdateRoomAmenityRequest { Id = balconyId, IsDeleted = true },
+            new UpdateRoomAmenityRequest { Name = "Fridge" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Equal(["Bed", "Fridge", "WiFi"], updated.Amenities.Select(a => a.Name));
+        Assert.Equal(wifiId, updated.Amenities.Single(a => a.Name == "WiFi").Id);
+        Assert.Equal(bedId, updated.Amenities.Single(a => a.Name == "Bed").Id);
+        Assert.Equal(2, updated.Amenities.Single(a => a.Name == "Bed").Quantity);
+        Assert.Null(updated.Amenities.Single(a => a.Name == "Fridge").Quantity);
+
+        var balcony = (await GetAmenitiesIncludingDeletedAsync(created.Id)).Single(a => a.Id == balconyId);
+        Assert.NotNull(balcony.DeletedAt);
+        Assert.Equal(_actorId, balcony.DeletedBy);
+
+        var fetched = (await (await _client.GetAsync($"/api/rooms/{created.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Equal(["Bed", "Fridge", "WiFi"], fetched.Amenities.Select(a => a.Name));
+    }
+
+    [Fact]
+    public async Task Update_RenameExistingAmenity_KeepsIdAndQuantity()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with { Amenities = Amenities(("Wifi", 2)) });
+        var amenityId = created.Amenities.Single().Id;
+
+        var response = await PatchAmenitiesAsync(created.Id, new UpdateRoomAmenityRequest { Id = amenityId, Name = "WiFi" });
+
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        var amenity = updated.Amenities.Single();
+        Assert.Equal(amenityId, amenity.Id);
+        Assert.Equal("WiFi", amenity.Name);
+        Assert.Equal(2, amenity.Quantity);
+    }
+
+    [Fact]
+    public async Task Update_AmenityQuantitySetToNull_ClearsQuantity()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with { Amenities = Amenities(("WiFi", 2)) });
+        var amenityId = created.Amenities.Single().Id;
+
+        var response = await PatchAmenitiesAsync(created.Id, new UpdateRoomAmenityRequest { Id = amenityId, Quantity = null });
+
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Null(updated.Amenities.Single().Quantity);
+    }
+
+    [Fact]
+    public async Task Create_AmenityWithIcon_ReturnsIcon()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with
+        {
+            Amenities = [new CreateRoomAmenityRequest { Name = "Air conditioner", Icon = "air-conditioner" }, new CreateRoomAmenityRequest { Name = "Bed" }]
+        });
+
+        Assert.Equal("air-conditioner", created.Amenities.Single(a => a.Name == "Air conditioner").Icon);
+        Assert.Null(created.Amenities.Single(a => a.Name == "Bed").Icon);
+    }
+
+    [Fact]
+    public async Task Update_AmenityIcon_SetsKeepsAndClearsIcon()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with
+        {
+            Amenities = [new CreateRoomAmenityRequest { Name = "WiFi", Icon = "wifi" }, new CreateRoomAmenityRequest { Name = "Bed" }]
+        });
+        var wifiId = created.Amenities.Single(a => a.Name == "WiFi").Id;
+        var bedId = created.Amenities.Single(a => a.Name == "Bed").Id;
+
+        var response = await PatchAmenitiesAsync(created.Id,
+            new UpdateRoomAmenityRequest { Id = bedId, Icon = "bed" },
+            new UpdateRoomAmenityRequest { Id = wifiId, Quantity = 2 });
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Equal("bed", updated.Amenities.Single(a => a.Name == "Bed").Icon);
+        Assert.Equal("wifi", updated.Amenities.Single(a => a.Name == "WiFi").Icon);
+
+        response = await PatchAmenitiesAsync(created.Id, new UpdateRoomAmenityRequest { Id = wifiId, Icon = null });
+        updated = (await response.Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Null(updated.Amenities.Single(a => a.Name == "WiFi").Icon);
+    }
+
+    [Fact]
+    public async Task Update_AmenitiesEmptyList_LeavesAmenitiesUnchanged()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with { Amenities = Amenities(("WiFi", 1), ("Bed", 1)) });
+
+        var response = await PatchAmenitiesAsync(created.Id);
+
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Equal(2, updated.Amenities.Count);
+    }
+
+    [Fact]
+    public async Task Update_DeleteAllByFlag_RemovesAllAmenities()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with { Amenities = Amenities(("WiFi", 1), ("Bed", 1)) });
+
+        var response = await PatchAmenitiesAsync(created.Id,
+            created.Amenities.Select(a => new UpdateRoomAmenityRequest { Id = a.Id, IsDeleted = true }).ToArray());
+
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Empty(updated.Amenities);
+        Assert.All(await GetAmenitiesIncludingDeletedAsync(created.Id), a => Assert.NotNull(a.DeletedAt));
+    }
+
+    [Fact]
+    public async Task Update_DeleteAndReAddSameNameInOneRequest_Succeeds()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with { Amenities = Amenities(("WiFi", 1)) });
+        var oldId = created.Amenities.Single().Id;
+
+        var response = await PatchAmenitiesAsync(created.Id,
+            new UpdateRoomAmenityRequest { Id = oldId, IsDeleted = true },
+            new UpdateRoomAmenityRequest { Name = "WiFi", Quantity = 3 });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        var amenity = updated.Amenities.Single();
+        Assert.NotEqual(oldId, amenity.Id);
+        Assert.Equal(3, amenity.Quantity);
+    }
+
+    [Fact]
+    public async Task Update_AddOrRenameToNameAlreadyUsed_Succeeds()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with { Amenities = Amenities(("WiFi", 1), ("Bed", 1)) });
+        var bedId = created.Amenities.Single(a => a.Name == "Bed").Id;
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await PatchAmenitiesAsync(created.Id, new UpdateRoomAmenityRequest { Name = "WiFi" })).StatusCode);
+        var response = await PatchAmenitiesAsync(created.Id, new UpdateRoomAmenityRequest { Id = bedId, Name = "WiFi" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Equal(3, updated.Amenities.Count(a => a.Name == "WiFi"));
+    }
+
+    [Fact]
+    public async Task Update_AmenityIdNotInRoom_Returns404AndChangesNothing()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with { Amenities = Amenities(("WiFi", 1)) });
+        var otherRoom = await CreateRoomAsync(_client, ValidCreateRequest() with { RoomNumber = "102", Amenities = Amenities(("Bed", 1)) });
+
+        var response = await _client.PatchAsJsonAsync($"/api/rooms/{created.Id}", new UpdateRoomRequest
+        {
+            Note = "Should not persist",
+            Amenities = new List<UpdateRoomAmenityRequest> { new() { Id = otherRoom.Amenities.Single().Id, IsDeleted = true } }
+        });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var otherAfter = (await (await _client.GetAsync($"/api/rooms/{otherRoom.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Single(otherAfter.Amenities);
+        var roomAfter = (await (await _client.GetAsync($"/api/rooms/{created.Id}"))
+            .Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Null(roomAfter.Note);
+    }
+
+    [Fact]
+    public async Task Update_AmenitiesExceedRoomLimit_Returns400AndChangesNothing()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with
+        {
+            Amenities = Enumerable.Range(0, 15).Select(i => new CreateRoomAmenityRequest { Name = $"Amenity {i}" }).ToList()
+        });
+
+        // 15 existing - 1 deleted + 7 added = 21 > 20.
+        var changes = Enumerable.Range(0, 7).Select(i => new UpdateRoomAmenityRequest { Name = $"New {i}" })
+            .Prepend(new UpdateRoomAmenityRequest { Id = created.Amenities[0].Id, IsDeleted = true })
+            .ToArray();
+        var response = await PatchAmenitiesAsync(created.Id, changes);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(15, (await GetAmenitiesIncludingDeletedAsync(created.Id)).Count(a => a.DeletedAt is null));
+    }
+
+    [Fact]
+    public async Task Update_AmenitiesReachRoomLimit_Succeeds()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with
+        {
+            Amenities = Enumerable.Range(0, 15).Select(i => new CreateRoomAmenityRequest { Name = $"Amenity {i}" }).ToList()
+        });
+
+        // 15 existing - 1 deleted + 6 added = 20.
+        var changes = Enumerable.Range(0, 6).Select(i => new UpdateRoomAmenityRequest { Name = $"New {i}" })
+            .Prepend(new UpdateRoomAmenityRequest { Id = created.Amenities[0].Id, IsDeleted = true })
+            .ToArray();
+        var response = await PatchAmenitiesAsync(created.Id, changes);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!;
+        Assert.Equal(20, updated.Amenities.Count);
+    }
+
+    [Fact]
+    public async Task Update_AmenitiesNull_Returns400()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest());
+
+        var response = await _client.PatchAsJsonAsync($"/api/rooms/{created.Id}", new { amenities = (object?)null });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Delete_RoomWithAmenities_SoftDeletesAllAmenities()
+    {
+        var created = await CreateRoomAsync(_client, ValidCreateRequest() with { Amenities = Amenities(("WiFi", 1), ("Bed", 1)) });
+
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/rooms/{created.Id}")).StatusCode);
+
+        var stored = await GetAmenitiesIncludingDeletedAsync(created.Id);
+        Assert.Equal(2, stored.Count);
+        Assert.All(stored, a => Assert.NotNull(a.DeletedAt));
+    }
 }

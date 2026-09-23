@@ -1,3 +1,4 @@
+using BoardingHouse.Api.Entities;
 using FluentValidation;
 
 namespace BoardingHouse.Api.DTOs.Rooms;
@@ -39,5 +40,13 @@ public class CreateRoomRequestValidator : AbstractValidator<CreateRoomRequest>
             .PrecisionScale(18, 2, ignoreTrailingZeros: true)
             .WithMessage("DepositAmount must not exceed 18 digits in total, with at most 2 decimal places")
             .When(x => x.DepositAmount is not null);
+
+        RuleFor(x => x.Amenities!)
+            .Must(a => a.Count <= Room.MaxAmenities).WithMessage($"A room must not have more than {Room.MaxAmenities} amenities")
+            .When(x => x.Amenities is not null);
+
+        RuleForEach(x => x.Amenities)
+            .NotNull().WithMessage("Amenity must not be null")
+            .SetValidator(new CreateRoomAmenityRequestValidator());
     }
 }

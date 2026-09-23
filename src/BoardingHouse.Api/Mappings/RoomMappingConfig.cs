@@ -17,7 +17,8 @@ public static class RoomMappingConfig
             dest => dest.Capacity!,
             dest => dest.MonthlyRent!,
             dest => dest.DepositAmount!,
-            dest => dest.Note!)
+            dest => dest.Note!,
+            dest => dest.Amenities)
         .AfterMapping((src, dest) =>
         {
             src.RoomNumber.ApplyIfSet(v => dest.RoomNumber = v!);

@@ -13,4 +13,5 @@ public record CreateRoomRequest
     public decimal? MonthlyRent { get; init; }
     public decimal? DepositAmount { get; init; }
     public string? Note { get; init; }
+    public List<CreateRoomAmenityRequest>? Amenities { get; init; }
 }

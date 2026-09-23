@@ -179,4 +179,48 @@ public class CreateRoomRequestValidatorTests
 
         result.ShouldNotHaveAnyValidationErrors();
     }
+
+    [Fact]
+    public void Validate_AmenitiesNullOrEmpty_HasNoErrors()
+    {
+        _validator.TestValidate(ValidRequest() with { Amenities = null }).ShouldNotHaveAnyValidationErrors();
+        _validator.TestValidate(ValidRequest() with { Amenities = [] }).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Validate_MoreThan20Amenities_HasError()
+    {
+        var amenities = Enumerable.Range(0, 21).Select(i => new CreateRoomAmenityRequest { Name = $"Amenity {i}" }).ToList();
+
+        var result = _validator.TestValidate(ValidRequest() with { Amenities = amenities });
+
+        result.ShouldHaveValidationErrorFor(x => x.Amenities);
+    }
+
+    [Fact]
+    public void Validate_NullAmenityItem_HasError()
+    {
+        var result = _validator.TestValidate(ValidRequest() with { Amenities = [null!] });
+
+        result.ShouldHaveValidationErrorFor("Amenities[0]");
+    }
+
+    [Fact]
+    public void Validate_DuplicateAmenityNames_HasNoErrors()
+    {
+        var result = _validator.TestValidate(ValidRequest() with
+        {
+            Amenities = [new CreateRoomAmenityRequest { Name = "WiFi" }, new CreateRoomAmenityRequest { Name = "WiFi", Quantity = 2 }]
+        });
+
+        result.ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Validate_AmenityWithEmptyName_HasError()
+    {
+        var result = _validator.TestValidate(ValidRequest() with { Amenities = [new CreateRoomAmenityRequest { Name = "" }] });
+
+        result.ShouldHaveValidationErrorFor("Amenities[0].Name");
+    }
 }

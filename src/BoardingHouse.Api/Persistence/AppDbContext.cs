@@ -18,6 +18,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<OrganizationMember> OrganizationMembers => Set<OrganizationMember>();
     public DbSet<Property> Properties => Set<Property>();
     public DbSet<Room> Rooms => Set<Room>();
+    public DbSet<RoomAmenity> RoomAmenities => Set<RoomAmenity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

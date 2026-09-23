@@ -8,6 +8,8 @@ namespace BoardingHouse.Api.Persistence.Configurations;
 
 public class RoomConfiguration : IEntityTypeConfiguration<Room>
 {
+    public const string PropertyIdRoomNumberUniqueIndex = "ix_rooms_property_id_room_number";
+
     public void Configure(EntityTypeBuilder<Room> builder)
     {
         builder.HasIndex(r => r.PropertyId);
@@ -16,7 +18,8 @@ public class RoomConfiguration : IEntityTypeConfiguration<Room>
 
         builder.HasIndex(r => new { r.PropertyId, r.RoomNumber })
             .IsUnique()
-            .HasFilter("deleted_at IS NULL");
+            .HasFilter("deleted_at IS NULL")
+            .HasDatabaseName(PropertyIdRoomNumberUniqueIndex);
 
         builder.Property(r => r.RoomNumber).HasMaxLength(20);
 

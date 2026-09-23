@@ -7,6 +7,7 @@ using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Mappings;
 using BoardingHouse.Api.Persistence;
+using BoardingHouse.Api.Persistence.Configurations;
 using BoardingHouse.Api.Repositories;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
@@ -58,7 +59,7 @@ public class RoomService(
 
     public async Task<RoomResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var room = await roomRepository.GetByIdWithPropertyAsync(id, cancellationToken)
+        var room = await roomRepository.GetByIdWithDetailsAsync(id, cancellationToken)
             ?? throw new AppNotFoundException($"Room '{id}' not found");
 
         await organizationScopeAccessor.EnsureScopeAsync(
@@ -88,7 +89,16 @@ public class RoomService(
             MonthlyRent = request.MonthlyRent,
             DepositAmount = request.DepositAmount,
             Note = request.Note,
-            CreatedBy = currentUserAccessor.RequiredUser.Id
+            CreatedBy = currentUserAccessor.RequiredUser.Id,
+            Amenities = request.Amenities?
+                .Select(a => new RoomAmenity
+                {
+                    Name = a.Name,
+                    Quantity = a.Quantity,
+                    Icon = a.Icon,
+                    CreatedBy = currentUserAccessor.RequiredUser.Id
+                })
+                .ToList() ?? []
         };
 
         try
@@ -97,7 +107,7 @@ public class RoomService(
             await context.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation(RoomConfiguration.PropertyIdRoomNumberUniqueIndex))
         {
             logger.LogWarning("Create room failed: room number already in use in property ({PropertyId})", request.PropertyId);
             throw new AppConflictException("A room with this number already exists in the property");
@@ -110,20 +120,31 @@ public class RoomService(
 
     public async Task<RoomResponse> UpdateAsync(Guid id, UpdateRoomRequest request, CancellationToken cancellationToken = default)
     {
-        var room = await roomRepository.GetByIdWithPropertyAsync(id, cancellationToken)
+        var room = await roomRepository.GetByIdWithDetailsAsync(id, cancellationToken)
             ?? throw new AppNotFoundException($"Room '{id}' not found");
 
         await organizationScopeAccessor.EnsureScopeAsync(
             room.Property!.OrganizationId, "room", "update", $"Room '{id}' not found", cancellationToken);
 
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
         request.Adapt(room, RoomMappingConfig.UpdateConfig);
 
         try
         {
+            if (request.Amenities.IsSet)
+            {
+                var changes = request.Amenities.Value!;
+                EnsureAmenityChangesValid(room, changes);
+                RemoveDeletedAmenities(room, changes);
+                UpsertAmenities(room, changes);
+            }
+
             roomRepository.Update(room);
             await context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+        catch (DbUpdateException ex) when (ex.IsUniqueViolation(RoomConfiguration.PropertyIdRoomNumberUniqueIndex))
         {
             logger.LogWarning("Update room failed: room number already in use in property ({RoomId})", id);
             throw new AppConflictException("A room with this number already exists in the property");
@@ -136,7 +157,7 @@ public class RoomService(
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var room = await roomRepository.GetByIdWithPropertyAsync(id, cancellationToken)
+        var room = await roomRepository.GetByIdWithDetailsAsync(id, cancellationToken)
             ?? throw new AppNotFoundException($"Room '{id}' not found");
 
         await organizationScopeAccessor.EnsureScopeAsync(
@@ -146,5 +167,65 @@ public class RoomService(
         await context.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("Room soft-deleted ({RoomId})", room.Id);
+    }
+
+    // Validates the merge against the room's current amenities: every Id must belong to this room, and the
+    // resulting list must stay within the per-room limit.
+    private static void EnsureAmenityChangesValid(Room room, List<UpdateRoomAmenityRequest> changes)
+    {
+        var existingById = room.Amenities.ToDictionary(a => a.Id);
+        var unknown = changes.FirstOrDefault(c => c.Id is not null && !existingById.ContainsKey(c.Id.Value));
+        if (unknown is not null)
+        {
+            throw new AppNotFoundException($"Room amenity '{unknown.Id}' not found");
+        }
+
+        var deletedCount = changes.Count(c => c.IsDeleted);
+        var addedCount = changes.Count(c => c.Id is null);
+        if (room.Amenities.Count - deletedCount + addedCount > Room.MaxAmenities)
+        {
+            throw new AppValidationException($"A room must not have more than {Room.MaxAmenities} amenities");
+        }
+    }
+
+    // Removing from the collection orphans the amenity → EF marks it Deleted → the interceptor soft-deletes it.
+    private static void RemoveDeletedAmenities(Room room, List<UpdateRoomAmenityRequest> changes)
+    {
+        var deletedIds = changes.Where(c => c.IsDeleted).Select(c => c.Id!.Value).ToHashSet();
+        var deleted = room.Amenities.Where(a => deletedIds.Contains(a.Id)).ToList();
+        foreach (var amenity in deleted)
+        {
+            room.Amenities.Remove(amenity);
+        }
+    }
+
+    private void UpsertAmenities(Room room, List<UpdateRoomAmenityRequest> changes)
+    {
+        var existingById = room.Amenities.ToDictionary(a => a.Id);
+        foreach (var change in changes.Where(c => !c.IsDeleted))
+        {
+            if (change.Id is { } amenityId)
+            {
+                var existing = existingById[amenityId];
+                if (change.Name is not null)
+                {
+                    existing.Name = change.Name;
+                }
+
+                change.Quantity.ApplyIfSet(quantity => existing.Quantity = quantity);
+                change.Icon.ApplyIfSet(icon => existing.Icon = icon);
+            }
+            else
+            {
+                roomRepository.AddAmenity(room, new RoomAmenity
+                {
+                    RoomId = room.Id,
+                    Name = change.Name!,
+                    Quantity = change.Quantity.Value,
+                    Icon = change.Icon.Value,
+                    CreatedBy = currentUserAccessor.RequiredUser.Id
+                });
+            }
+        }
     }
 }

@@ -17,4 +17,5 @@ public record RoomResponse
     public string? Note { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset? UpdatedAt { get; init; }
+    public required List<RoomAmenityResponse> Amenities { get; init; }
 }
