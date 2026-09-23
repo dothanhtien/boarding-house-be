@@ -49,7 +49,7 @@ public class RbacSeeder
         (RoleSlugs.OrganizationStaff, "Organization staff", "Manage day-to-day operations within the organization", RoleScope.Organization,
             [
                 "organization:read", "organization-setting:read",
-                "organization-member:read",
+                "organization-member:read", "organization-member:create", "organization-member:update", "organization-member:delete",
                 "property:read", "property:create", "property:update", "property:delete"]),
     ];
 

@@ -32,6 +32,10 @@ public class CreatePropertyRequestValidator : AbstractValidator<CreatePropertyRe
             .IsInEnum().WithMessage("Late fee type is invalid")
             .When(x => x.LateFeeType is not null);
 
+        RuleFor(x => x.LateFeeValue)
+            .GreaterThanOrEqualTo(0).WithMessage("LateFeeValue must not be negative")
+            .When(x => x.LateFeeValue is not null);
+
         RuleFor(x => x.LateFeeGraceDays)
             .GreaterThanOrEqualTo(0).WithMessage("LateFeeGraceDays must not be negative")
             .When(x => x.LateFeeGraceDays is not null);

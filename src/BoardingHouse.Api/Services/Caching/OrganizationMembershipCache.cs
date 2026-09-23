@@ -28,7 +28,8 @@ public class OrganizationMembershipCache(IDistributedCache cache, IConfiguration
 
         try
         {
-            var entries = JsonSerializer.Deserialize<List<Guid[]>>(json) ?? [];
+            var entries = JsonSerializer.Deserialize<List<Guid[]?>>(json)
+                ?? throw new FormatException($"Cached memberships payload deserialized to null for user {userId}");
             return [.. entries.Select(Decode)];
         }
         catch (Exception ex) when (ex is JsonException or FormatException)
@@ -74,7 +75,35 @@ public class OrganizationMembershipCache(IDistributedCache cache, IConfiguration
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "Failed to invalidate cached memberships for user {UserId}; stale entry may persist until TTL expiry", userId);
+            logger.LogWarning(ex, "Failed to remove cached memberships for user {UserId}; poisoning entry to force a database refresh", userId);
+
+            try
+            {
+                await cache.SetStringAsync(
+                    Key(userId),
+                    "invalidated",
+                    new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = Ttl },
+                    cancellationToken);
+            }
+            catch (Exception poisonEx) when (poisonEx is not OperationCanceledException)
+            {
+                logger.LogWarning(poisonEx, "Failed to poison cached memberships for user {UserId}; stale entry may persist until TTL expiry", userId);
+            }
+        }
+
+        _ = DelayedReinvalidateAsync(userId);
+    }
+
+    private async Task DelayedReinvalidateAsync(Guid userId)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), CancellationToken.None);
+            await cache.RemoveAsync(Key(userId), CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed delayed re-invalidation of cached memberships for user {UserId}; stale entry may persist until TTL expiry", userId);
         }
     }
 
@@ -82,9 +111,9 @@ public class OrganizationMembershipCache(IDistributedCache cache, IConfiguration
 
     private static Guid[] Encode((Guid OrganizationId, Guid RoleId) membership) => [membership.OrganizationId, membership.RoleId];
 
-    private static (Guid OrganizationId, Guid RoleId) Decode(Guid[] entry)
+    private static (Guid OrganizationId, Guid RoleId) Decode(Guid[]? entry)
     {
-        if (entry.Length != 2)
+        if (entry is null || entry.Length != 2)
         {
             throw new FormatException($"Invalid cached membership entry: '{JsonSerializer.Serialize(entry)}'");
         }

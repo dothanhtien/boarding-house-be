@@ -51,6 +51,11 @@ public class UpdatePropertyRequestValidator : AbstractValidator<UpdatePropertyRe
             .When(x => x.LateFeeType is { IsSet: true, Value: not null })
             .OverridePropertyName("LateFeeType");
 
+        RuleFor(x => x.LateFeeValue.Value)
+            .GreaterThanOrEqualTo(0).WithMessage("LateFeeValue must not be negative")
+            .When(x => x.LateFeeValue is { IsSet: true, Value: not null })
+            .OverridePropertyName("LateFeeValue");
+
         RuleFor(x => x.LateFeeGraceDays.Value)
             .GreaterThanOrEqualTo(0).WithMessage("Late fee grace days must not be negative")
             .When(x => x.LateFeeGraceDays is { IsSet: true, Value: not null })
