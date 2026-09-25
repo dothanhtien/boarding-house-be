@@ -156,8 +156,10 @@ public class PropertyService(
             throw new AppConflictException("Cannot delete a property that still has rooms — delete its rooms first");
         }
 
+        // FOR UPDATE serializes with a concurrent UtilityServiceService.UpdateAsync so the soft-delete below
+        // can't overwrite an update committed after our read
         var utilityServices = await utilityServiceRepository.ListByPropertyIdAsync(
-            id, type: null, isActive: null, cancellationToken);
+            id, type: null, isActive: null, forUpdate: true, cancellationToken);
         foreach (var utilityService in utilityServices)
         {
             utilityServiceRepository.SoftDelete(utilityService);

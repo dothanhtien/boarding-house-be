@@ -11,5 +11,6 @@ public interface IUtilityServiceRepository : IRepository<UtilityService>
         Guid propertyId,
         UtilityType? type,
         bool? isActive,
+        bool forUpdate = false,
         CancellationToken cancellationToken = default);
 }

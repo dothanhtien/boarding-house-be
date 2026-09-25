@@ -36,7 +36,7 @@ public class UtilityServiceService(
             query.PropertyId,
             query.Type,
             query.IsActive,
-            cancellationToken);
+            cancellationToken: cancellationToken);
 
         return services.Adapt<List<UtilityServiceResponse>>();
     }

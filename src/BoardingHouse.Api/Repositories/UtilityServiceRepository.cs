@@ -22,9 +22,13 @@ public class UtilityServiceRepository(AppDbContext context) : Repository<Utility
         Guid propertyId,
         UtilityType? type,
         bool? isActive,
+        bool forUpdate = false,
         CancellationToken cancellationToken = default)
     {
-        var services = Context.UtilityServices.Where(s => s.PropertyId == propertyId);
+        var source = forUpdate
+            ? Context.UtilityServices.FromSql($"SELECT * FROM utility_services WHERE property_id = {propertyId} FOR UPDATE")
+            : Context.UtilityServices;
+        var services = source.Where(s => s.PropertyId == propertyId);
 
         if (type is not null)
         {
