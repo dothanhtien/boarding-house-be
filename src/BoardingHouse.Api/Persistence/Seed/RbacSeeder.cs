@@ -36,6 +36,10 @@ public class RbacSeeder
         ("room", "create", "Create a new room"),
         ("room", "update", "Update room information"),
         ("room", "delete", "Delete a room"),
+        ("utility-service", "read", "View utility service list/details"),
+        ("utility-service", "create", "Create a new utility service"),
+        ("utility-service", "update", "Update utility service information"),
+        ("utility-service", "delete", "Delete a utility service"),
     ];
 
     internal static readonly (string Slug, string Name, string Description, RoleScope Scope, string[] Permissions)[] RoleSeeds =
@@ -44,19 +48,21 @@ public class RbacSeeder
         (RoleSlugs.PlatformStaff, "Platform Staff", "Platform staff — limited permissions", RoleScope.Platform,
             [
                 "user:read", "role:read", "organization:read", "organization-setting:read",
-                "organization-member:read", "property:read", "room:read"]),
+                "organization-member:read", "property:read", "room:read", "utility-service:read"]),
         (RoleSlugs.OrganizationAdmin, "Organization Admin", "Full rights within the organization", RoleScope.Organization,
             [
                 "organization:read", "organization:update", "organization-setting:read", "organization-setting:update",
                 "organization-member:read", "organization-member:create", "organization-member:update", "organization-member:delete",
                 "property:read", "property:create", "property:update", "property:delete",
-                "room:read", "room:create", "room:update", "room:delete"]),
+                "room:read", "room:create", "room:update", "room:delete",
+                "utility-service:read", "utility-service:create", "utility-service:update", "utility-service:delete"]),
         (RoleSlugs.OrganizationStaff, "Organization staff", "Manage day-to-day operations within the organization", RoleScope.Organization,
             [
                 "organization:read", "organization-setting:read",
                 "organization-member:read", "organization-member:create", "organization-member:update", "organization-member:delete",
                 "property:read", "property:create", "property:update", "property:delete",
-                "room:read", "room:create", "room:update", "room:delete"]),
+                "room:read", "room:create", "room:update", "room:delete",
+                "utility-service:read", "utility-service:create", "utility-service:update", "utility-service:delete"]),
     ];
 
     public static async Task SeedAsync(
