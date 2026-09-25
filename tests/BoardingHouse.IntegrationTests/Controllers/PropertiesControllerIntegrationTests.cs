@@ -1,12 +1,15 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json.Nodes;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Organizations;
 using BoardingHouse.Api.DTOs.Properties;
+using BoardingHouse.Api.DTOs.UtilityServices;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Entities;
+using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Seed;
 using BoardingHouse.IntegrationTests.Fixtures;
@@ -400,5 +403,49 @@ public class PropertiesControllerIntegrationTests(PostgresApiFactory factory)
         var result = (await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<PropertyResponse>>>())?.Data;
 
         Assert.All(result!.Items, p => Assert.Equal(_organizationId, p.OrganizationId));
+    }
+
+    private async Task<Guid> CreateUtilityServiceAsync(Guid propertyId, string name)
+    {
+        var response = await _client.PostAsJsonAsync("/api/utility-services", new CreateUtilityServiceRequest
+        {
+            PropertyId = propertyId,
+            Name = name,
+            Type = UtilityType.Other,
+            Unit = "month"
+        });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var json = await response.Content.ReadFromJsonAsync<JsonObject>();
+        return json!["data"]!["id"]!.GetValue<Guid>();
+    }
+
+    [Fact]
+    public async Task Delete_PropertyWithUtilityServices_SoftDeletesItsUtilityServicesOnly()
+    {
+        var property = (await (await _client.PostAsJsonAsync("/api/properties", ValidCreateRequest()))
+            .Content.ReadFromJsonAsync<ApiResponse<PropertyResponse>>())!.Data!;
+        var otherProperty = (await (await _client.PostAsJsonAsync("/api/properties", ValidCreateRequest() with { Name = "Other Property" }))
+            .Content.ReadFromJsonAsync<ApiResponse<PropertyResponse>>())!.Data!;
+        var electricityId = await CreateUtilityServiceAsync(property.Id, "Electricity");
+        var waterId = await CreateUtilityServiceAsync(property.Id, "Water");
+        var otherServiceId = await CreateUtilityServiceAsync(otherProperty.Id, "Electricity");
+
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/properties/{property.Id}")).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"/api/utility-services/{electricityId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"/api/utility-services/{waterId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/utility-services/{otherServiceId}")).StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var deleted = await context.UtilityServices.IgnoreQueryFilters()
+            .Where(s => s.PropertyId == property.Id)
+            .ToListAsync();
+        Assert.Equal(2, deleted.Count);
+        Assert.All(deleted, s =>
+        {
+            Assert.NotNull(s.DeletedAt);
+            Assert.Equal(_actorId, s.DeletedBy);
+        });
     }
 }

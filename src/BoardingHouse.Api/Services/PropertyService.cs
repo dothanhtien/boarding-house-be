@@ -17,6 +17,7 @@ public class PropertyService(
     IPropertyRepository propertyRepository,
     IOrganizationRepository organizationRepository,
     IRoomRepository roomRepository,
+    IUtilityServiceRepository utilityServiceRepository,
     IOrganizationScopeAccessor organizationScopeAccessor,
     ICurrentOrganizationAccessor currentOrganizationAccessor,
     ICurrentUserAccessor currentUserAccessor,
@@ -153,6 +154,13 @@ public class PropertyService(
         {
             logger.LogWarning("Delete property failed: property still has rooms ({PropertyId})", id);
             throw new AppConflictException("Cannot delete a property that still has rooms — delete its rooms first");
+        }
+
+        var utilityServices = await utilityServiceRepository.ListByPropertyIdAsync(
+            id, type: null, isActive: null, cancellationToken);
+        foreach (var utilityService in utilityServices)
+        {
+            utilityServiceRepository.SoftDelete(utilityService);
         }
 
         propertyRepository.SoftDelete(property);
