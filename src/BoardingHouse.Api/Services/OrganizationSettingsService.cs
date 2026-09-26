@@ -14,7 +14,7 @@ namespace BoardingHouse.Api.Services;
 public class OrganizationSettingsService(
     IOrganizationSettingsRepository organizationSettingsRepository,
     IOrganizationRepository organizationRepository,
-    AppDbContext context,
+    IUnitOfWork unitOfWork,
     ICurrentUserAccessor currentUserAccessor,
     IOrganizationScopeAccessor organizationScopeAccessor,
     ILogger<OrganizationSettingsService> logger) : IOrganizationSettingsService
@@ -52,7 +52,7 @@ public class OrganizationSettingsService(
             try
             {
                 await organizationSettingsRepository.AddAsync(settings, cancellationToken);
-                await context.SaveChangesAsync(cancellationToken);
+                await unitOfWork.SaveChangesAsync(cancellationToken);
                 logger.LogInformation("Organization settings created ({OrganizationId})", organizationId);
                 return settings.Adapt<OrganizationSettingsResponse>();
             }
@@ -71,7 +71,7 @@ public class OrganizationSettingsService(
         }
 
         organizationSettingsRepository.Update(settings);
-        await context.SaveChangesAsync(cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
         logger.LogInformation("Organization settings updated ({OrganizationId})", organizationId);
 
         return settings.Adapt<OrganizationSettingsResponse>();

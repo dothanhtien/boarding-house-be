@@ -17,7 +17,7 @@ namespace BoardingHouse.Api.Services;
 public class RoomService(
     IRoomRepository roomRepository,
     IPropertyRepository propertyRepository,
-    AppDbContext context,
+    IUnitOfWork unitOfWork,
     IOrganizationScopeAccessor organizationScopeAccessor,
     ICurrentOrganizationAccessor currentOrganizationAccessor,
     ICurrentUserAccessor currentUserAccessor,
@@ -70,89 +70,89 @@ public class RoomService(
 
     public async Task<RoomResponse> CreateAsync(CreateRoomRequest request, CancellationToken cancellationToken = default)
     {
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-
-        var property = await propertyRepository.GetByIdForShareAsync(request.PropertyId, cancellationToken)
-            ?? throw new AppNotFoundException($"Property '{request.PropertyId}' not found");
-
-        await organizationScopeAccessor.EnsureScopeAsync(
-            property.OrganizationId, "room", "create", $"Property '{request.PropertyId}' not found", cancellationToken);
-
-        var room = new Room
-        {
-            PropertyId = request.PropertyId,
-            RoomNumber = request.RoomNumber,
-            RoomCategory = request.RoomCategory,
-            FloorNumber = request.FloorNumber,
-            Area = request.Area,
-            Capacity = request.Capacity,
-            MonthlyRent = request.MonthlyRent,
-            DepositAmount = request.DepositAmount,
-            Note = request.Note,
-            CreatedBy = currentUserAccessor.RequiredUser.Id,
-            Amenities = request.Amenities?
-                .Select(a => new RoomAmenity
-                {
-                    Name = a.Name,
-                    Quantity = a.Quantity,
-                    Icon = a.Icon,
-                    CreatedBy = currentUserAccessor.RequiredUser.Id
-                })
-                .ToList() ?? []
-        };
-
         try
         {
-            await roomRepository.AddAsync(room, cancellationToken);
-            await context.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+            var room = await unitOfWork.ExecuteInTransactionAsync(async ct =>
+            {
+                // FOR SHARE blocks a concurrent PropertyService.DeleteAsync (FOR UPDATE) until this insert commits
+                var property = await propertyRepository.GetByIdForShareAsync(request.PropertyId, ct)
+                    ?? throw new AppNotFoundException($"Property '{request.PropertyId}' not found");
+
+                await organizationScopeAccessor.EnsureScopeAsync(
+                    property.OrganizationId, "room", "create", $"Property '{request.PropertyId}' not found", ct);
+
+                var created = new Room
+                {
+                    PropertyId = request.PropertyId,
+                    RoomNumber = request.RoomNumber,
+                    RoomCategory = request.RoomCategory,
+                    FloorNumber = request.FloorNumber,
+                    Area = request.Area,
+                    Capacity = request.Capacity,
+                    MonthlyRent = request.MonthlyRent,
+                    DepositAmount = request.DepositAmount,
+                    Note = request.Note,
+                    CreatedBy = currentUserAccessor.RequiredUser.Id,
+                    Amenities = request.Amenities?
+                        .Select(a => new RoomAmenity
+                        {
+                            Name = a.Name,
+                            Quantity = a.Quantity,
+                            Icon = a.Icon,
+                            CreatedBy = currentUserAccessor.RequiredUser.Id
+                        })
+                        .ToList() ?? []
+                };
+
+                await roomRepository.AddAsync(created, ct);
+                return created;
+            }, cancellationToken);
+
+            logger.LogInformation("Room created ({RoomId})", room.Id);
+            return room.Adapt<RoomResponse>();
         }
         catch (DbUpdateException ex) when (ex.IsUniqueViolation(RoomConfiguration.PropertyIdRoomNumberUniqueIndex))
         {
             logger.LogWarning("Create room failed: room number already in use in property ({PropertyId})", request.PropertyId);
             throw new AppConflictException("A room with this number already exists in the property");
         }
-
-        logger.LogInformation("Room created ({RoomId})", room.Id);
-
-        return room.Adapt<RoomResponse>();
     }
 
     public async Task<RoomResponse> UpdateAsync(Guid id, UpdateRoomRequest request, CancellationToken cancellationToken = default)
     {
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-
-        var room = await roomRepository.GetByIdWithDetailsForUpdateAsync(id, cancellationToken)
-            ?? throw new AppNotFoundException($"Room '{id}' not found");
-
-        await organizationScopeAccessor.EnsureScopeAsync(
-            room.Property!.OrganizationId, "room", "update", $"Room '{id}' not found", cancellationToken);
-
-        request.Adapt(room, RoomMappingConfig.UpdateConfig);
-
         try
         {
-            if (request.Amenities.IsSet)
+            var room = await unitOfWork.ExecuteInTransactionAsync(async ct =>
             {
-                var changes = request.Amenities.Value!;
-                EnsureAmenityChangesValid(room, changes);
-                RemoveDeletedAmenities(room, changes);
-                UpsertAmenities(room, changes);
-            }
+                var existing = await roomRepository.GetByIdWithDetailsForUpdateAsync(id, ct)
+                    ?? throw new AppNotFoundException($"Room '{id}' not found");
 
-            roomRepository.Update(room);
-            await context.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+                await organizationScopeAccessor.EnsureScopeAsync(
+                    existing.Property!.OrganizationId, "room", "update", $"Room '{id}' not found", ct);
+
+                request.Adapt(existing, RoomMappingConfig.UpdateConfig);
+
+                if (request.Amenities.IsSet)
+                {
+                    var changes = request.Amenities.Value!;
+                    EnsureAmenityChangesValid(existing, changes);
+                    RemoveDeletedAmenities(existing, changes);
+                    UpsertAmenities(existing, changes);
+                }
+
+                roomRepository.Update(existing);
+
+                return existing;
+            }, cancellationToken);
+
+            logger.LogInformation("Room updated ({RoomId})", room.Id);
+            return room.Adapt<RoomResponse>();
         }
         catch (DbUpdateException ex) when (ex.IsUniqueViolation(RoomConfiguration.PropertyIdRoomNumberUniqueIndex))
         {
             logger.LogWarning("Update room failed: room number already in use in property ({RoomId})", id);
             throw new AppConflictException("A room with this number already exists in the property");
         }
-
-        logger.LogInformation("Room updated ({RoomId})", room.Id);
-
-        return room.Adapt<RoomResponse>();
     }
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
@@ -164,7 +164,7 @@ public class RoomService(
             room.Property!.OrganizationId, "room", "delete", $"Room '{id}' not found", cancellationToken);
 
         roomRepository.SoftDelete(room);
-        await context.SaveChangesAsync(cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("Room soft-deleted ({RoomId})", room.Id);
     }

@@ -17,7 +17,7 @@ public class OrganizationMemberService(
     IOrganizationRepository organizationRepository,
     IUserRepository userRepository,
     IRoleRepository roleRepository,
-    AppDbContext context,
+    IUnitOfWork unitOfWork,
     ICurrentUserAccessor currentUserAccessor,
     IOrganizationMembershipCache organizationMembershipCache,
     ILogger<OrganizationMemberService> logger) : IOrganizationMemberService
@@ -86,7 +86,7 @@ public class OrganizationMemberService(
         try
         {
             await organizationMemberRepository.AddAsync(member, cancellationToken);
-            await context.SaveChangesAsync(cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
@@ -126,7 +126,7 @@ public class OrganizationMemberService(
         member.Role = role;
 
         organizationMemberRepository.Update(member);
-        await context.SaveChangesAsync(cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         await organizationMembershipCache.InvalidateAsync(member.UserId, cancellationToken);
 
@@ -148,7 +148,7 @@ public class OrganizationMemberService(
         await EnsureNotOwnerAsync(member, cancellationToken);
 
         organizationMemberRepository.SoftDelete(member);
-        await context.SaveChangesAsync(cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         await organizationMembershipCache.InvalidateAsync(member.UserId, cancellationToken);
 

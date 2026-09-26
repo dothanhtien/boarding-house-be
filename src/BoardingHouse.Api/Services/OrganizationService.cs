@@ -17,7 +17,7 @@ public class OrganizationService(
     IOrganizationMemberRepository organizationMemberRepository,
     IUserRepository userRepository,
     IRoleRepository roleRepository,
-    AppDbContext context,
+    IUnitOfWork unitOfWork,
     ICurrentUserAccessor currentUserAccessor,
     IOrganizationScopeAccessor organizationScopeAccessor,
     IOrganizationMembershipCache organizationMembershipCache,
@@ -85,7 +85,7 @@ public class OrganizationService(
 
         await organizationRepository.AddAsync(organization, cancellationToken);
         await organizationMemberRepository.AddAsync(organizationMember, cancellationToken);
-        await context.SaveChangesAsync(cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         await organizationMembershipCache.InvalidateAsync(request.OwnerId, cancellationToken);
 
@@ -113,7 +113,7 @@ public class OrganizationService(
         }
 
         organizationRepository.Update(organization);
-        await context.SaveChangesAsync(cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         await Task.WhenAll(affectedMemberUserIds.Select(userId => organizationMembershipCache.InvalidateAsync(userId, cancellationToken)));
 
@@ -131,7 +131,7 @@ public class OrganizationService(
             ?? throw new AppNotFoundException($"Organization '{id}' not found");
 
         organizationRepository.SoftDelete(organization);
-        await context.SaveChangesAsync(cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("Organization soft-deleted ({OrganizationId})", organization.Id);
     }
