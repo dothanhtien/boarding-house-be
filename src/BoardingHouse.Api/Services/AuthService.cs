@@ -13,8 +13,8 @@ namespace BoardingHouse.Api.Services;
 public class AuthService(
     IUserRepository userRepository,
     IRefreshTokenRepository refreshTokenRepository,
+    IUnitOfWork unitOfWork,
     ITokenService tokenService,
-    AppDbContext context,
     IConfiguration configuration,
     ILogger<AuthService> logger) : IAuthService
 {
@@ -40,7 +40,7 @@ public class AuthService(
         };
 
         await userRepository.AddAsync(user, cancellationToken);
-        await context.SaveChangesAsync(cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("User registered ({UserId}, {Email})", user.Id, email);
 
@@ -110,7 +110,7 @@ public class AuthService(
                 activeToken.RevokedReason = RevokedReason.Suspicious;
             }
 
-            await context.SaveChangesAsync(cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
 
             throw new AppUnauthorizedException("Refresh token has been revoked; please log in again");
         }
@@ -146,7 +146,7 @@ public class AuthService(
         existingToken.ReplacedById = newRefreshTokenEntity.Id;
 
         await refreshTokenRepository.AddAsync(newRefreshTokenEntity, cancellationToken);
-        await context.SaveChangesAsync(cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("Refresh token rotated for user {UserId}", user.Id);
 
@@ -168,7 +168,7 @@ public class AuthService(
         existingToken.RevokedAt = DateTimeOffset.UtcNow;
         existingToken.RevokedReason = RevokedReason.Logout;
 
-        await context.SaveChangesAsync(cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("User {UserId} logged out", existingToken.UserId);
     }
@@ -193,7 +193,7 @@ public class AuthService(
         };
 
         await refreshTokenRepository.AddAsync(refreshTokenEntity, cancellationToken);
-        await context.SaveChangesAsync(cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return (accessToken, accessTokenExpiresAt, refreshToken, expiresAt);
     }

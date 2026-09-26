@@ -18,10 +18,10 @@ public class PropertyService(
     IOrganizationRepository organizationRepository,
     IRoomRepository roomRepository,
     IUtilityServiceRepository utilityServiceRepository,
+    IUnitOfWork unitOfWork,
     IOrganizationScopeAccessor organizationScopeAccessor,
     ICurrentOrganizationAccessor currentOrganizationAccessor,
     ICurrentUserAccessor currentUserAccessor,
-    AppDbContext context,
     ILogger<PropertyService> logger) : IPropertyService
 {
     private static readonly Dictionary<string, Expression<Func<Property, object>>> SortableFields = new(StringComparer.OrdinalIgnoreCase)
@@ -101,7 +101,7 @@ public class PropertyService(
         try
         {
             await propertyRepository.AddAsync(property, cancellationToken);
-            await context.SaveChangesAsync(cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
@@ -127,7 +127,7 @@ public class PropertyService(
         try
         {
             propertyRepository.Update(property);
-            await context.SaveChangesAsync(cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
@@ -142,33 +142,32 @@ public class PropertyService(
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-
-        var property = await propertyRepository.GetByIdForUpdateAsync(id, cancellationToken)
-            ?? throw new AppNotFoundException($"Property '{id}' not found");
-
-        await organizationScopeAccessor.EnsureScopeAsync(
-            property.OrganizationId, "property", "delete", $"Property '{id}' not found", cancellationToken);
-
-        if (await roomRepository.ExistsByPropertyIdAsync(id, cancellationToken))
+        await unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            logger.LogWarning("Delete property failed: property still has rooms ({PropertyId})", id);
-            throw new AppConflictException("Cannot delete a property that still has rooms — delete its rooms first");
-        }
+            var property = await propertyRepository.GetByIdForUpdateAsync(id, ct)
+                ?? throw new AppNotFoundException($"Property '{id}' not found");
 
-        // FOR UPDATE serializes with a concurrent UtilityServiceService.UpdateAsync so the soft-delete below
-        // can't overwrite an update committed after our read
-        var utilityServices = await utilityServiceRepository.ListByPropertyIdAsync(
-            id, type: null, isActive: null, forUpdate: true, cancellationToken);
-        foreach (var utilityService in utilityServices)
-        {
-            utilityServiceRepository.SoftDelete(utilityService);
-        }
+            await organizationScopeAccessor.EnsureScopeAsync(
+                property.OrganizationId, "property", "delete", $"Property '{id}' not found", ct);
 
-        propertyRepository.SoftDelete(property);
-        await context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+            if (await roomRepository.ExistsByPropertyIdAsync(id, ct))
+            {
+                logger.LogWarning("Delete property failed: property still has rooms ({PropertyId})", id);
+                throw new AppConflictException("Cannot delete a property that still has rooms — delete its rooms first");
+            }
 
-        logger.LogInformation("Property soft-deleted ({PropertyId})", property.Id);
+            // FOR UPDATE serializes with a concurrent UtilityServiceService.UpdateAsync so the soft-delete below
+            // can't overwrite an update committed after our read
+            var utilityServices = await utilityServiceRepository.ListByPropertyIdAsync(
+                id, type: null, isActive: null, forUpdate: true, ct);
+            foreach (var utilityService in utilityServices)
+            {
+                utilityServiceRepository.SoftDelete(utilityService);
+            }
+
+            propertyRepository.SoftDelete(property);
+        }, cancellationToken);
+
+        logger.LogInformation("Property soft-deleted ({PropertyId})", id);
     }
 }

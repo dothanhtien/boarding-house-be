@@ -18,19 +18,14 @@ public class UserServiceTests
     private readonly Mock<IUserRepository> _userRepository = new();
     private readonly Mock<IUserCache> _userCache = new();
     private readonly Mock<ICurrentUserAccessor> _currentUserAccessor = new();
-    private readonly AppDbContext _context;
+    private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly UserService _userService;
 
     public UserServiceTests()
     {
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        _context = new AppDbContext(options);
-
         _userService = new UserService(
             _userRepository.Object,
-            _context,
+            _unitOfWork.Object,
             _userCache.Object,
             _currentUserAccessor.Object,
             NullLogger<UserService>.Instance);
@@ -97,6 +92,7 @@ public class UserServiceTests
         };
 
         await Assert.ThrowsAsync<AppConflictException>(() => _userService.CreateAsync(request));
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -105,13 +101,6 @@ public class UserServiceTests
         _userRepository
             .Setup(r => r.ExistsByEmailOrPhoneAsync("new@test.com", null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
-        _userRepository
-            .Setup(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
-            .Returns<User, CancellationToken>((u, _) =>
-            {
-                _context.Users.Add(u);
-                return Task.CompletedTask;
-            });
 
         var request = new CreateUserRequest
         {
@@ -127,6 +116,7 @@ public class UserServiceTests
         _userRepository.Verify(r => r.AddAsync(
             It.Is<User>(u => u.Email == "new@test.com" && u.PasswordHash != "password" && u.PasswordHash != string.Empty),
             It.IsAny<CancellationToken>()), Times.Once);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -141,7 +131,6 @@ public class UserServiceTests
             .Returns<User, CancellationToken>((u, _) =>
             {
                 added = u;
-                _context.Users.Add(u);
                 return Task.CompletedTask;
             });
 
@@ -173,7 +162,6 @@ public class UserServiceTests
             .Returns<User, CancellationToken>((u, _) =>
             {
                 added = u;
-                _context.Users.Add(u);
                 return Task.CompletedTask;
             });
 
@@ -201,19 +189,7 @@ public class UserServiceTests
             .Setup(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        var postgresException = new PostgresException("duplicate key value violates unique constraint", "ERROR", "ERROR", "23505");
-
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        await using var throwingContext = new ThrowingOnSaveDbContext(options, postgresException);
-
-        var service = new UserService(
-            _userRepository.Object,
-            throwingContext,
-            _userCache.Object,
-            _currentUserAccessor.Object,
-            NullLogger<UserService>.Instance);
+        SetupSaveChangesThrows(new PostgresException("duplicate key value violates unique constraint", "ERROR", "ERROR", "23505"));
 
         var request = new CreateUserRequest
         {
@@ -223,7 +199,7 @@ public class UserServiceTests
             PasswordConfirmation = "password"
         };
 
-        await Assert.ThrowsAsync<AppConflictException>(() => service.CreateAsync(request));
+        await Assert.ThrowsAsync<AppConflictException>(() => _userService.CreateAsync(request));
     }
 
     [Fact]
@@ -236,19 +212,7 @@ public class UserServiceTests
             .Setup(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        var postgresException = new PostgresException("connection failure", "ERROR", "ERROR", "08006");
-
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        await using var throwingContext = new ThrowingOnSaveDbContext(options, postgresException);
-
-        var service = new UserService(
-            _userRepository.Object,
-            throwingContext,
-            _userCache.Object,
-            _currentUserAccessor.Object,
-            NullLogger<UserService>.Instance);
+        SetupSaveChangesThrows(new PostgresException("connection failure", "ERROR", "ERROR", "08006"));
 
         var request = new CreateUserRequest
         {
@@ -258,7 +222,7 @@ public class UserServiceTests
             PasswordConfirmation = "password"
         };
 
-        await Assert.ThrowsAsync<DbUpdateException>(() => service.CreateAsync(request));
+        await Assert.ThrowsAsync<DbUpdateException>(() => _userService.CreateAsync(request));
     }
 
     [Fact]
@@ -287,7 +251,22 @@ public class UserServiceTests
         Assert.Equal("0900000000", user.Phone);
         Assert.False(user.IsActive);
         _userRepository.Verify(r => r.Update(user), Times.Once);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         _userCache.Verify(c => c.InvalidateAsync(user.Id, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ConcurrentUniqueViolation_ThrowsAppConflictException()
+    {
+        var user = NewUser();
+        _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _userRepository.Setup(r => r.ExistsByEmailExcludingUserAsync("new@test.com", user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        SetupSaveChangesThrows(new PostgresException("duplicate key value violates unique constraint", "ERROR", "ERROR", "23505"));
+
+        var request = new UpdateUserRequest { Email = "new@test.com" };
+
+        await Assert.ThrowsAsync<AppConflictException>(() => _userService.UpdateAsync(user.Id, request));
+        _userCache.Verify(c => c.InvalidateAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -347,6 +326,7 @@ public class UserServiceTests
 
         await Assert.ThrowsAsync<AppConflictException>(() => _userService.UpdateAsync(user.Id, request));
         _userRepository.Verify(r => r.Update(It.IsAny<User>()), Times.Never);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -374,6 +354,7 @@ public class UserServiceTests
 
         await Assert.ThrowsAsync<AppConflictException>(() => _userService.UpdateAsync(user.Id, request));
         _userRepository.Verify(r => r.Update(It.IsAny<User>()), Times.Never);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -393,12 +374,12 @@ public class UserServiceTests
         await _userService.DeleteAsync(user.Id);
 
         _userRepository.Verify(r => r.SoftDelete(user), Times.Once);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         _userCache.Verify(c => c.InvalidateAsync(user.Id, It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    private sealed class ThrowingOnSaveDbContext(DbContextOptions<AppDbContext> options, Exception inner) : AppDbContext(options)
-    {
-        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
-            throw new DbUpdateException("Save failed", inner);
-    }
+    private void SetupSaveChangesThrows(Exception inner) =>
+        _unitOfWork
+            .Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DbUpdateException("Save failed", inner));
 }

@@ -92,6 +92,8 @@ try
 
     builder.Services.AddProblemDetails();
 
+    builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+
     builder.Services.AddScoped<IUserRepository, UserRepository>();
     builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
     builder.Services.AddScoped<IRoleRepository, RoleRepository>();

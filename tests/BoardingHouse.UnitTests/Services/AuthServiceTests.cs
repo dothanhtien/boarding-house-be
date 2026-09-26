@@ -7,7 +7,6 @@ using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services;
 using BoardingHouse.UnitTests.Common;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -19,17 +18,12 @@ public class AuthServiceTests
     private readonly Mock<IUserRepository> _userRepository = new();
     private readonly Mock<IRefreshTokenRepository> _refreshTokenRepository = new();
     private readonly Mock<ITokenService> _tokenService = new();
-    private readonly AppDbContext _context;
+    private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly AuthService _authService;
 
     public AuthServiceTests()
     {
         MapsterTestSupport.EnsureUserMappingRegistered();
-
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        _context = new AppDbContext(options);
 
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -41,8 +35,8 @@ public class AuthServiceTests
         _authService = new AuthService(
             _userRepository.Object,
             _refreshTokenRepository.Object,
+            _unitOfWork.Object,
             _tokenService.Object,
-            _context,
             configuration,
             NullLogger<AuthService>.Instance);
     }
@@ -63,6 +57,7 @@ public class AuthServiceTests
         };
 
         await Assert.ThrowsAsync<AppConflictException>(() => _authService.RegisterAsync(request));
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -143,6 +138,7 @@ public class AuthServiceTests
         var request = new LoginRequest { Email = "user@test.com", Password = "wrong-password" };
 
         await Assert.ThrowsAsync<AppUnauthorizedException>(() => _authService.LoginAsync(request, null, null));
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -161,6 +157,7 @@ public class AuthServiceTests
         var request = new LoginRequest { Email = "user@test.com", Password = "password1" };
 
         await Assert.ThrowsAsync<AppUnauthorizedException>(() => _authService.LoginAsync(request, null, null));
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -195,6 +192,7 @@ public class AuthServiceTests
             .ReturnsAsync((RefreshToken?)null);
 
         await Assert.ThrowsAsync<AppUnauthorizedException>(() => _authService.RefreshTokenAsync("unknown", null, null));
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -227,6 +225,7 @@ public class AuthServiceTests
 
         Assert.NotNull(otherActiveToken.RevokedAt);
         Assert.Equal(RevokedReason.Suspicious, otherActiveToken.RevokedReason);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -245,6 +244,7 @@ public class AuthServiceTests
             .ReturnsAsync(token);
 
         await Assert.ThrowsAsync<AppUnauthorizedException>(() => _authService.RefreshTokenAsync("expired-token", null, null));
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -280,6 +280,7 @@ public class AuthServiceTests
         _refreshTokenRepository.Verify(r => r.AddAsync(
             It.Is<RefreshToken>(t => t.TokenHash == "new-hash"),
             It.IsAny<CancellationToken>()), Times.Once);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -295,6 +296,7 @@ public class AuthServiceTests
 
         Assert.NotNull(token.RevokedAt);
         Assert.Equal(RevokedReason.Logout, token.RevokedReason);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -306,5 +308,6 @@ public class AuthServiceTests
             .ReturnsAsync((RefreshToken?)null);
 
         await _authService.LogoutAsync("unknown");
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

@@ -13,7 +13,7 @@ namespace BoardingHouse.Api.Services;
 
 public class UserService(
     IUserRepository userRepository,
-    AppDbContext context,
+    IUnitOfWork unitOfWork,
     IUserCache userCache,
     ICurrentUserAccessor currentUserAccessor,
     ILogger<UserService> logger) : IUserService
@@ -72,7 +72,7 @@ public class UserService(
         try
         {
             await userRepository.AddAsync(user, cancellationToken);
-            await context.SaveChangesAsync(cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
@@ -124,7 +124,7 @@ public class UserService(
         try
         {
             userRepository.Update(user);
-            await context.SaveChangesAsync(cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
@@ -145,7 +145,7 @@ public class UserService(
             ?? throw new AppNotFoundException($"User '{id}' not found");
 
         userRepository.SoftDelete(user);
-        await context.SaveChangesAsync(cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
         await userCache.InvalidateAsync(user.Id, cancellationToken);
 
         logger.LogInformation("User soft-deleted ({UserId})", user.Id);
