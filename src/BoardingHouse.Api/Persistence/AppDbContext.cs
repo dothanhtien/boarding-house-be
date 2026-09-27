@@ -20,6 +20,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Room> Rooms => Set<Room>();
     public DbSet<RoomAmenity> RoomAmenities => Set<RoomAmenity>();
     public DbSet<UtilityService> UtilityServices => Set<UtilityService>();
+    public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

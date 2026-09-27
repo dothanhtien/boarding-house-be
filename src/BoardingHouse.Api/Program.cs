@@ -13,6 +13,7 @@ using BoardingHouse.Api.Persistence.Seed;
 using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services;
 using BoardingHouse.Api.Services.Caching;
+using BoardingHouse.Api.Services.Storage;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using Mapster;
@@ -88,6 +89,11 @@ try
         options.InstanceName = "BoardingHouse";
     });
 
+    builder.Services.AddOptions<CloudinaryOptions>()
+        .Bind(builder.Configuration.GetSection(CloudinaryOptions.SectionName))
+        .ValidateDataAnnotations()
+        .ValidateOnStart();
+
     builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
     builder.Services.AddProblemDetails();
@@ -104,6 +110,7 @@ try
     builder.Services.AddScoped<IPropertyRepository, PropertyRepository>();
     builder.Services.AddScoped<IRoomRepository, RoomRepository>();
     builder.Services.AddScoped<IUtilityServiceRepository, UtilityServiceRepository>();
+    builder.Services.AddScoped<IMediaAssetRepository, MediaAssetRepository>();
 
     builder.Services.AddScoped<IUserService, UserService>();
     builder.Services.AddScoped<IRoleService, RoleService>();
@@ -115,6 +122,8 @@ try
     builder.Services.AddScoped<IPropertyService, PropertyService>();
     builder.Services.AddScoped<IRoomService, RoomService>();
     builder.Services.AddScoped<IUtilityServiceService, UtilityServiceService>();
+    builder.Services.AddScoped<IMediaAttachmentService, MediaAttachmentService>();
+    builder.Services.AddScoped<IMediaUploader, MediaUploader>();
 
     builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
     builder.Services.AddScoped<ICurrentOrganizationAccessor, CurrentOrganizationAccessor>();
@@ -128,6 +137,8 @@ try
     builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
     builder.Services.AddScoped<IAuthorizationHandler, OrganizationScopedPermissionAuthorizationHandler>();
     builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
+
+    builder.Services.AddSingleton<IStorageProvider, CloudinaryStorageProvider>();
 
     builder.Services.AddJwtAuthentication(builder.Configuration);
 

@@ -8,6 +8,7 @@ using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Entities;
+using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
@@ -68,9 +69,10 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         }
     }
 
-    private async Task<(Guid UserId, string AccessTokenCookieValue, string RefreshTokenCookieValue)> RegisterAndLoginAsync(string email = "user@test.com")
+    private async Task<(Guid UserId, string AccessTokenCookieValue, string RefreshTokenCookieValue)> RegisterAndLoginAsync(
+        string email = "user@test.com", string phone = "0900000000")
     {
-        var registerResponse = await _client.PostAsJsonAsync("/api/auth/register", ValidRegisterRequest(email));
+        var registerResponse = await _client.PostAsJsonAsync("/api/auth/register", ValidRegisterRequest(email) with { Phone = phone });
         var user = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
@@ -442,5 +444,226 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         } while (afterExpiryResponse.StatusCode != HttpStatusCode.Unauthorized && DateTime.UtcNow < deadline);
 
         Assert.Equal(HttpStatusCode.Unauthorized, afterExpiryResponse.StatusCode);
+    }
+
+    private static readonly byte[] PngBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52];
+    private static readonly byte[] PdfBytes = "%PDF-1.7\n"u8.ToArray();
+
+    private static MultipartFormDataContent AvatarForm(byte[] content, string contentType = "image/png", string fileName = "me.png")
+    {
+        var file = new ByteArrayContent(content);
+        file.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        return new MultipartFormDataContent { { file, "file", fileName } };
+    }
+
+    private static HttpRequestMessage AuthorizedRequest(HttpMethod method, string url, string accessToken, HttpContent? content = null)
+    {
+        var request = new HttpRequestMessage(method, url) { Content = content };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        return request;
+    }
+
+    private async Task<UserResponse> UpdateMyAvatarAsync(string accessToken, string fileName = "me.png")
+    {
+        var response = await _client.SendAsync(
+            AuthorizedRequest(HttpMethod.Put, "/api/auth/me/avatar", accessToken, AvatarForm(PngBytes, fileName: fileName)));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())!.Data!;
+    }
+
+    private async Task<List<MediaAsset>> GetAvatarRowsAsync(Guid userId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await context.MediaAssets
+            .IgnoreQueryFilters()
+            .Where(m => m.EntityType == MediaAssetEntityType.UserAvatar && m.EntityId == userId)
+            .OrderBy(m => m.CreatedAt)
+            .ToListAsync();
+    }
+
+    [Fact]
+    public async Task UpdateMyAvatar_UserWithoutAnyRole_StoresLinkedPlatformAssetAndReturnsAvatarUrl()
+    {
+        var (userId, accessToken, _) = await RegisterAndLoginAsync();
+
+        var updated = await UpdateMyAvatarAsync(accessToken);
+
+        Assert.Equal(userId, updated.Id);
+        var row = Assert.Single(await GetAvatarRowsAsync(userId));
+        Assert.Null(row.OrganizationId);
+        Assert.Null(row.DeletedAt);
+        Assert.Equal("image/png", row.MimeType);
+        Assert.StartsWith($"test/users/{userId}/", row.StorageKey);
+        Assert.True(factory.Storage.Files.ContainsKey(row.StorageKey));
+        Assert.Equal($"https://storage.test/{row.StorageKey}", updated.AvatarUrl);
+
+        var me = (await (await _client.SendAsync(AuthorizedGet("/api/auth/me", accessToken)))
+            .Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())!.Data!;
+        Assert.Equal(updated.AvatarUrl, me.AvatarUrl);
+    }
+
+    [Fact]
+    public async Task UpdateMyAvatar_UserWithPlatformRoleAndOrganizationMembership_ReturnsSameEnrichedResponseAsMe()
+    {
+        var (userId, accessToken, _) = await RegisterAndLoginAsync();
+        await factory.GrantPlatformAdminRoleAsync(userId);
+
+        Guid organizationId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var organizationRole = await context.Roles.SingleAsync(r => r.Slug == "organization_admin");
+            var organization = new Organization { Name = "Member Org", CreatedBy = SentinelActors.System };
+            context.Organizations.Add(organization);
+            await context.SaveChangesAsync();
+
+            context.OrganizationMembers.Add(new OrganizationMember
+            {
+                OrganizationId = organization.Id,
+                UserId = userId,
+                RoleId = organizationRole.Id,
+                CreatedBy = SentinelActors.System
+            });
+            await context.SaveChangesAsync();
+
+            organizationId = organization.Id;
+        }
+
+        var updated = await UpdateMyAvatarAsync(accessToken);
+
+        var me = (await (await _client.SendAsync(AuthorizedGet("/api/auth/me", accessToken)))
+            .Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())!.Data!;
+        Assert.Equal("platform_admin", updated.PlatformRole?.Slug);
+        Assert.Equal(me.PlatformRole?.Id, updated.PlatformRole?.Id);
+        var organizationEntry = Assert.Single(updated.Organizations);
+        Assert.Equal(organizationId, organizationEntry.OrganizationId);
+        Assert.Equal(me.Organizations, updated.Organizations);
+        Assert.Equal(me.AvatarUrl, updated.AvatarUrl);
+    }
+
+    [Fact]
+    public async Task UpdateMyAvatar_Replaced_SoftDeletesPreviousAssetAndDeletesItsFile()
+    {
+        var (userId, accessToken, _) = await RegisterAndLoginAsync();
+        await UpdateMyAvatarAsync(accessToken);
+
+        var updated = await UpdateMyAvatarAsync(accessToken, "new.png");
+
+        var rows = await GetAvatarRowsAsync(userId);
+        Assert.Equal(2, rows.Count);
+        Assert.NotNull(rows[0].DeletedAt);
+        Assert.Null(rows[1].DeletedAt);
+        Assert.Equal("new.png", rows[1].FileName);
+        Assert.False(factory.Storage.Files.ContainsKey(rows[0].StorageKey));
+        Assert.True(factory.Storage.Files.ContainsKey(rows[1].StorageKey));
+        Assert.Equal($"https://storage.test/{rows[1].StorageKey}", updated.AvatarUrl);
+    }
+
+    [Fact]
+    public async Task UpdateMyAvatar_OnlyTouchesCallersOwnAvatar()
+    {
+        var (otherUserId, otherAccessToken, _) = await RegisterAndLoginAsync("other@test.com", "0900000001");
+        await UpdateMyAvatarAsync(otherAccessToken);
+        var (userId, accessToken, _) = await RegisterAndLoginAsync();
+
+        await UpdateMyAvatarAsync(accessToken);
+        var deleteResponse = await _client.SendAsync(AuthorizedRequest(HttpMethod.Delete, "/api/auth/me/avatar", accessToken));
+
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+        Assert.NotNull(Assert.Single(await GetAvatarRowsAsync(userId)).DeletedAt);
+        Assert.Null(Assert.Single(await GetAvatarRowsAsync(otherUserId)).DeletedAt);
+    }
+
+    [Fact]
+    public async Task UpdateMyAvatar_NoFile_Returns400()
+    {
+        var (_, accessToken, _) = await RegisterAndLoginAsync();
+
+        var form = new MultipartFormDataContent { { new StringContent("x"), "unknownField" } };
+        var response = await _client.SendAsync(AuthorizedRequest(HttpMethod.Put, "/api/auth/me/avatar", accessToken, form));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateMyAvatar_NotAnImage_Returns400AndStoresNothing()
+    {
+        var (userId, accessToken, _) = await RegisterAndLoginAsync();
+
+        var response = await _client.SendAsync(AuthorizedRequest(
+            HttpMethod.Put, "/api/auth/me/avatar", accessToken, AvatarForm(PdfBytes, "application/pdf", "cv.pdf")));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(await GetAvatarRowsAsync(userId));
+        Assert.Empty(factory.Storage.Files);
+    }
+
+    [Fact]
+    public async Task UpdateMyAvatar_ContentNotMatchingDeclaredImageType_Returns400AndStoresNothing()
+    {
+        var (userId, accessToken, _) = await RegisterAndLoginAsync();
+
+        var response = await _client.SendAsync(AuthorizedRequest(
+            HttpMethod.Put, "/api/auth/me/avatar", accessToken, AvatarForm("not an image"u8.ToArray())));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(await GetAvatarRowsAsync(userId));
+        Assert.Empty(factory.Storage.Files);
+    }
+
+    [Fact]
+    public async Task UpdateMyAvatar_JsonBody_Returns415()
+    {
+        var (_, accessToken, _) = await RegisterAndLoginAsync();
+
+        var response = await _client.SendAsync(AuthorizedRequest(
+            HttpMethod.Put, "/api/auth/me/avatar", accessToken, JsonContent.Create(new { file = "x" })));
+
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateMyAvatar_WithoutAuthentication_Returns401()
+    {
+        var response = await _client.PutAsync("/api/auth/me/avatar", AvatarForm(PngBytes));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Empty(factory.Storage.Files);
+    }
+
+    [Fact]
+    public async Task DeleteMyAvatar_RemovesAvatarAndItsFile()
+    {
+        var (userId, accessToken, _) = await RegisterAndLoginAsync();
+        await UpdateMyAvatarAsync(accessToken);
+
+        var response = await _client.SendAsync(AuthorizedRequest(HttpMethod.Delete, "/api/auth/me/avatar", accessToken));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var row = Assert.Single(await GetAvatarRowsAsync(userId));
+        Assert.NotNull(row.DeletedAt);
+        Assert.Empty(factory.Storage.Files);
+        var me = (await (await _client.SendAsync(AuthorizedGet("/api/auth/me", accessToken)))
+            .Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())!.Data!;
+        Assert.Null(me.AvatarUrl);
+    }
+
+    [Fact]
+    public async Task DeleteMyAvatar_WithoutAvatar_Returns204()
+    {
+        var (_, accessToken, _) = await RegisterAndLoginAsync();
+
+        var response = await _client.SendAsync(AuthorizedRequest(HttpMethod.Delete, "/api/auth/me/avatar", accessToken));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteMyAvatar_WithoutAuthentication_Returns401()
+    {
+        var response = await _client.DeleteAsync("/api/auth/me/avatar");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 }

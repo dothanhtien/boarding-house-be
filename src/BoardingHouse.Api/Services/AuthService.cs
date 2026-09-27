@@ -6,6 +6,7 @@ using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
+using BoardingHouse.Api.Services.Storage;
 using Mapster;
 
 namespace BoardingHouse.Api.Services;
@@ -15,6 +16,7 @@ public class AuthService(
     IRefreshTokenRepository refreshTokenRepository,
     IUnitOfWork unitOfWork,
     ITokenService tokenService,
+    IStorageProvider storageProvider,
     IConfiguration configuration,
     ILogger<AuthService> logger) : IAuthService
 {
@@ -49,10 +51,13 @@ public class AuthService(
 
     public async Task<UserResponse> GetCurrentUserAsync(Guid userId, CancellationToken cancellationToken = default)
     {
-        var user = await userRepository.GetByIdWithRolesAndOrganizationsAsync(userId, cancellationToken)
+        var (user, avatar) = await userRepository.GetByIdWithRolesAndOrganizationsAsync(userId, cancellationToken)
             ?? throw new AppUnauthorizedException("Current user is not set on an authenticated request");
 
-        return user.Adapt<UserResponse>();
+        return user.Adapt<UserResponse>() with
+        {
+            AvatarUrl = avatar is null ? null : storageProvider.GetUrl(avatar.StorageKey, avatar.MimeType)
+        };
     }
 
     public async Task<(UserResponse User, string AccessToken, DateTimeOffset AccessTokenExpiresAt, string RefreshToken, DateTimeOffset RefreshTokenExpiresAt)> LoginAsync(
@@ -61,7 +66,8 @@ public class AuthService(
         string? userAgent,
         CancellationToken cancellationToken = default)
     {
-        var user = await userRepository.GetByEmailWithRolesAndOrganizationsAsync(request.Email, cancellationToken);
+        var userWithAvatar = await userRepository.GetByEmailWithRolesAndOrganizationsAsync(request.Email, cancellationToken);
+        var user = userWithAvatar?.Entity;
 
         if (user is null
             || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash)
@@ -74,12 +80,16 @@ public class AuthService(
         user.LastLoginAt = DateTimeOffset.UtcNow;
         userRepository.Update(user);
 
-        var (accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt) =
-            await IssueTokensAsync(user, ipAddress, userAgent, cancellationToken);
+        var (accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt) = await IssueTokensAsync(user, ipAddress, userAgent, cancellationToken);
 
         logger.LogInformation("User {UserId} logged in from {IpAddress}", user.Id, ipAddress);
 
-        return (user.Adapt<UserResponse>(), accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt);
+        var response = user.Adapt<UserResponse>() with
+        {
+            AvatarUrl = userWithAvatar!.Media is { } avatar ? storageProvider.GetUrl(avatar.StorageKey, avatar.MimeType) : null
+        };
+
+        return (response, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt);
     }
 
     public async Task<(string AccessToken, DateTimeOffset AccessTokenExpiresAt, string RefreshToken, DateTimeOffset RefreshTokenExpiresAt)> RefreshTokenAsync(

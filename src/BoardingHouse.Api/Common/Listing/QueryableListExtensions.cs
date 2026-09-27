@@ -5,11 +5,21 @@ namespace BoardingHouse.Api.Common;
 
 public static class QueryableListExtensions
 {
-    public static async Task<PagedResult<TEntity>> ToPagedResultAsync<TEntity>(
+    public static Task<PagedResult<TEntity>> ToPagedResultAsync<TEntity>(
         this IQueryable<TEntity> query,
         PageRequest pageRequest,
         Expression<Func<TEntity, object>> sortField,
         SortOrder sortOrder,
+        CancellationToken cancellationToken = default)
+        where TEntity : Entity =>
+        query.ToPagedResultAsync(pageRequest, sortField, sortOrder, page => page, cancellationToken);
+
+    public static async Task<PagedResult<TResult>> ToPagedResultAsync<TEntity, TResult>(
+        this IQueryable<TEntity> query,
+        PageRequest pageRequest,
+        Expression<Func<TEntity, object>> sortField,
+        SortOrder sortOrder,
+        Func<IQueryable<TEntity>, IQueryable<TResult>> project,
         CancellationToken cancellationToken = default)
         where TEntity : Entity
     {
@@ -24,12 +34,12 @@ public static class QueryableListExtensions
         var skip = (long)(pageRequest.Page - 1) * pageRequest.PageSize;
         var skipCount = skip > int.MaxValue ? int.MaxValue : (int)skip;
 
-        var items = await query
-            .Skip(skipCount)
-            .Take(pageRequest.PageSize)
+        var items = await project(query
+                .Skip(skipCount)
+                .Take(pageRequest.PageSize))
             .ToListAsync(cancellationToken);
 
-        return new PagedResult<TEntity>
+        return new PagedResult<TResult>
         {
             Items = items,
             Page = pageRequest.Page,

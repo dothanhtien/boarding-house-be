@@ -4,7 +4,12 @@ using System.Net.Http.Json;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Users;
+using BoardingHouse.Api.Entities;
+using BoardingHouse.Api.Entities.Enums;
+using BoardingHouse.Api.Persistence;
 using BoardingHouse.IntegrationTests.Fixtures;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 
@@ -15,6 +20,10 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
 
     private const string ActorEmail = "actor@test.com";
     private const string ActorPassword = "password123";
+
+    private static readonly byte[] PngBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52];
+
+    private Guid _actorId;
 
     public async Task InitializeAsync()
     {
@@ -43,8 +52,9 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
             FullName = "Actor User"
         });
         var actor = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
+        _actorId = actor!.Id;
 
-        await factory.GrantPlatformAdminRoleAsync(actor!.Id);
+        await factory.GrantPlatformAdminRoleAsync(actor.Id);
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
@@ -456,5 +466,75 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
         var response = await unauthenticatedClient.GetAsync("/api/users");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    private async Task<UserResponse> UpdateActorAvatarAsync()
+    {
+        var file = new ByteArrayContent(PngBytes);
+        file.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        var response = await _client.PutAsync("/api/auth/me/avatar", new MultipartFormDataContent { { file, "file", "me.png" } });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())!.Data!;
+    }
+
+    private async Task<List<MediaAsset>> GetAvatarRowsAsync(Guid userId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await context.MediaAssets
+            .IgnoreQueryFilters()
+            .Where(m => m.EntityType == MediaAssetEntityType.UserAvatar && m.EntityId == userId)
+            .OrderBy(m => m.CreatedAt)
+            .ToListAsync();
+    }
+
+    [Theory]
+    [InlineData("PUT")]
+    [InlineData("DELETE")]
+    public async Task AvatarEndpoint_ByUserId_IsNotExposed(string method)
+    {
+        var response = await _client.SendAsync(new HttpRequestMessage(new HttpMethod(method), $"/api/users/{_actorId}/avatar"));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Delete_UserWithAvatar_KeepsAvatarAndItsFileForRestore()
+    {
+        await UpdateActorAvatarAsync();
+
+        var response = await _client.DeleteAsync($"/api/users/{_actorId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var row = Assert.Single(await GetAvatarRowsAsync(_actorId));
+        Assert.Null(row.DeletedAt);
+        Assert.Single(factory.Storage.Files);
+    }
+
+    [Fact]
+    public async Task Update_KeepsAvatar()
+    {
+        var withAvatar = await UpdateActorAvatarAsync();
+
+        var response = await _client.PatchAsJsonAsync($"/api/users/{_actorId}", new UpdateUserRequest { FullName = "Renamed" });
+
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())!.Data!;
+        Assert.Equal("Renamed", updated.FullName);
+        Assert.Equal(withAvatar.AvatarUrl, updated.AvatarUrl);
+    }
+
+    [Fact]
+    public async Task Reads_ReturnAvatarUrl()
+    {
+        var updated = await UpdateActorAvatarAsync();
+        Assert.NotNull(updated.AvatarUrl);
+
+        var byId = (await _client.GetFromJsonAsync<ApiResponse<UserResponse>>($"/api/users/{_actorId}"))!.Data!;
+        var list = (await _client.GetFromJsonAsync<ApiResponse<PagedResult<UserResponse>>>("/api/users"))!.Data!;
+        var me = (await _client.GetFromJsonAsync<ApiResponse<UserResponse>>("/api/auth/me"))!.Data!;
+
+        Assert.Equal(updated.AvatarUrl, byId.AvatarUrl);
+        Assert.Equal(updated.AvatarUrl, list.Items.Single(u => u.Id == _actorId).AvatarUrl);
+        Assert.Equal(updated.AvatarUrl, me.AvatarUrl);
     }
 }

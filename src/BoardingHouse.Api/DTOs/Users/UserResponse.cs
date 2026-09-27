@@ -9,6 +9,7 @@ public record UserResponse
     public DateTimeOffset? EmailVerifiedAt { get; init; }
     public string? Phone { get; init; }
     public required string FullName { get; init; }
+    public string? AvatarUrl { get; init; }
     public DateTimeOffset? LastLoginAt { get; init; }
     public required bool IsActive { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }

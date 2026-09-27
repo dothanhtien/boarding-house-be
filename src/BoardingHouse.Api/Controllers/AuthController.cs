@@ -3,6 +3,7 @@ using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Services;
+using BoardingHouse.Api.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,7 +11,10 @@ namespace BoardingHouse.Api.Controllers;
 
 [ApiController]
 [Route("api/auth")]
-public class AuthController(IAuthService authService, ICurrentUserAccessor currentUserAccessor) : ControllerBase
+public class AuthController(
+    IAuthService authService,
+    IUserService userService,
+    ICurrentUserAccessor currentUserAccessor) : ControllerBase
 {
     [HttpPost("register")]
     public async Task<ActionResult<ApiResponse<UserResponse>>> Register(RegisterRequest request, CancellationToken cancellationToken)
@@ -81,6 +85,26 @@ public class AuthController(IAuthService authService, ICurrentUserAccessor curre
     {
         var response = await authService.GetCurrentUserAsync(currentUserAccessor.RequiredUser.Id, cancellationToken);
         return Ok(new ApiResponse<UserResponse> { Data = response });
+    }
+
+    [HttpPut("me/avatar")]
+    [Authorize]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(MediaLimits.MaxRequestBodyBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = MediaLimits.MaxRequestBodyBytes)]
+    public async Task<ActionResult<ApiResponse<UserResponse>>> UpdateMyAvatar(
+        [FromForm] UpdateUserAvatarRequest request, CancellationToken cancellationToken)
+    {
+        var user = await userService.UpdateAvatarAsync(currentUserAccessor.RequiredUser.Id, request, cancellationToken);
+        return Ok(new ApiResponse<UserResponse> { Data = user });
+    }
+
+    [HttpDelete("me/avatar")]
+    [Authorize]
+    public async Task<IActionResult> DeleteMyAvatar(CancellationToken cancellationToken)
+    {
+        await userService.DeleteAvatarAsync(currentUserAccessor.RequiredUser.Id, cancellationToken);
+        return NoContent();
     }
 
     private string? GetIpAddress()
