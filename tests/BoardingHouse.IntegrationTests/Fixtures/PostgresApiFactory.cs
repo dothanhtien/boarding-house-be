@@ -2,11 +2,14 @@ using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Seed;
+using BoardingHouse.Api.Services.Storage;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using StackExchange.Redis;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
@@ -18,8 +21,16 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:17-alpine").Build();
     private readonly RedisContainer _redis = new RedisBuilder("redis:7-alpine").Build();
 
+    public FakeStorageProvider Storage { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<IStorageProvider>();
+            services.AddSingleton<IStorageProvider>(Storage);
+        });
+
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
@@ -28,7 +39,10 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
                 ["ConnectionStrings:Redis"] = _redis.GetConnectionString(),
                 ["Jwt:Secret"] = TestJwtOptions.Secret,
                 ["Redis:UserCacheTtlSeconds"] = "1",
-                ["Cors:AllowedOrigins:0"] = "https://allowed.example.com"
+                ["Cors:AllowedOrigins:0"] = "https://allowed.example.com",
+                ["Cloudinary:CloudName"] = "test-cloud",
+                ["Cloudinary:ApiKey"] = "test-key",
+                ["Cloudinary:ApiSecret"] = "test-secret"
             });
         });
     }
@@ -57,9 +71,13 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
                 users, refresh_tokens,
                 roles, permissions, user_roles, role_permissions,
                 organizations, organization_settings,
-                properties, rooms, room_amenities, utility_services
+                properties, rooms, room_amenities, utility_services,
+                media_assets
             CASCADE
             """);
+
+        Storage.Files.Clear();
+        Storage.FailOnDelete = false;
 
         var redisOptions = ConfigurationOptions.Parse(_redis.GetConnectionString());
         redisOptions.AllowAdmin = true;

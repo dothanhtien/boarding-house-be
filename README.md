@@ -103,6 +103,26 @@ Open the Scalar UI at `/scalar/v1`:
 
 The Scalar UI is only enabled in the `Development` environment (see `Program.cs`).
 
+## Cloudinary (media storage)
+
+Uploaded files are stored on [Cloudinary](https://cloudinary.com). The API **refuses to start** without credentials, so set them up before
+running it. Get the _Cloud name_, _API key_ and _API secret_ from the Cloudinary dashboard (Settings → API Keys).
+
+- **`dotnet run`**: store them in user-secrets (never in `appsettings*.json`):
+
+  ```bash
+  dotnet user-secrets init --project src/BoardingHouse.Api
+  dotnet user-secrets set "Cloudinary:CloudName" "<cloud-name>" --project src/BoardingHouse.Api
+  dotnet user-secrets set "Cloudinary:ApiKey" "<api-key>" --project src/BoardingHouse.Api
+  dotnet user-secrets set "Cloudinary:ApiSecret" "<api-secret>" --project src/BoardingHouse.Api
+  ```
+
+- **Docker**: set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` in `.env`
+  (see `.env.example`); `docker-compose.yml` maps them to `Cloudinary__*`.
+
+Files go under `{RootFolder}/<owner path>/` (e.g. `users/{userId}/` for avatars), where `RootFolder` is
+`boarding-house-dev` in Development and `boarding-house` otherwise, so dev and prod can share one cloud.
+
 ## Authentication & RBAC
 
 - **JWT access tokens** are short-lived (`Jwt:AccessTokenExpirationMinutes` in `appsettings.json`, default 15 min), signed with `JWT_SECRET`.

@@ -13,12 +13,13 @@ namespace BoardingHouse.UnitTests.Controllers;
 public class AuthControllerTests
 {
     private readonly Mock<IAuthService> _authService = new();
+    private readonly Mock<IUserService> _userService = new();
     private readonly Mock<ICurrentUserAccessor> _currentUserAccessor = new();
     private readonly AuthController _controller;
 
     public AuthControllerTests()
     {
-        _controller = new AuthController(_authService.Object, _currentUserAccessor.Object)
+        _controller = new AuthController(_authService.Object, _userService.Object, _currentUserAccessor.Object)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
