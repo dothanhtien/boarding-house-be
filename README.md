@@ -36,7 +36,8 @@ src/
     DTOs/                     # request/response models + FluentValidation validators
     Entities/                 # User, Role, Permission, RolePermission, UserRole, RefreshToken
     Exceptions/               # AppException + GlobalExceptionHandler (RFC 7807 problem details)
-    Extensions/               # JwtAuthenticationExtensions
+    Extensions/               # DI registration grouped per area (*ServiceCollectionExtensions), JwtAuthenticationExtensions,
+                              # StartupCommandExtensions (--migrate/--seed-* CLI + dev auto-migrate/seed)
     Middleware/               # CorrelationIdMiddleware
     Persistence/              # AppDbContext, EF Core configurations, migrations, audit interceptor
       Seed/                   # RbacSeeder (default roles/permissions)
