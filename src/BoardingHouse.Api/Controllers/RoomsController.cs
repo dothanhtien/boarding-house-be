@@ -23,10 +23,10 @@ public class RoomsController(IRoomService roomService) : ControllerBase
 
     [HttpGet("{id:guid}")]
     [RequireOrganizationScopedPermission("room", "read")]
-    public async Task<ActionResult<ApiResponse<RoomResponse>>> GetById(Guid id, CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<RoomDetailsResponse>>> GetById(Guid id, CancellationToken cancellationToken)
     {
         var room = await roomService.GetByIdAsync(id, cancellationToken);
-        return Ok(new ApiResponse<RoomResponse> { Data = room });
+        return Ok(new ApiResponse<RoomDetailsResponse> { Data = room });
     }
 
     [HttpPost]

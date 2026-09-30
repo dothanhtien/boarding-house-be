@@ -17,6 +17,7 @@ namespace BoardingHouse.Api.Services;
 public class RoomService(
     IRoomRepository roomRepository,
     IPropertyRepository propertyRepository,
+    IRoomAssetRepository roomAssetRepository,
     IUnitOfWork unitOfWork,
     IOrganizationScopeAccessor organizationScopeAccessor,
     ICurrentOrganizationAccessor currentOrganizationAccessor,
@@ -57,7 +58,7 @@ public class RoomService(
         };
     }
 
-    public async Task<RoomResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<RoomDetailsResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var room = await roomRepository.GetByIdWithDetailsAsync(id, cancellationToken)
             ?? throw new AppNotFoundException($"Room '{id}' not found");
@@ -65,7 +66,7 @@ public class RoomService(
         await organizationScopeAccessor.EnsureScopeAsync(
             room.Property!.OrganizationId, "room", "read", $"Room '{id}' not found", cancellationToken);
 
-        return room.Adapt<RoomResponse>();
+        return room.Adapt<RoomDetailsResponse>();
     }
 
     public async Task<RoomResponse> CreateAsync(CreateRoomRequest request, CancellationToken cancellationToken = default)
@@ -157,16 +158,24 @@ public class RoomService(
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var room = await roomRepository.GetByIdWithDetailsAsync(id, cancellationToken)
-            ?? throw new AppNotFoundException($"Room '{id}' not found");
+        await unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var room = await roomRepository.GetByIdWithDetailsForUpdateAsync(id, ct)
+                ?? throw new AppNotFoundException($"Room '{id}' not found");
 
-        await organizationScopeAccessor.EnsureScopeAsync(
-            room.Property!.OrganizationId, "room", "delete", $"Room '{id}' not found", cancellationToken);
+            await organizationScopeAccessor.EnsureScopeAsync(
+                room.Property!.OrganizationId, "room", "delete", $"Room '{id}' not found", ct);
 
-        roomRepository.SoftDelete(room);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+            var assets = await roomAssetRepository.ListByRoomIdForUpdateAsync(id, ct);
+            foreach (var asset in assets)
+            {
+                roomAssetRepository.SoftDelete(asset);
+            }
 
-        logger.LogInformation("Room soft-deleted ({RoomId})", room.Id);
+            roomRepository.SoftDelete(room);
+        }, cancellationToken);
+
+        logger.LogInformation("Room soft-deleted ({RoomId})", id);
     }
 
     // Validates the merge against the room's current amenities: every Id must belong to this room, and the

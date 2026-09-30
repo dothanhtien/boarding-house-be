@@ -2,11 +2,13 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Organizations;
 using BoardingHouse.Api.DTOs.Properties;
+using BoardingHouse.Api.DTOs.RoomAssets;
 using BoardingHouse.Api.DTOs.Rooms;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Entities;
@@ -910,5 +912,55 @@ public class RoomsControllerIntegrationTests(PostgresApiFactory factory)
         var stored = await GetAmenitiesIncludingDeletedAsync(created.Id);
         Assert.Equal(2, stored.Count);
         Assert.All(stored, a => Assert.NotNull(a.DeletedAt));
+    }
+
+    private async Task<RoomAssetResponse> CreateAssetAsync(Guid roomId, string name)
+    {
+        var response = await _client.PostAsJsonAsync($"/api/rooms/{roomId}/assets", new CreateRoomAssetRequest { Name = name });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<ApiResponse<RoomAssetResponse>>(JsonOptions))!.Data!;
+    }
+
+    [Fact]
+    public async Task GetById_RoomWithAssets_ReturnsLiveAssetsSortedByName()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+        await CreateAssetAsync(room.Id, "Wardrobe");
+        var bed = await CreateAssetAsync(room.Id, "Bed");
+        var deleted = await CreateAssetAsync(room.Id, "Air conditioner");
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/rooms/{room.Id}/assets/{deleted.Id}")).StatusCode);
+
+        var response = await _client.GetAsync($"/api/rooms/{room.Id}");
+        var detail = (await response.Content.ReadFromJsonAsync<ApiResponse<RoomDetailsResponse>>(JsonOptions))!.Data!;
+
+        Assert.Equal(["Bed", "Wardrobe"], detail.Assets.Select(a => a.Name));
+        Assert.Equal(bed.Id, detail.Assets[0].Id);
+    }
+
+    [Fact]
+    public async Task GetAll_DoesNotIncludeAssets()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+        await CreateAssetAsync(room.Id, "Bed");
+
+        var json = JsonNode.Parse(await _client.GetStringAsync("/api/rooms"))!;
+
+        Assert.Null(json["data"]!["items"]![0]!["assets"]);
+    }
+
+    [Fact]
+    public async Task Delete_RoomWithAssets_SoftDeletesAllAssets()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+        await CreateAssetAsync(room.Id, "Bed");
+        await CreateAssetAsync(room.Id, "Wardrobe");
+
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/rooms/{room.Id}")).StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var assets = await context.RoomAssets.IgnoreQueryFilters().Where(a => a.RoomId == room.Id).ToListAsync();
+        Assert.Equal(2, assets.Count);
+        Assert.All(assets, a => Assert.NotNull(a.DeletedAt));
     }
 }

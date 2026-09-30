@@ -21,6 +21,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<RoomAmenity> RoomAmenities => Set<RoomAmenity>();
     public DbSet<UtilityService> UtilityServices => Set<UtilityService>();
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
+    public DbSet<RoomAsset> RoomAssets => Set<RoomAsset>();
+    public DbSet<RoomAssetConditionHistory> RoomAssetConditionHistories => Set<RoomAssetConditionHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

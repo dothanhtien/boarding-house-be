@@ -43,7 +43,8 @@ public class PostgresContainerFixture : IAsyncLifetime
                 users, refresh_tokens,
                 roles, permissions, user_roles, role_permissions,
                 organizations, organization_settings,
-                properties, rooms, room_amenities, utility_services
+                properties, rooms, room_amenities, room_assets, room_asset_condition_histories, 
+                utility_services
             CASCADE
             """);
     }

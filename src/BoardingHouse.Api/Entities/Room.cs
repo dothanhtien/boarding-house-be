@@ -21,4 +21,5 @@ public class Room : BaseEntity
     public string? Note { get; set; }
 
     public ICollection<RoomAmenity> Amenities { get; set; } = [];
+    public ICollection<RoomAsset> Assets { get; set; } = [];
 }

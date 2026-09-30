@@ -24,6 +24,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IRoomRepository, RoomRepository>();
         services.AddScoped<IUtilityServiceRepository, UtilityServiceRepository>();
         services.AddScoped<IMediaAssetRepository, MediaAssetRepository>();
+        services.AddScoped<IRoomAssetRepository, RoomAssetRepository>();
+        services.AddScoped<IRoomAssetConditionHistoryRepository, RoomAssetConditionHistoryRepository>();
 
         return services;
     }
@@ -39,6 +41,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IOrganizationMemberService, OrganizationMemberService>();
         services.AddScoped<IPropertyService, PropertyService>();
         services.AddScoped<IRoomService, RoomService>();
+        services.AddScoped<IRoomAssetService, RoomAssetService>();
+        services.AddScoped<IRoomAssetConditionHistoryService, RoomAssetConditionHistoryService>();
         services.AddScoped<IUtilityServiceService, UtilityServiceService>();
         services.AddScoped<IMediaAttachmentService, MediaAttachmentService>();
         services.AddScoped<IMediaUploader, MediaUploader>();
