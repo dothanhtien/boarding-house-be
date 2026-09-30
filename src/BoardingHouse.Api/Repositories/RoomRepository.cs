@@ -13,6 +13,8 @@ public class RoomRepository(AppDbContext context) : Repository<Room>(context), I
         Context.Rooms
             .Include(r => r.Property)
             .Include(r => r.Amenities)
+            .Include(r => r.Assets)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
 
     // Row-locks the room for the rest of the current transaction, so concurrent amenity merges are serialized
@@ -22,6 +24,13 @@ public class RoomRepository(AppDbContext context) : Repository<Room>(context), I
             .FromSql($"SELECT * FROM rooms WHERE id = {id} FOR UPDATE")
             .Include(r => r.Property)
             .Include(r => r.Amenities)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    // FOR SHARE blocks a concurrent RoomService.DeleteAsync (FOR UPDATE) until a child insert (room asset) commits
+    public Task<Room?> GetByIdWithPropertyForShareAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Context.Rooms
+            .FromSql($"SELECT * FROM rooms WHERE id = {id} FOR SHARE")
+            .Include(r => r.Property)
             .FirstOrDefaultAsync(cancellationToken);
 
     // Entity.Id is pre-populated client-side, so an amenity merely appended to a tracked room's collection
