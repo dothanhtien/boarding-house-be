@@ -33,7 +33,7 @@ public class MediaCollectionService(
         var uploads = buffered
             .Select(async file =>
             {
-                var asset = await mediaUploader.UploadAsync(file, folder, organizationId, cancellationToken);
+                var asset = await mediaUploader.UploadAsync(file, folder, organizationId, CancellationToken.None);
                 asset.EntityType = entityType;
                 return asset;
             })
