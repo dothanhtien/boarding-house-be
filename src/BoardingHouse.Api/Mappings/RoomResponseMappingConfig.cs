@@ -24,6 +24,7 @@ public class RoomResponseMappingConfig : IRegister
                 .Where(a => a.DeletedAt == null)
                 .OrderBy(a => a.Name)
                 .ThenBy(a => a.CreatedAt)
-                .ThenBy(a => a.Id));
+                .ThenBy(a => a.Id))
+            .Ignore(dest => dest.Media);
     }
 }

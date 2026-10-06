@@ -8,6 +8,10 @@ public static class MediaLimits
 
     public const int MaxFileNameLength = 255;
 
+    public const int MaxFilesPerRequest = 5;
+
+    public const long MaxMultiFileRequestBodyBytes = MaxFilesPerRequest * MaxFileSizeBytes + 1024 * 1024;
+
     public static readonly IReadOnlySet<string> AllowedImageMimeTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "image/jpeg", "image/png", "image/webp"

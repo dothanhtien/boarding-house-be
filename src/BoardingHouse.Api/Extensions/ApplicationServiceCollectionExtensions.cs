@@ -45,6 +45,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IRoomAssetConditionHistoryService, RoomAssetConditionHistoryService>();
         services.AddScoped<IUtilityServiceService, UtilityServiceService>();
         services.AddScoped<IMediaAttachmentService, MediaAttachmentService>();
+        services.AddScoped<IMediaCollectionService, MediaCollectionService>();
         services.AddScoped<IMediaUploader, MediaUploader>();
 
         services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
