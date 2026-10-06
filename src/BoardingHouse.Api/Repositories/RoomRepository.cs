@@ -9,42 +9,7 @@ namespace BoardingHouse.Api.Repositories;
 
 public class RoomRepository(AppDbContext context) : Repository<Room>(context), IRoomRepository
 {
-    public Task<Room?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default) =>
-        Context.Rooms
-            .Include(r => r.Property)
-            .Include(r => r.Amenities)
-            .Include(r => r.Assets)
-            .AsSplitQuery()
-            .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
-
-    // Row-locks the room for the rest of the current transaction, so concurrent amenity merges are serialized
-    // and the per-room amenity limit is checked against a count no one else can change underneath.
-    public Task<Room?> GetByIdWithDetailsForUpdateAsync(Guid id, CancellationToken cancellationToken = default) =>
-        Context.Rooms
-            .FromSql($"SELECT * FROM rooms WHERE id = {id} FOR UPDATE")
-            .Include(r => r.Property)
-            .Include(r => r.Amenities)
-            .FirstOrDefaultAsync(cancellationToken);
-
-    // FOR SHARE blocks a concurrent RoomService.DeleteAsync (FOR UPDATE) until a child insert (room asset) commits
-    public Task<Room?> GetByIdWithPropertyForShareAsync(Guid id, CancellationToken cancellationToken = default) =>
-        Context.Rooms
-            .FromSql($"SELECT * FROM rooms WHERE id = {id} FOR SHARE")
-            .Include(r => r.Property)
-            .FirstOrDefaultAsync(cancellationToken);
-
-    // Entity.Id is pre-populated client-side, so an amenity merely appended to a tracked room's collection
-    // would be picked up as an existing row (UPDATE → 0 rows affected). Track it as Added explicitly
-    public void AddAmenity(Room room, RoomAmenity amenity)
-    {
-        room.Amenities.Add(amenity);
-        Context.RoomAmenities.Add(amenity);
-    }
-
-    public Task<bool> ExistsByPropertyIdAsync(Guid propertyId, CancellationToken cancellationToken = default) =>
-        Context.Rooms.AnyAsync(r => r.PropertyId == propertyId, cancellationToken);
-
-    public async Task<PagedResult<Room>> SearchAsync(
+    public async Task<PagedResult<EntityWithMedia<Room>>> SearchAsync(
         Guid? organizationId,
         IReadOnlySet<Guid>? allowedOrganizationIds,
         Guid? propertyId,
@@ -88,6 +53,69 @@ public class RoomRepository(AppDbContext context) : Repository<Room>(context), I
             rooms = rooms.Where(r => EF.Functions.ILike(r.RoomNumber, pattern, LikePattern.EscapeCharacter));
         }
 
-        return await rooms.ToPagedResultAsync(pageRequest, sortField, sortOrder, cancellationToken);
+        return await rooms.ToPagedResultAsync(
+            pageRequest,
+            sortField,
+            sortOrder,
+            page => page.LeftJoin(
+                Context.RoomMedia.Where(m => m.IsCover),
+                r => r.Id,
+                m => m.RoomId,
+                (r, m) => new EntityWithMedia<Room>(
+                    r,
+                    m == null ? null : new MediaLocation(m.MediaAsset!.StorageKey, m.MediaAsset.MimeType))),
+            cancellationToken);
+    }
+
+    public Task<Room?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Context.Rooms
+            .AsNoTracking()
+            .Include(r => r.Property)
+            .Include(r => r.Amenities)
+            .Include(r => r.Assets)
+            .Include(r => r.Media).ThenInclude(m => m.MediaAsset)
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
+
+    public Task<Room?> GetByIdWithPropertyForUpdateAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Context.Rooms
+            .FromSql($"SELECT * FROM rooms WHERE id = {id} FOR UPDATE")
+            .Include(r => r.Property)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<Room?> GetByIdWithPropertyForShareAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Context.Rooms
+            .FromSql($"SELECT * FROM rooms WHERE id = {id} FOR SHARE")
+            .Include(r => r.Property)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task LoadAmenitiesAsync(Room room, CancellationToken cancellationToken = default) =>
+        Context.Entry(room).Collection(r => r.Amenities).LoadAsync(cancellationToken);
+
+    public Task LoadAssetsAsync(Room room, CancellationToken cancellationToken = default) =>
+        Context.Entry(room).Collection(r => r.Assets).LoadAsync(cancellationToken);
+
+    public Task LoadMediaAsync(Room room, CancellationToken cancellationToken = default) =>
+        Context.Entry(room).Collection(r => r.Media).Query().Include(m => m.MediaAsset).LoadAsync(cancellationToken);
+
+    public Task<bool> ExistsByPropertyIdAsync(Guid propertyId, CancellationToken cancellationToken = default) =>
+        Context.Rooms.AnyAsync(r => r.PropertyId == propertyId, cancellationToken);
+
+    public void AddAmenity(Room room, RoomAmenity amenity)
+    {
+        room.Amenities.Add(amenity);
+        Context.RoomAmenities.Add(amenity);
+    }
+
+    public void AddMedia(Room room, RoomMedia media)
+    {
+        room.Media.Add(media);
+        Context.RoomMedia.Add(media);
+    }
+
+    public void RemoveMedia(Room room, RoomMedia media)
+    {
+        room.Media.Remove(media);
+        Context.RoomMedia.Remove(media);
     }
 }

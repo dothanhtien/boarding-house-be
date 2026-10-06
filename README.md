@@ -124,6 +124,13 @@ running it. Get the _Cloud name_, _API key_ and _API secret_ from the Cloudinary
 Files go under `{RootFolder}/<owner path>/` (e.g. `users/{userId}/` for avatars), where `RootFolder` is
 `boarding-house-dev` in Development and `boarding-house` otherwise, so dev and prod can share one cloud.
 
+Files never ride along in an entity's JSON body; each media slot has its own multipart endpoint. Room photos, for
+example, take two requests from the frontend: `POST /api/rooms` (JSON) to create the room, then
+`POST /api/rooms/{id}/media` (multipart, field `files`, at most `MediaLimits.MaxFilesPerRequest` = 5 files per request
+and `Room.MaxMedia` = 20 photos per room). If the upload fails the room still exists without photos; retry the upload
+from the edit screen. Reorder or change the cover with `PATCH /api/rooms/{id}/media`, remove one with
+`DELETE /api/rooms/{id}/media/{mediaId}`.
+
 ## Authentication & RBAC
 
 - **JWT access tokens** are short-lived (`Jwt:AccessTokenExpirationMinutes` in `appsettings.json`, default 15 min), signed with `JWT_SECRET`.

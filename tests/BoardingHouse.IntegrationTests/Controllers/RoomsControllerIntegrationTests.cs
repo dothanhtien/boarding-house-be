@@ -15,6 +15,7 @@ using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Seed;
+using BoardingHouse.Api.Services.Storage;
 using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -962,5 +963,337 @@ public class RoomsControllerIntegrationTests(PostgresApiFactory factory)
         var assets = await context.RoomAssets.IgnoreQueryFilters().Where(a => a.RoomId == room.Id).ToListAsync();
         Assert.Equal(2, assets.Count);
         Assert.All(assets, a => Assert.NotNull(a.DeletedAt));
+    }
+
+    private static readonly byte[] PngBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52];
+
+    private static MultipartFormDataContent MediaForm(params (byte[] Content, string ContentType)[] files)
+    {
+        var form = new MultipartFormDataContent();
+        for (var i = 0; i < files.Length; i++)
+        {
+            var file = new ByteArrayContent(files[i].Content);
+            file.Headers.ContentType = new MediaTypeHeaderValue(files[i].ContentType);
+            form.Add(file, "files", $"photo-{i}.png");
+        }
+
+        return form;
+    }
+
+    private static MultipartFormDataContent PngForm(int count) =>
+        MediaForm(Enumerable.Range(0, count).Select(_ => (PngBytes, "image/png")).ToArray());
+
+    private Task<HttpResponseMessage> PostMediaAsync(Guid roomId, int count, HttpClient? client = null) =>
+        (client ?? _client).PostAsync($"/api/rooms/{roomId}/media", PngForm(count));
+
+    private async Task<List<RoomMediaResponse>> AddMediaAsync(Guid roomId, int count)
+    {
+        var response = await PostMediaAsync(roomId, count);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<ApiResponse<List<RoomMediaResponse>>>(JsonOptions))!.Data!;
+    }
+
+    private async Task<List<RoomMediaResponse>> PatchMediaAsync(Guid roomId, object body)
+    {
+        var response = await _client.PatchAsJsonAsync($"/api/rooms/{roomId}/media", body);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<ApiResponse<List<RoomMediaResponse>>>(JsonOptions))!.Data!;
+    }
+
+    private async Task<RoomDetailsResponse> GetRoomDetailsAsync(Guid roomId)
+    {
+        var response = await _client.GetAsync($"/api/rooms/{roomId}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<ApiResponse<RoomDetailsResponse>>(JsonOptions))!.Data!;
+    }
+
+    private async Task<List<RoomMedia>> GetMediaRowsIncludingDeletedAsync(Guid roomId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await context.RoomMedia
+            .IgnoreQueryFilters()
+            .Include(m => m.MediaAsset)
+            .Where(m => m.RoomId == roomId)
+            .ToListAsync();
+    }
+
+    [Fact]
+    public async Task AddMedia_TwoBatches_AppendsInOrderWithSingleCoverUnderOrganizationFolder()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+
+        var first = await AddMediaAsync(room.Id, 2);
+        var all = await AddMediaAsync(room.Id, 2);
+
+        Assert.Equal([0, 1, 2, 3], all.Select(m => m.SortOrder));
+        Assert.Equal(first.Select(m => m.MediaId), all.Take(2).Select(m => m.MediaId));
+        Assert.Equal(all[0].MediaId, Assert.Single(all, m => m.IsCover).MediaId);
+        Assert.All(all, m => Assert.Contains($"/organizations/{_organizationId}/rooms/{room.Id}/", m.Url));
+        Assert.Equal(4, factory.Storage.Files.Count);
+
+        var rows = await GetMediaRowsIncludingDeletedAsync(room.Id);
+        Assert.All(rows, r =>
+        {
+            Assert.Equal(MediaAssetEntityType.RoomMedia, r.MediaAsset!.EntityType);
+            Assert.Null(r.MediaAsset.EntityId);
+            Assert.Equal(_organizationId, r.MediaAsset.OrganizationId);
+        });
+    }
+
+    [Fact]
+    public async Task AddMedia_OverRoomLimit_Returns400AndUploadsNothing()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+        for (var i = 0; i < Room.MaxMedia / MediaLimits.MaxFilesPerRequest; i++)
+        {
+            await AddMediaAsync(room.Id, MediaLimits.MaxFilesPerRequest);
+        }
+
+        var response = await PostMediaAsync(room.Id, 1);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(Room.MaxMedia, factory.Storage.Files.Count);
+    }
+
+    [Fact]
+    public async Task AddMedia_MoreFilesThanPerRequestLimit_Returns400()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+
+        var response = await PostMediaAsync(room.Id, MediaLimits.MaxFilesPerRequest + 1);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(factory.Storage.Files);
+    }
+
+    [Fact]
+    public async Task AddMedia_SecondFileContentNotMatchingDeclaredType_Returns400AndKeepsNothing()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+
+        var response = await _client.PostAsync(
+            $"/api/rooms/{room.Id}/media",
+            MediaForm((PngBytes, "image/png"), ("not an image"u8.ToArray(), "image/png")));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(factory.Storage.Files);
+        Assert.Empty(await GetMediaRowsIncludingDeletedAsync(room.Id));
+    }
+
+    [Fact]
+    public async Task AddMedia_ConcurrentRequestsNearLimit_NeverExceedLimit()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+        await AddMediaAsync(room.Id, 5);
+        await AddMediaAsync(room.Id, 5);
+        await AddMediaAsync(room.Id, 5);
+        await AddMediaAsync(room.Id, 2);
+
+        // 17 + 2 fits, 17 + 2 + 2 doesn't: whichever request loses must be rejected (before or after uploading)
+        var responses = await Task.WhenAll(PostMediaAsync(room.Id, 2), PostMediaAsync(room.Id, 2));
+
+        Assert.Equal(
+            [HttpStatusCode.OK, HttpStatusCode.BadRequest],
+            responses.Select(r => r.StatusCode).OrderBy(s => s));
+        var live = (await GetMediaRowsIncludingDeletedAsync(room.Id)).Where(r => r.DeletedAt == null).ToList();
+        Assert.Equal(19, live.Count);
+        Assert.Single(live, r => r.IsCover);
+        Assert.Equal(19, factory.Storage.Files.Count);
+    }
+
+    [Fact]
+    public async Task GetById_ReturnsMediaInOrder_GetAll_ReturnsOnlyCoverUrl()
+    {
+        var withMedia = await CreateRoomAsync(_client, ValidCreateRequest());
+        await CreateRoomAsync(_client, ValidCreateRequest() with { RoomNumber = "102" });
+        var media = await AddMediaAsync(withMedia.Id, 2);
+
+        var detail = await GetRoomDetailsAsync(withMedia.Id);
+        Assert.Equal(media.Select(m => m.MediaId), detail.Media.Select(m => m.MediaId));
+        Assert.Equal(media[0].Url, detail.CoverUrl);
+
+        var json = JsonNode.Parse(await _client.GetStringAsync("/api/rooms?sortBy=roomNumber&sortOrder=asc"))!;
+        var items = json["data"]!["items"]!.AsArray();
+        Assert.Equal(media[0].Url, items[0]!["coverUrl"]!.GetValue<string>());
+        Assert.Null(items[0]!["media"]);
+        Assert.Null(items[1]!["coverUrl"]);
+    }
+
+    [Fact]
+    public async Task Update_Room_ReturnsDetailsWithAssetsAndMedia()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+        await CreateAssetAsync(room.Id, "Bed");
+        var media = await AddMediaAsync(room.Id, 1);
+
+        var response = await _client.PatchAsJsonAsync($"/api/rooms/{room.Id}", new UpdateRoomRequest { Note = "Renovated" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = (await response.Content.ReadFromJsonAsync<ApiResponse<RoomDetailsResponse>>(JsonOptions))!.Data!;
+        Assert.Equal("Renovated", updated.Note);
+        Assert.Equal("Bed", Assert.Single(updated.Assets).Name);
+        Assert.Equal(media[0].MediaId, Assert.Single(updated.Media).MediaId);
+    }
+
+    [Fact]
+    public async Task Create_Room_ReturnsEmptyMedia()
+    {
+        var response = await _client.PostAsJsonAsync("/api/rooms", ValidCreateRequest());
+
+        var created = (await response.Content.ReadFromJsonAsync<ApiResponse<RoomDetailsResponse>>(JsonOptions))!.Data!;
+        Assert.Empty(created.Media);
+        Assert.Empty(created.Assets);
+    }
+
+    [Fact]
+    public async Task UpdateMedia_ReorderAndChangeCover_PersistsWithSingleCover()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+        var media = await AddMediaAsync(room.Id, 3);
+        Guid[] order = [media[2].MediaId, media[0].MediaId, media[1].MediaId];
+
+        var updated = await PatchMediaAsync(room.Id, new { order, coverMediaId = media[1].MediaId });
+
+        Assert.Equal(order, updated.Select(m => m.MediaId));
+        Assert.Equal([0, 1, 2], updated.Select(m => m.SortOrder));
+        Assert.Equal(media[1].MediaId, Assert.Single(updated, m => m.IsCover).MediaId);
+        Assert.Equal(order, (await GetRoomDetailsAsync(room.Id)).Media.Select(m => m.MediaId));
+    }
+
+    [Fact]
+    public async Task UpdateMedia_CoverOnly_KeepsOrder()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+        var media = await AddMediaAsync(room.Id, 2);
+
+        var updated = await PatchMediaAsync(room.Id, new { coverMediaId = media[1].MediaId });
+
+        Assert.Equal(media.Select(m => m.MediaId), updated.Select(m => m.MediaId));
+        Assert.False(updated[0].IsCover);
+        Assert.True(updated[1].IsCover);
+    }
+
+    [Fact]
+    public async Task UpdateMedia_OrderNotMatchingCurrentSet_Returns400AndChangesNothing()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+        var media = await AddMediaAsync(room.Id, 2);
+
+        var missing = await _client.PatchAsJsonAsync(
+            $"/api/rooms/{room.Id}/media", new { order = new[] { media[1].MediaId } });
+        var unknown = await _client.PatchAsJsonAsync(
+            $"/api/rooms/{room.Id}/media", new { order = new[] { media[1].MediaId, Guid.NewGuid() } });
+
+        Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+        Assert.Equal(media.Select(m => m.MediaId), (await GetRoomDetailsAsync(room.Id)).Media.Select(m => m.MediaId));
+    }
+
+    [Fact]
+    public async Task UpdateMedia_CoverNotInRoom_Returns404()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+        await AddMediaAsync(room.Id, 1);
+
+        var response = await _client.PatchAsJsonAsync($"/api/rooms/{room.Id}/media", new { coverMediaId = Guid.NewGuid() });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateMedia_CoverNull_Returns400()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+
+        var response = await _client.PatchAsJsonAsync($"/api/rooms/{room.Id}/media", new { coverMediaId = (Guid?)null });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteMedia_Cover_PromotesLowestSortOrderAndDeletesFileAfterCommit()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+        var media = await AddMediaAsync(room.Id, 3);
+        await PatchMediaAsync(room.Id, new { order = new[] { media[0].MediaId, media[2].MediaId, media[1].MediaId } });
+
+        var response = await _client.DeleteAsync($"/api/rooms/{room.Id}/media/{media[0].MediaId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var detail = await GetRoomDetailsAsync(room.Id);
+        Assert.Equal([media[2].MediaId, media[1].MediaId], detail.Media.Select(m => m.MediaId));
+        Assert.True(detail.Media[0].IsCover);
+
+        var removed = Assert.Single(await GetMediaRowsIncludingDeletedAsync(room.Id), r => r.MediaAssetId == media[0].MediaId);
+        Assert.NotNull(removed.DeletedAt);
+        Assert.NotNull(removed.MediaAsset!.DeletedAt);
+        Assert.False(factory.Storage.Files.ContainsKey(removed.MediaAsset.StorageKey));
+        Assert.Equal(2, factory.Storage.Files.Count);
+    }
+
+    [Fact]
+    public async Task DeleteMedia_LastOne_LeavesRoomWithoutMedia()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+        var media = await AddMediaAsync(room.Id, 1);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/rooms/{room.Id}/media/{media[0].MediaId}")).StatusCode);
+
+        Assert.Empty((await GetRoomDetailsAsync(room.Id)).Media);
+        Assert.Empty(factory.Storage.Files);
+    }
+
+    [Fact]
+    public async Task DeleteMedia_UnknownId_Returns404()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+
+        var response = await _client.DeleteAsync($"/api/rooms/{room.Id}/media/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Delete_RoomWithMedia_SoftDeletesMediaAndAssetsAndDeletesFiles()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+        await CreateAssetAsync(room.Id, "Bed");
+        await AddMediaAsync(room.Id, 2);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/rooms/{room.Id}")).StatusCode);
+
+        var rows = await GetMediaRowsIncludingDeletedAsync(room.Id);
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, r =>
+        {
+            Assert.NotNull(r.DeletedAt);
+            Assert.NotNull(r.MediaAsset!.DeletedAt);
+        });
+        Assert.Empty(factory.Storage.Files);
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.NotNull((await context.RoomAssets.IgnoreQueryFilters().SingleAsync(a => a.RoomId == room.Id)).DeletedAt);
+    }
+
+    [Fact]
+    public async Task MediaEndpoints_RoomOutsideCallerOrganization_Return404AndUploadNothing()
+    {
+        var (memberClient, _) = await CreateOrganizationScopedMemberAsync("organization_admin");
+        var otherOrganizationId = await CreateOrganizationAsync("Org B");
+        var otherPropertyId = await CreatePropertyAsync(_client, otherOrganizationId, "Property B");
+        var otherRoom = await CreateRoomAsync(_client, new CreateRoomRequest { PropertyId = otherPropertyId, RoomNumber = "B1" });
+        var media = await AddMediaAsync(otherRoom.Id, 1);
+
+        var add = await PostMediaAsync(otherRoom.Id, 1, memberClient);
+        var patch = await memberClient.PatchAsJsonAsync($"/api/rooms/{otherRoom.Id}/media", new { coverMediaId = media[0].MediaId });
+        var delete = await memberClient.DeleteAsync($"/api/rooms/{otherRoom.Id}/media/{media[0].MediaId}");
+
+        Assert.Equal(HttpStatusCode.NotFound, add.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, patch.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, delete.StatusCode);
+        Assert.Single(factory.Storage.Files);
+        Assert.Single((await GetRoomDetailsAsync(otherRoom.Id)).Media);
     }
 }

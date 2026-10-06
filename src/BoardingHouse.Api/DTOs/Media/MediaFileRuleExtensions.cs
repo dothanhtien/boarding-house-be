@@ -5,8 +5,9 @@ namespace BoardingHouse.Api.DTOs.Media;
 
 public static class MediaFileRuleExtensions
 {
-    public static IRuleBuilderOptions<T, IFormFile?> ValidMediaFile<T>(
-        this IRuleBuilder<T, IFormFile?> ruleBuilder, IReadOnlySet<string> allowedMimeTypes) =>
+    public static IRuleBuilderOptions<T, TFile> ValidMediaFile<T, TFile>(
+        this IRuleBuilder<T, TFile> ruleBuilder,
+        IReadOnlySet<string> allowedMimeTypes) where TFile : IFormFile? =>
         ruleBuilder
             .Must(f => f!.Length > 0).WithMessage("File must not be empty")
             .Must(f => f!.Length <= MediaLimits.MaxFileSizeBytes)

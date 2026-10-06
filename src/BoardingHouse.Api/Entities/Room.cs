@@ -6,6 +6,7 @@ namespace BoardingHouse.Api.Entities;
 public class Room : BaseEntity
 {
     public const int MaxAmenities = 20;
+    public const int MaxMedia = 20;
 
     public Guid PropertyId { get; set; }
     public Property? Property { get; set; }
@@ -22,4 +23,5 @@ public class Room : BaseEntity
 
     public ICollection<RoomAmenity> Amenities { get; set; } = [];
     public ICollection<RoomAsset> Assets { get; set; } = [];
+    public ICollection<RoomMedia> Media { get; set; } = [];
 }

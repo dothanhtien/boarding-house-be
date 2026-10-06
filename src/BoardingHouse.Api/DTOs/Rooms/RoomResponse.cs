@@ -15,6 +15,7 @@ public record RoomResponse
     public decimal? MonthlyRent { get; init; }
     public decimal? DepositAmount { get; init; }
     public string? Note { get; init; }
+    public string? CoverUrl { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset? UpdatedAt { get; init; }
     public required List<RoomAmenityResponse> Amenities { get; init; }

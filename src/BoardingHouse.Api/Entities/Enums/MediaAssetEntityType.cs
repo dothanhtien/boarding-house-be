@@ -4,5 +4,6 @@ public enum MediaAssetEntityType
 {
     UserAvatar,
     OrganizationLogo,
-    PropertyMedia
+    PropertyMedia,
+    RoomMedia
 }

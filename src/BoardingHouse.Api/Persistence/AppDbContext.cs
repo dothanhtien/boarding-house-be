@@ -23,6 +23,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
     public DbSet<RoomAsset> RoomAssets => Set<RoomAsset>();
     public DbSet<RoomAssetConditionHistory> RoomAssetConditionHistories => Set<RoomAssetConditionHistory>();
+    public DbSet<RoomMedia> RoomMedia => Set<RoomMedia>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

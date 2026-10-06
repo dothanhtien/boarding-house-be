@@ -10,6 +10,7 @@ public static class MediaAssetEntityTypeDbValueConverter
         {
             [MediaAssetEntityType.UserAvatar] = "USER_AVATAR",
             [MediaAssetEntityType.OrganizationLogo] = "ORGANIZATION_LOGO",
-            [MediaAssetEntityType.PropertyMedia] = "PROPERTY_MEDIA"
+            [MediaAssetEntityType.PropertyMedia] = "PROPERTY_MEDIA",
+            [MediaAssetEntityType.RoomMedia] = "ROOM_MEDIA"
         });
 }
