@@ -1,7 +1,9 @@
 using BoardingHouse.Api.Authorization;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.RoomAssets;
+using BoardingHouse.Api.DTOs.Rooms;
 using BoardingHouse.Api.Services;
+using BoardingHouse.Api.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,20 +15,23 @@ namespace BoardingHouse.Api.Controllers;
 public class RoomAssetsController(IRoomAssetService roomAssetService) : ControllerBase
 {
     [HttpPost]
-    [RequireOrganizationScopedPermission("room", "update")]
-    public async Task<ActionResult<ApiResponse<RoomAssetResponse>>> Create(
-        Guid roomId, CreateRoomAssetRequest request, CancellationToken cancellationToken)
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(MediaLimits.MaxMultiFileRequestBodyBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = MediaLimits.MaxMultiFileRequestBodyBytes)]
+    [RequireOrganizationScopedPermission(PermissionResources.Room, PermissionActions.Update)]
+    public async Task<ActionResult<ApiResponse<RoomDetailsAssetResponse>>> Create(
+        Guid roomId, [FromForm] CreateRoomAssetRequest request, CancellationToken cancellationToken)
     {
         var asset = await roomAssetService.CreateAsync(roomId, request, cancellationToken);
         return CreatedAtAction(
             nameof(RoomsController.GetById),
             "Rooms",
             new { id = roomId },
-            new ApiResponse<RoomAssetResponse> { Data = asset });
+            new ApiResponse<RoomDetailsAssetResponse> { Data = asset });
     }
 
     [HttpPatch("{assetId:guid}")]
-    [RequireOrganizationScopedPermission("room", "update")]
+    [RequireOrganizationScopedPermission(PermissionResources.Room, PermissionActions.Update)]
     public async Task<ActionResult<ApiResponse<RoomAssetResponse>>> Update(
         Guid roomId, Guid assetId, UpdateRoomAssetRequest request, CancellationToken cancellationToken)
     {
@@ -35,7 +40,7 @@ public class RoomAssetsController(IRoomAssetService roomAssetService) : Controll
     }
 
     [HttpDelete("{assetId:guid}")]
-    [RequireOrganizationScopedPermission("room", "update")]
+    [RequireOrganizationScopedPermission(PermissionResources.Room, PermissionActions.Update)]
     public async Task<IActionResult> Delete(Guid roomId, Guid assetId, CancellationToken cancellationToken)
     {
         await roomAssetService.DeleteAsync(roomId, assetId, cancellationToken);
@@ -43,7 +48,7 @@ public class RoomAssetsController(IRoomAssetService roomAssetService) : Controll
     }
 
     [HttpPost("{assetId:guid}/split")]
-    [RequireOrganizationScopedPermission("room", "update")]
+    [RequireOrganizationScopedPermission(PermissionResources.Room, PermissionActions.Update)]
     public async Task<ActionResult<ApiResponse<SplitRoomAssetResponse>>> Split(
         Guid roomId, Guid assetId, SplitRoomAssetRequest request, CancellationToken cancellationToken)
     {

@@ -71,6 +71,25 @@ public class AuditableEntitySaveChangesInterceptorTests
     }
 
     [Fact]
+    public async Task SaveChangesAsync_UpdateAuditableOnlyEntity_SetsUpdatedAtAndUpdatedByOnlyWhenModified()
+    {
+        var actor = new User { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System };
+        using var context = CreateContext(actor);
+        var history = new RoomAssetConditionHistory { AssetId = Guid.NewGuid(), NewCondition = Api.Entities.Enums.AssetCondition.Good };
+        context.RoomAssetConditionHistories.Add(history);
+        await context.SaveChangesAsync();
+
+        Assert.Null(history.UpdatedAt);
+        Assert.Null(history.UpdatedBy);
+
+        history.Note = "Fixed note";
+        await context.SaveChangesAsync();
+
+        Assert.NotNull(history.UpdatedAt);
+        Assert.Equal(actor.Id, history.UpdatedBy);
+    }
+
+    [Fact]
     public async Task SaveChangesAsync_ModifiedEntity_WithoutCurrentUser_LeavesUpdatedByNull()
     {
         using var context = CreateContext();

@@ -36,7 +36,7 @@ public class PropertyService(
     {
         var organizationId = query.OrganizationId ?? currentOrganizationAccessor.OrganizationId;
 
-        var scope = await organizationScopeAccessor.GetScopeAsync("property", "read", cancellationToken);
+        var scope = await organizationScopeAccessor.GetScopeAsync(PermissionResources.Property, PermissionActions.Read, cancellationToken);
         if (organizationId is not null && !scope.Includes(organizationId.Value))
         {
             throw new AppNotFoundException($"Organization '{organizationId}' not found");
@@ -63,7 +63,7 @@ public class PropertyService(
             ?? throw new AppNotFoundException($"Property '{id}' not found");
 
         await organizationScopeAccessor.EnsureScopeAsync(
-            property.OrganizationId, "property", "read", $"Property '{id}' not found", cancellationToken);
+            property.OrganizationId, PermissionResources.Property, PermissionActions.Read, $"Property '{id}' not found", cancellationToken);
 
         return property.Adapt<PropertyResponse>();
     }
@@ -80,7 +80,7 @@ public class PropertyService(
         }
 
         await organizationScopeAccessor.EnsureScopeAsync(
-            organizationId, "property", "create", cancellationToken: cancellationToken);
+            organizationId, PermissionResources.Property, PermissionActions.Create, cancellationToken: cancellationToken);
 
         var property = new Property
         {
@@ -120,7 +120,7 @@ public class PropertyService(
             ?? throw new AppNotFoundException($"Property '{id}' not found");
 
         await organizationScopeAccessor.EnsureScopeAsync(
-            property.OrganizationId, "property", "update", $"Property '{id}' not found", cancellationToken);
+            property.OrganizationId, PermissionResources.Property, PermissionActions.Update, $"Property '{id}' not found", cancellationToken);
 
         request.Adapt(property, PropertyMappingConfig.UpdateConfig);
 
@@ -148,7 +148,7 @@ public class PropertyService(
                 ?? throw new AppNotFoundException($"Property '{id}' not found");
 
             await organizationScopeAccessor.EnsureScopeAsync(
-                property.OrganizationId, "property", "delete", $"Property '{id}' not found", ct);
+                property.OrganizationId, PermissionResources.Property, PermissionActions.Delete, $"Property '{id}' not found", ct);
 
             if (await roomRepository.ExistsByPropertyIdAsync(id, ct))
             {

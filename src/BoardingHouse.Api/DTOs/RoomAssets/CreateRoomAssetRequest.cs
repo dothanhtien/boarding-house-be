@@ -7,4 +7,5 @@ public record CreateRoomAssetRequest
     public DateOnly? PurchaseDate { get; init; }
     public decimal? PurchaseUnitPrice { get; init; }
     public string? Note { get; init; }
+    public List<IFormFile>? Files { get; init; }
 }

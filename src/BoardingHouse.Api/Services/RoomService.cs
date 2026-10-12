@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Common.CurrentOrganization;
+using BoardingHouse.Api.DTOs.Media;
 using BoardingHouse.Api.DTOs.Rooms;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Entities.Enums;
@@ -20,6 +21,7 @@ public class RoomService(
     IRoomRepository roomRepository,
     IPropertyRepository propertyRepository,
     IRoomAssetRepository roomAssetRepository,
+    IRoomAssetConditionHistoryRepository roomAssetConditionHistoryRepository,
     IMediaCollectionService mediaCollectionService,
     IStorageProvider storageProvider,
     IUnitOfWork unitOfWork,
@@ -40,7 +42,7 @@ public class RoomService(
     {
         var organizationId = query.OrganizationId ?? currentOrganizationAccessor.OrganizationId;
 
-        var scope = await organizationScopeAccessor.GetScopeAsync("room", "read", cancellationToken);
+        var scope = await organizationScopeAccessor.GetScopeAsync(PermissionResources.Room, PermissionActions.Read, cancellationToken);
         if (organizationId is not null && !scope.Includes(organizationId.Value))
         {
             throw new AppNotFoundException($"Organization '{organizationId}' not found");
@@ -73,9 +75,9 @@ public class RoomService(
             ?? throw new AppNotFoundException($"Room '{id}' not found");
 
         await organizationScopeAccessor.EnsureScopeAsync(
-            room.Property!.OrganizationId, "room", "read", $"Room '{id}' not found", cancellationToken);
+            room.Property!.OrganizationId, PermissionResources.Room, PermissionActions.Read, $"Room '{id}' not found", cancellationToken);
 
-        return ToDetailsResponse(room);
+        return await ToDetailsResponseAsync(room, cancellationToken);
     }
 
     public async Task<RoomDetailsResponse> CreateAsync(CreateRoomRequest request, CancellationToken cancellationToken = default)
@@ -89,7 +91,7 @@ public class RoomService(
                     ?? throw new AppNotFoundException($"Property '{request.PropertyId}' not found");
 
                 await organizationScopeAccessor.EnsureScopeAsync(
-                    property.OrganizationId, "room", "create", $"Property '{request.PropertyId}' not found", ct);
+                    property.OrganizationId, PermissionResources.Room, PermissionActions.Create, $"Property '{request.PropertyId}' not found", ct);
 
                 var created = new Room
                 {
@@ -134,11 +136,11 @@ public class RoomService(
         {
             var room = await unitOfWork.ExecuteInTransactionAsync(async ct =>
             {
-                var existing = await roomRepository.GetByIdWithPropertyForUpdateAsync(id, ct)
+                var (existing, organizationId) = await roomRepository.GetByIdWithOrganizationIdForUpdateAsync(id, ct)
                     ?? throw new AppNotFoundException($"Room '{id}' not found");
 
                 await organizationScopeAccessor.EnsureScopeAsync(
-                    existing.Property!.OrganizationId, "room", "update", $"Room '{id}' not found", ct);
+                    organizationId, PermissionResources.Room, PermissionActions.Update, $"Room '{id}' not found", ct);
 
                 await roomRepository.LoadAmenitiesAsync(existing, ct);
 
@@ -160,7 +162,8 @@ public class RoomService(
             }, cancellationToken);
 
             logger.LogInformation("Room updated ({RoomId})", room.Id);
-            return ToDetailsResponse(room);
+
+            return await ToDetailsResponseAsync(room, cancellationToken);
         }
         catch (DbUpdateException ex) when (ex.IsUniqueViolation(RoomConfiguration.PropertyIdRoomNumberUniqueIndex))
         {
@@ -173,11 +176,11 @@ public class RoomService(
     {
         var removedMedia = await unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            var room = await roomRepository.GetByIdWithPropertyForUpdateAsync(id, ct)
+            var (room, organizationId) = await roomRepository.GetByIdWithOrganizationIdForUpdateAsync(id, ct)
                 ?? throw new AppNotFoundException($"Room '{id}' not found");
 
             await organizationScopeAccessor.EnsureScopeAsync(
-                room.Property!.OrganizationId, "room", "delete", $"Room '{id}' not found", ct);
+                organizationId, PermissionResources.Room, PermissionActions.Delete, $"Room '{id}' not found", ct);
 
             // Amenities must be tracked so EF cascades the room's soft-delete to them
             await roomRepository.LoadAmenitiesAsync(room, ct);
@@ -190,6 +193,8 @@ public class RoomService(
             }
 
             var mediaAssets = room.Media.Select(m => m.MediaAsset!).ToList();
+            mediaAssets.AddRange(await roomAssetConditionHistoryRepository.RemoveMediaByAssetIdsAsync(
+                assets.Select(a => a.Id).ToList(), ct));
 
             roomRepository.SoftDelete(room);
             mediaCollectionService.StageRemove(mediaAssets);
@@ -203,7 +208,7 @@ public class RoomService(
     }
 
     public async Task<List<RoomMediaResponse>> AddMediaAsync(
-        Guid roomId, AddRoomMediaRequest request, CancellationToken cancellationToken = default)
+        Guid roomId, AddImagesRequest request, CancellationToken cancellationToken = default)
     {
         var files = request.Files!;
 
@@ -212,26 +217,22 @@ public class RoomService(
 
         var organizationId = room.Property!.OrganizationId;
         await organizationScopeAccessor.EnsureScopeAsync(
-            organizationId, "room", "update", $"Room '{roomId}' not found", cancellationToken);
+            organizationId, PermissionResources.Room, PermissionActions.Update, $"Room '{roomId}' not found", cancellationToken);
 
         EnsureMediaLimit(room, files.Count);
 
-        var uploaded = await mediaCollectionService.UploadAsync(
-            MediaAssetEntityType.RoomMedia, files, $"organizations/{organizationId}/rooms/{roomId}", organizationId,
-            cancellationToken);
-
-        List<RoomMedia> media;
-        try
-        {
-            media = await unitOfWork.ExecuteInTransactionAsync(async ct =>
+        var media = await mediaCollectionService.AddAsync(
+            MediaAssetEntityType.RoomMedia,
+            files,
+            $"organizations/{organizationId}/rooms/{roomId}",
+            organizationId,
+            async (uploaded, ct) =>
             {
                 var locked = await LockRoomForMediaChangeAsync(roomId, ct);
 
                 EnsureMediaLimit(locked, uploaded.Count);
 
-                await mediaCollectionService.StageAddAsync(uploaded, ct);
-
-                var nextSortOrder = locked.Media.Count == 0 ? 0 : locked.Media.Max(m => m.SortOrder) + 1;
+                var nextSortOrder = MediaCollectionRules.NextSortOrder(locked.Media.Select(m => m.SortOrder));
                 var needsCover = !locked.Media.Any(m => m.IsCover);
                 var userId = currentUserAccessor.RequiredUser.Id;
 
@@ -249,16 +250,11 @@ public class RoomService(
                 }
 
                 return locked.Media.ToList();
-            }, cancellationToken);
-        }
-        catch
-        {
-            await mediaCollectionService.DiscardAsync(uploaded);
-            throw;
-        }
+            },
+            cancellationToken);
 
-        logger.LogInformation("Room media added ({RoomId}, {Count})", roomId, uploaded.Count);
-        return ToMediaResponses(media);
+        logger.LogInformation("Room media added ({RoomId}, {Count})", roomId, files.Count);
+        return media.ToMediaResponses(storageProvider);
     }
 
     public async Task<List<RoomMediaResponse>> UpdateMediaAsync(
@@ -282,7 +278,7 @@ public class RoomService(
         }, cancellationToken);
 
         logger.LogInformation("Room media updated ({RoomId})", roomId);
-        return ToMediaResponses(media);
+        return media.ToMediaResponses(storageProvider);
     }
 
     public async Task DeleteMediaAsync(Guid roomId, Guid mediaId, CancellationToken cancellationToken = default)
@@ -374,24 +370,20 @@ public class RoomService(
 
     private async Task<Room> LockRoomForMediaChangeAsync(Guid roomId, CancellationToken cancellationToken)
     {
-        var room = await roomRepository.GetByIdWithPropertyForUpdateAsync(roomId, cancellationToken)
+        var (room, organizationId) = await roomRepository.GetByIdWithOrganizationIdForUpdateAsync(roomId, cancellationToken)
             ?? throw new AppNotFoundException($"Room '{roomId}' not found");
 
         await organizationScopeAccessor.EnsureScopeAsync(
-            room.Property!.OrganizationId, "room", "update", $"Room '{roomId}' not found", cancellationToken);
+            organizationId, PermissionResources.Room, PermissionActions.Update, $"Room '{roomId}' not found", cancellationToken);
 
         await roomRepository.LoadMediaAsync(room, cancellationToken);
 
         return room;
     }
 
-    private static void EnsureMediaLimit(Room room, int addedCount)
-    {
-        if (room.Media.Count + addedCount > Room.MaxMedia)
-        {
-            throw new AppValidationException($"A room must not have more than {Room.MaxMedia} media");
-        }
-    }
+    private static void EnsureMediaLimit(Room room, int addedCount) =>
+        MediaCollectionRules.EnsureWithinLimit(
+            room.Media.Count, addedCount, Room.MaxMedia, $"A room must not have more than {Room.MaxMedia} media");
 
     private static void ApplyMediaOrder(Room room, List<Guid> order)
     {
@@ -427,29 +419,22 @@ public class RoomService(
         cover.IsCover = true;
     }
 
-    private RoomDetailsResponse ToDetailsResponse(Room room)
+    private async Task<RoomDetailsResponse> ToDetailsResponseAsync(Room room, CancellationToken cancellationToken)
     {
-        var media = ToMediaResponses(room.Media);
-        return room.Adapt<RoomDetailsResponse>() with
+        var currentPhotos = await roomAssetConditionHistoryRepository.ListCurrentPhotosByAssetIdsAsync(
+            room.Assets.Select(a => a.Id).ToList(), cancellationToken);
+        var media = room.Media.ToMediaResponses(storageProvider);
+        var details = room.Adapt<RoomDetailsResponse>();
+
+        return details with
         {
             Media = media,
-            CoverUrl = media.FirstOrDefault(m => m.IsCover)?.Url
+            CoverUrl = media.FirstOrDefault(m => m.IsCover)?.Url,
+            Assets = details.Assets
+                .Select(a => currentPhotos.TryGetValue(a.Id, out var photos)
+                    ? a with { CurrentPhotos = photos.History.ToCurrentPhotosResponse(photos.IsLatest, storageProvider) }
+                    : a)
+                .ToList()
         };
     }
-
-    private List<RoomMediaResponse> ToMediaResponses(IEnumerable<RoomMedia> media) =>
-        media
-            .Where(m => m.DeletedAt == null)
-            .OrderBy(m => m.SortOrder)
-            .Select(m => new RoomMediaResponse
-            {
-                MediaId = m.MediaAssetId,
-                Url = storageProvider.GetUrl(m.MediaAsset!.StorageKey, m.MediaAsset.MimeType),
-                MimeType = m.MediaAsset.MimeType,
-                FileName = m.MediaAsset.FileName,
-                SortOrder = m.SortOrder,
-                IsCover = m.IsCover,
-                CreatedAt = m.CreatedAt
-            })
-            .ToList();
 }

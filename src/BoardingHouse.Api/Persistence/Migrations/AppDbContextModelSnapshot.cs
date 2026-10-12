@@ -939,13 +939,79 @@ namespace BoardingHouse.Api.Persistence.Migrations
                         .HasColumnType("character varying(20)")
                         .HasColumnName("old_condition");
 
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
                     b.HasKey("Id")
                         .HasName("pk_room_asset_condition_histories");
 
-                    b.HasIndex("AssetId")
-                        .HasDatabaseName("ix_room_asset_condition_histories_asset_id");
+                    b.HasIndex("AssetId", "ChangedAt", "Id")
+                        .HasDatabaseName("ix_room_asset_condition_histories_asset_id_changed_at_id");
 
                     b.ToTable("room_asset_condition_histories", (string)null);
+                });
+
+            modelBuilder.Entity("BoardingHouse.Api.Entities.RoomAssetConditionHistoryMedia", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid>("ConditionHistoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("condition_history_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<Guid>("MediaAssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("media_asset_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_room_asset_condition_history_media");
+
+                    b.HasIndex(new[] { "ConditionHistoryId" }, "ix_room_asset_condition_history_media_condition_history_id")
+                        .HasDatabaseName("ix_room_asset_condition_history_media_condition_history_id");
+
+                    b.HasIndex(new[] { "MediaAssetId" }, "ix_room_asset_condition_history_media_media_asset_id")
+                        .IsUnique()
+                        .HasDatabaseName("ix_room_asset_condition_history_media_media_asset_id")
+                        .HasFilter("deleted_at IS NULL");
+
+                    b.ToTable("room_asset_condition_history_media", (string)null);
                 });
 
             modelBuilder.Entity("BoardingHouse.Api.Entities.RoomMedia", b =>
@@ -1392,6 +1458,27 @@ namespace BoardingHouse.Api.Persistence.Migrations
                     b.Navigation("Asset");
                 });
 
+            modelBuilder.Entity("BoardingHouse.Api.Entities.RoomAssetConditionHistoryMedia", b =>
+                {
+                    b.HasOne("BoardingHouse.Api.Entities.RoomAssetConditionHistory", "ConditionHistory")
+                        .WithMany("Media")
+                        .HasForeignKey("ConditionHistoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_room_asset_condition_history_media_room_asset_condition_his");
+
+                    b.HasOne("BoardingHouse.Api.Entities.MediaAsset", "MediaAsset")
+                        .WithMany()
+                        .HasForeignKey("MediaAssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_room_asset_condition_history_media_media_assets_media_asset");
+
+                    b.Navigation("ConditionHistory");
+
+                    b.Navigation("MediaAsset");
+                });
+
             modelBuilder.Entity("BoardingHouse.Api.Entities.RoomMedia", b =>
                 {
                     b.HasOne("BoardingHouse.Api.Entities.MediaAsset", "MediaAsset")
@@ -1469,6 +1556,11 @@ namespace BoardingHouse.Api.Persistence.Migrations
 
                     b.Navigation("Assets");
 
+                    b.Navigation("Media");
+                });
+
+            modelBuilder.Entity("BoardingHouse.Api.Entities.RoomAssetConditionHistory", b =>
+                {
                     b.Navigation("Media");
                 });
 

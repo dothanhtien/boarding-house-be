@@ -13,7 +13,7 @@ namespace BoardingHouse.Api.Controllers;
 public class RolesController(IRoleService roleService) : ControllerBase
 {
     [HttpGet]
-    [RequirePermission("role", "read")]
+    [RequirePermission(PermissionResources.Role, PermissionActions.Read)]
     public async Task<ActionResult<ApiResponse<List<RoleResponse>>>> GetAll(CancellationToken cancellationToken)
     {
         var roles = await roleService.GetAllAsync(cancellationToken);

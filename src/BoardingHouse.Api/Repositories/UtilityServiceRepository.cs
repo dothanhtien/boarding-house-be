@@ -1,3 +1,4 @@
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Persistence;
@@ -12,10 +13,11 @@ public class UtilityServiceRepository(AppDbContext context) : Repository<Utility
             .Include(s => s.Property)
             .FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
 
-    public Task<UtilityService?> GetByIdWithPropertyForUpdateAsync(Guid id, CancellationToken cancellationToken = default) =>
+    public Task<EntityWithOrganizationId<UtilityService>?> GetByIdWithOrganizationIdForUpdateAsync(
+        Guid id, CancellationToken cancellationToken = default) =>
         Context.UtilityServices
             .FromSql($"SELECT * FROM utility_services WHERE id = {id} FOR UPDATE")
-            .Include(s => s.Property)
+            .Select(s => new EntityWithOrganizationId<UtilityService>(s, s.Property!.OrganizationId))
             .FirstOrDefaultAsync(cancellationToken);
 
     public Task<List<UtilityService>> ListByPropertyIdAsync(

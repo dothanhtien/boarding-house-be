@@ -13,7 +13,7 @@ namespace BoardingHouse.Api.Controllers;
 public class PropertiesController(IPropertyService propertyService) : ControllerBase
 {
     [HttpGet]
-    [RequireOrganizationScopedPermission("property", "read")]
+    [RequireOrganizationScopedPermission(PermissionResources.Property, PermissionActions.Read)]
     public async Task<ActionResult<ApiResponse<PagedResult<PropertyResponse>>>> GetAll(
         [FromQuery] PropertyListQuery query, CancellationToken cancellationToken)
     {
@@ -22,7 +22,7 @@ public class PropertiesController(IPropertyService propertyService) : Controller
     }
 
     [HttpGet("{id:guid}")]
-    [RequireOrganizationScopedPermission("property", "read")]
+    [RequireOrganizationScopedPermission(PermissionResources.Property, PermissionActions.Read)]
     public async Task<ActionResult<ApiResponse<PropertyResponse>>> GetById(Guid id, CancellationToken cancellationToken)
     {
         var property = await propertyService.GetByIdAsync(id, cancellationToken);
@@ -30,7 +30,7 @@ public class PropertiesController(IPropertyService propertyService) : Controller
     }
 
     [HttpPost]
-    [RequireOrganizationScopedPermission("property", "create")]
+    [RequireOrganizationScopedPermission(PermissionResources.Property, PermissionActions.Create)]
     public async Task<ActionResult<ApiResponse<PropertyResponse>>> Create(CreatePropertyRequest request, CancellationToken cancellationToken)
     {
         var property = await propertyService.CreateAsync(request, cancellationToken);
@@ -41,7 +41,7 @@ public class PropertiesController(IPropertyService propertyService) : Controller
     }
 
     [HttpPatch("{id:guid}")]
-    [RequireOrganizationScopedPermission("property", "update")]
+    [RequireOrganizationScopedPermission(PermissionResources.Property, PermissionActions.Update)]
     public async Task<ActionResult<ApiResponse<PropertyResponse>>> Update(
         Guid id, UpdatePropertyRequest request, CancellationToken cancellationToken)
     {
@@ -50,7 +50,7 @@ public class PropertiesController(IPropertyService propertyService) : Controller
     }
 
     [HttpDelete("{id:guid}")]
-    [RequireOrganizationScopedPermission("property", "delete")]
+    [RequireOrganizationScopedPermission(PermissionResources.Property, PermissionActions.Delete)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
         await propertyService.DeleteAsync(id, cancellationToken);

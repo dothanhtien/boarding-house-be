@@ -19,8 +19,9 @@ public interface IRoomRepository : IRepository<Room>
         SortOrder sortOrder,
         CancellationToken cancellationToken = default);
     Task<Room?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<Room?> GetByIdWithPropertyForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<Room?> GetByIdWithPropertyForShareAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<Room?> GetByIdWithPropertyAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<EntityWithOrganizationId<Room>?> GetByIdWithOrganizationIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<EntityWithOrganizationId<Room>?> GetByIdWithOrganizationIdForShareAsync(Guid id, CancellationToken cancellationToken = default);
     Task LoadAmenitiesAsync(Room room, CancellationToken cancellationToken = default);
     Task LoadAssetsAsync(Room room, CancellationToken cancellationToken = default);
     Task LoadMediaAsync(Room room, CancellationToken cancellationToken = default);

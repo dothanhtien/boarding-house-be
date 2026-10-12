@@ -71,7 +71,8 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
                 users, refresh_tokens,
                 roles, permissions, user_roles, role_permissions,
                 organizations, organization_settings,
-                properties, rooms, room_amenities, room_assets, room_asset_condition_histories, 
+                properties, rooms, room_amenities, room_assets, room_asset_condition_histories,
+                room_asset_condition_history_media,
                 utility_services,
                 media_assets
             CASCADE

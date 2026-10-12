@@ -11,6 +11,7 @@ public static class MediaAssetEntityTypeDbValueConverter
             [MediaAssetEntityType.UserAvatar] = "USER_AVATAR",
             [MediaAssetEntityType.OrganizationLogo] = "ORGANIZATION_LOGO",
             [MediaAssetEntityType.PropertyMedia] = "PROPERTY_MEDIA",
-            [MediaAssetEntityType.RoomMedia] = "ROOM_MEDIA"
+            [MediaAssetEntityType.RoomMedia] = "ROOM_MEDIA",
+            [MediaAssetEntityType.RoomAssetConditionPhoto] = "ROOM_ASSET_CONDITION_PHOTO"
         });
 }

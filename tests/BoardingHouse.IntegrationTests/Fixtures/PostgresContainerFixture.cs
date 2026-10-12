@@ -2,6 +2,7 @@ using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Interceptors;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Testcontainers.PostgreSql;
 
@@ -21,13 +22,14 @@ public class PostgresContainerFixture : IAsyncLifetime
 
     public async Task DisposeAsync() => await _container.DisposeAsync();
 
-    public AppDbContext CreateContext()
+    public AppDbContext CreateContext(params IInterceptor[] extraInterceptors)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql(_container.GetConnectionString())
             .AddInterceptors(new AuditableEntitySaveChangesInterceptor(
                 new CurrentUserAccessor(),
                 NullLogger<AuditableEntitySaveChangesInterceptor>.Instance))
+            .AddInterceptors(extraInterceptors)
             .UseSnakeCaseNamingConvention()
             .Options;
 
@@ -43,8 +45,10 @@ public class PostgresContainerFixture : IAsyncLifetime
                 users, refresh_tokens,
                 roles, permissions, user_roles, role_permissions,
                 organizations, organization_settings,
-                properties, rooms, room_amenities, room_assets, room_asset_condition_histories, 
-                utility_services
+                properties, rooms, room_amenities, room_assets, room_asset_condition_histories,
+                room_asset_condition_history_media,
+                utility_services,
+                media_assets
             CASCADE
             """);
     }

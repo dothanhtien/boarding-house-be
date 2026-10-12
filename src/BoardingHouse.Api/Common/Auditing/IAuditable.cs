@@ -1,9 +1,7 @@
 namespace BoardingHouse.Api.Common;
 
-public interface IAuditable
+public interface IAuditable : IUpdateAuditable
 {
     DateTimeOffset CreatedAt { get; set; }
     Guid CreatedBy { get; set; }
-    DateTimeOffset? UpdatedAt { get; set; }
-    Guid? UpdatedBy { get; set; }
 }

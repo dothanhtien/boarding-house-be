@@ -3,8 +3,10 @@ using BoardingHouse.Api.Entities.Enums;
 
 namespace BoardingHouse.Api.Entities;
 
-public class RoomAssetConditionHistory : Entity
+public class RoomAssetConditionHistory : Entity, IUpdateAuditable
 {
+    public const int MaxMedia = 10;
+
     public Guid AssetId { get; set; }
     public RoomAsset? Asset { get; set; }
 
@@ -13,4 +15,9 @@ public class RoomAssetConditionHistory : Entity
     public string? Note { get; set; }
     public Guid? ChangedBy { get; set; }
     public DateTimeOffset ChangedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    public DateTimeOffset? UpdatedAt { get; set; }
+    public Guid? UpdatedBy { get; set; }
+
+    public ICollection<RoomAssetConditionHistoryMedia> Media { get; set; } = [];
 }

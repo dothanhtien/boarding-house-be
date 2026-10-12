@@ -1,8 +1,10 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BoardingHouse.Api.Common.ModelBinding;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.OpenApi;
 using FluentValidation.AspNetCore;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace BoardingHouse.Api.Extensions;
 
@@ -12,7 +14,14 @@ public static class ApiServiceCollectionExtensions
 
     public static IServiceCollection AddApiControllers(this IServiceCollection services)
     {
-        services.AddControllers()
+        services.AddControllers(options =>
+            {
+                options.ModelBinderProviders.Insert(0, new OptionalModelBinderProvider());
+
+                var formFactory = options.ValueProviderFactories.OfType<FormValueProviderFactory>().Single();
+                options.ValueProviderFactories[options.ValueProviderFactories.IndexOf(formFactory)] =
+                    new InvariantCultureFormValueProviderFactory();
+            })
             .ConfigureApiBehaviorOptions(options =>
             {
                 options.InvalidModelStateResponseFactory = ValidationProblemDetailsFactory.Create;

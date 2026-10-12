@@ -1,5 +1,7 @@
 using BoardingHouse.Api.DTOs.RoomAssets;
+using BoardingHouse.Api.Services.Storage;
 using FluentValidation.TestHelper;
+using Microsoft.AspNetCore.Http;
 
 namespace BoardingHouse.UnitTests.DTOs;
 
@@ -8,6 +10,13 @@ public class CreateRoomAssetRequestValidatorTests
     private readonly CreateRoomAssetRequestValidator _validator = new();
 
     private static CreateRoomAssetRequest ValidRequest() => new() { Name = "Wardrobe" };
+
+    private static IFormFile NewFile(string contentType = "image/png", long length = 1024) =>
+        new FormFile(Stream.Null, 0, length, "files", "photo.png")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = contentType
+        };
 
     [Fact]
     public void Validate_ValidRequest_HasNoErrors()
@@ -69,5 +78,31 @@ public class CreateRoomAssetRequestValidatorTests
         var result = _validator.TestValidate(ValidRequest() with { PurchaseUnitPrice = null });
 
         result.ShouldNotHaveValidationErrorFor(x => x.PurchaseUnitPrice);
+    }
+
+    [Fact]
+    public void Validate_ImageFiles_HasNoErrors()
+    {
+        var result = _validator.TestValidate(ValidRequest() with { Files = [NewFile(), NewFile("image/jpeg")] });
+
+        result.ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Validate_MoreThanMaxFilesPerRequest_HasFilesError()
+    {
+        var files = Enumerable.Range(0, MediaLimits.MaxFilesPerRequest + 1).Select(_ => NewFile()).ToList();
+
+        var result = _validator.TestValidate(ValidRequest() with { Files = files });
+
+        result.ShouldHaveValidationErrorFor(x => x.Files);
+    }
+
+    [Fact]
+    public void Validate_FileNotAnImage_HasError()
+    {
+        var result = _validator.TestValidate(ValidRequest() with { Files = [NewFile("application/pdf")] });
+
+        result.ShouldHaveValidationErrorFor("Files[0]");
     }
 }
