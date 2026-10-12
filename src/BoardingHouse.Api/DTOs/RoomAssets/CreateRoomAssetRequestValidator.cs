@@ -1,3 +1,4 @@
+using BoardingHouse.Api.DTOs.Media;
 using FluentValidation;
 
 namespace BoardingHouse.Api.DTOs.RoomAssets;
@@ -18,5 +19,7 @@ public class CreateRoomAssetRequestValidator : AbstractValidator<CreateRoomAsset
             .PrecisionScale(18, 2, ignoreTrailingZeros: true)
             .WithMessage("PurchaseUnitPrice must not exceed 18 digits in total, with at most 2 decimal places")
             .When(x => x.PurchaseUnitPrice is not null);
+
+        RuleFor(x => x.Files).ValidImageFiles();
     }
 }

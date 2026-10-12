@@ -4,6 +4,7 @@ namespace BoardingHouse.Api.DTOs.RoomAssetConditionHistories;
 
 public record CreateRoomAssetConditionHistoryRequest
 {
-    public required AssetCondition NewCondition { get; init; }
+    public AssetCondition? NewCondition { get; init; }
     public string? Note { get; init; }
+    public List<IFormFile>? Files { get; init; }
 }

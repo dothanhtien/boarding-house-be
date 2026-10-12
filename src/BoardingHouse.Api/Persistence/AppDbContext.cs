@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
+using BoardingHouse.Api.Persistence.Interceptors;
 using Microsoft.EntityFrameworkCore;
 
 namespace BoardingHouse.Api.Persistence;
@@ -24,6 +25,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<RoomAsset> RoomAssets => Set<RoomAsset>();
     public DbSet<RoomAssetConditionHistory> RoomAssetConditionHistories => Set<RoomAssetConditionHistory>();
     public DbSet<RoomMedia> RoomMedia => Set<RoomMedia>();
+    public DbSet<RoomAssetConditionHistoryMedia> RoomAssetConditionHistoryMedia => Set<RoomAssetConditionHistoryMedia>();
+
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
+        optionsBuilder.AddInterceptors(TimestampPrecisionSaveChangesInterceptor.Instance);
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

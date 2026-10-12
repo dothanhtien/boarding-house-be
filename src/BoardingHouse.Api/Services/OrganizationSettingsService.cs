@@ -21,7 +21,7 @@ public class OrganizationSettingsService(
 {
     public async Task<OrganizationSettingsResponse> GetByOrganizationIdAsync(Guid organizationId, CancellationToken cancellationToken = default)
     {
-        await organizationScopeAccessor.EnsureScopeAsync(organizationId, "organization-setting", "read", cancellationToken: cancellationToken);
+        await organizationScopeAccessor.EnsureScopeAsync(organizationId, PermissionResources.OrganizationSetting, PermissionActions.Read, cancellationToken: cancellationToken);
         await EnsureOrganizationExistsAsync(organizationId, cancellationToken);
 
         var settings = await organizationSettingsRepository.GetByOrganizationIdAsync(organizationId, cancellationToken)
@@ -35,7 +35,7 @@ public class OrganizationSettingsService(
         UpdateOrganizationSettingsRequest request,
         CancellationToken cancellationToken = default)
     {
-        await organizationScopeAccessor.EnsureScopeAsync(organizationId, "organization-setting", "update", cancellationToken: cancellationToken);
+        await organizationScopeAccessor.EnsureScopeAsync(organizationId, PermissionResources.OrganizationSetting, PermissionActions.Update, cancellationToken: cancellationToken);
         await EnsureOrganizationExistsAsync(organizationId, cancellationToken);
 
         var settings = await organizationSettingsRepository.GetByOrganizationIdAsync(organizationId, cancellationToken);

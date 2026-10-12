@@ -1,12 +1,12 @@
-using BoardingHouse.Api.DTOs.Rooms;
+using BoardingHouse.Api.DTOs.Media;
 using BoardingHouse.Api.Services.Storage;
 using Microsoft.AspNetCore.Http;
 
 namespace BoardingHouse.UnitTests.DTOs;
 
-public class AddRoomMediaRequestValidatorTests
+public class AddImagesRequestValidatorTests
 {
-    private readonly AddRoomMediaRequestValidator _validator = new();
+    private readonly AddImagesRequestValidator _validator = new();
 
     private static IFormFile NewFile(string contentType = "image/png", long length = 1024) =>
         new FormFile(Stream.Null, 0, length, "files", "photo.png")
@@ -18,7 +18,7 @@ public class AddRoomMediaRequestValidatorTests
     [Fact]
     public void Validate_ImagesWithinLimit_IsValid()
     {
-        var result = _validator.Validate(new AddRoomMediaRequest { Files = [NewFile(), NewFile("image/jpeg")] });
+        var result = _validator.Validate(new AddImagesRequest { Files = [NewFile(), NewFile("image/jpeg")] });
 
         Assert.True(result.IsValid);
     }
@@ -26,17 +26,17 @@ public class AddRoomMediaRequestValidatorTests
     [Fact]
     public void Validate_NoFiles_HasFilesError()
     {
-        var result = _validator.Validate(new AddRoomMediaRequest());
+        var result = _validator.Validate(new AddImagesRequest());
 
-        Assert.Contains(result.Errors, e => e.PropertyName == nameof(AddRoomMediaRequest.Files) && e.ErrorMessage == "At least one file is required");
+        Assert.Contains(result.Errors, e => e.PropertyName == nameof(AddImagesRequest.Files) && e.ErrorMessage == "At least one file is required");
     }
 
     [Fact]
     public void Validate_EmptyList_HasFilesError()
     {
-        var result = _validator.Validate(new AddRoomMediaRequest { Files = [] });
+        var result = _validator.Validate(new AddImagesRequest { Files = [] });
 
-        Assert.Contains(result.Errors, e => e.PropertyName == nameof(AddRoomMediaRequest.Files));
+        Assert.Contains(result.Errors, e => e.PropertyName == nameof(AddImagesRequest.Files));
     }
 
     [Fact]
@@ -44,15 +44,15 @@ public class AddRoomMediaRequestValidatorTests
     {
         var files = Enumerable.Range(0, MediaLimits.MaxFilesPerRequest + 1).Select(_ => NewFile()).ToList();
 
-        var result = _validator.Validate(new AddRoomMediaRequest { Files = files });
+        var result = _validator.Validate(new AddImagesRequest { Files = files });
 
-        Assert.Contains(result.Errors, e => e.PropertyName == nameof(AddRoomMediaRequest.Files));
+        Assert.Contains(result.Errors, e => e.PropertyName == nameof(AddImagesRequest.Files));
     }
 
     [Fact]
     public void Validate_OneFileNotAnImage_HasErrorOnThatFile()
     {
-        var result = _validator.Validate(new AddRoomMediaRequest { Files = [NewFile(), NewFile("application/pdf")] });
+        var result = _validator.Validate(new AddImagesRequest { Files = [NewFile(), NewFile("application/pdf")] });
 
         Assert.Contains(result.Errors, e => e.PropertyName == "Files[1]");
         Assert.DoesNotContain(result.Errors, e => e.PropertyName == "Files[0]");
@@ -61,7 +61,7 @@ public class AddRoomMediaRequestValidatorTests
     [Fact]
     public void Validate_EmptyFile_HasErrorOnThatFile()
     {
-        var result = _validator.Validate(new AddRoomMediaRequest { Files = [NewFile(length: 0)] });
+        var result = _validator.Validate(new AddImagesRequest { Files = [NewFile(length: 0)] });
 
         Assert.Contains(result.Errors, e => e.PropertyName == "Files[0]" && e.ErrorMessage == "File must not be empty");
     }

@@ -917,7 +917,8 @@ public class RoomsControllerIntegrationTests(PostgresApiFactory factory)
 
     private async Task<RoomAssetResponse> CreateAssetAsync(Guid roomId, string name)
     {
-        var response = await _client.PostAsJsonAsync($"/api/rooms/{roomId}/assets", new CreateRoomAssetRequest { Name = name });
+        var response = await _client.PostAsync(
+            $"/api/rooms/{roomId}/assets", new MultipartFormDataContent { { new StringContent(name), "name" } });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<ApiResponse<RoomAssetResponse>>(JsonOptions))!.Data!;
     }

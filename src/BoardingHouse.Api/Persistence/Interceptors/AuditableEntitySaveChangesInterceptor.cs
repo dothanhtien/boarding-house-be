@@ -61,12 +61,12 @@ public class AuditableEntitySaveChangesInterceptor(
 
     private void UpdateAuditFields(DbContext context, DateTimeOffset now, Guid? userId, HashSet<object> warnedEntities)
     {
-        foreach (var entry in context.ChangeTracker.Entries<IAuditable>())
+        foreach (var entry in context.ChangeTracker.Entries<IUpdateAuditable>())
         {
             switch (entry.State)
             {
-                case EntityState.Added:
-                    entry.Entity.CreatedAt = now;
+                case EntityState.Added when entry.Entity is IAuditable auditable:
+                    auditable.CreatedAt = now;
                     break;
                 case EntityState.Modified:
                     entry.Entity.UpdatedAt = now;

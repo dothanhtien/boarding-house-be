@@ -1,5 +1,7 @@
+using System.ComponentModel;
 using System.Text.Json.Serialization;
 using BoardingHouse.Api.Common.Json;
+using BoardingHouse.Api.Common.ModelBinding;
 
 namespace BoardingHouse.Api.Common;
 
@@ -11,6 +13,7 @@ namespace BoardingHouse.Api.Common;
 /// HttpClient calls in tests that use the default options.
 /// </summary>
 [JsonConverter(typeof(OptionalJsonConverterFactory))]
+[TypeConverter(typeof(OptionalTypeConverter))]
 public readonly struct Optional<T>(T? value)
 {
     public bool IsSet { get; } = true;

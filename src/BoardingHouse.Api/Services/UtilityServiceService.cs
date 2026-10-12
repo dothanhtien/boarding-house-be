@@ -28,7 +28,7 @@ public class UtilityServiceService(
 
         await organizationScopeAccessor.EnsureScopeAsync(
             property.OrganizationId,
-            "utility-service", "read",
+            PermissionResources.UtilityService, PermissionActions.Read,
             $"Property '{query.PropertyId}' not found",
             cancellationToken);
 
@@ -47,7 +47,7 @@ public class UtilityServiceService(
             ?? throw new AppNotFoundException($"Utility service '{id}' not found");
 
         await organizationScopeAccessor.EnsureScopeAsync(
-            service.Property!.OrganizationId, "utility-service", "read", $"Utility service '{id}' not found", cancellationToken);
+            service.Property!.OrganizationId, PermissionResources.UtilityService, PermissionActions.Read, $"Utility service '{id}' not found", cancellationToken);
 
         return service.Adapt<UtilityServiceResponse>();
     }
@@ -63,7 +63,7 @@ public class UtilityServiceService(
                     ?? throw new AppNotFoundException($"Property '{request.PropertyId}' not found");
 
                 await organizationScopeAccessor.EnsureScopeAsync(
-                    property.OrganizationId, "utility-service", "create", $"Property '{request.PropertyId}' not found", ct);
+                    property.OrganizationId, PermissionResources.UtilityService, PermissionActions.Create, $"Property '{request.PropertyId}' not found", ct);
 
                 var created = new UtilityService
                 {
@@ -100,11 +100,11 @@ public class UtilityServiceService(
             {
                 // FOR UPDATE serializes with a concurrent soft-delete (direct or via PropertyService.DeleteAsync) so the
                 // full-row Update() below can't write back deleted_at = NULL over a delete committed after our read
-                var existing = await utilityServiceRepository.GetByIdWithPropertyForUpdateAsync(id, ct)
+                var (existing, organizationId) = await utilityServiceRepository.GetByIdWithOrganizationIdForUpdateAsync(id, ct)
                     ?? throw new AppNotFoundException($"Utility service '{id}' not found");
 
                 await organizationScopeAccessor.EnsureScopeAsync(
-                    existing.Property!.OrganizationId, "utility-service", "update", $"Utility service '{id}' not found", ct);
+                    organizationId, PermissionResources.UtilityService, PermissionActions.Update, $"Utility service '{id}' not found", ct);
 
                 request.Adapt(existing, UtilityServiceMappingConfig.UpdateConfig);
 
@@ -130,7 +130,7 @@ public class UtilityServiceService(
             ?? throw new AppNotFoundException($"Utility service '{id}' not found");
 
         await organizationScopeAccessor.EnsureScopeAsync(
-            service.Property!.OrganizationId, "utility-service", "delete", $"Utility service '{id}' not found", cancellationToken);
+            service.Property!.OrganizationId, PermissionResources.UtilityService, PermissionActions.Delete, $"Utility service '{id}' not found", cancellationToken);
 
         utilityServiceRepository.SoftDelete(service);
         await unitOfWork.SaveChangesAsync(cancellationToken);

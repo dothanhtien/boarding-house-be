@@ -4,10 +4,12 @@ using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Exceptions;
+using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services;
 using BoardingHouse.Api.Services.Storage;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
@@ -17,6 +19,7 @@ public class MediaCollectionServiceTests
 {
     private readonly Mock<IMediaAssetRepository> _mediaAssetRepository = new();
     private readonly Mock<IMediaUploader> _mediaUploader = new();
+    private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly MediaCollectionService _service;
 
     private readonly Guid _organizationId = Guid.NewGuid();
@@ -24,7 +27,9 @@ public class MediaCollectionServiceTests
     public MediaCollectionServiceTests()
     {
         _service = new MediaCollectionService(
-            _mediaAssetRepository.Object, _mediaUploader.Object, NullLogger<MediaCollectionService>.Instance);
+            _mediaAssetRepository.Object,
+            _mediaUploader.Object, _unitOfWork.Object,
+            NullLogger<MediaCollectionService>.Instance);
     }
 
     private static IFormFile NewFile(string fileName) => NewFile(new MemoryStream([1]), 0, 1, fileName);
@@ -54,8 +59,9 @@ public class MediaCollectionServiceTests
     };
 
     [Fact]
-    public async Task UploadAsync_AllSucceed_ReturnsUntrackedAssetsTaggedWithEntityTypeInFileOrder()
+    public async Task AddAsync_AllUploadsSucceed_AttachesUntrackedAssetsTaggedWithEntityTypeInFileOrder()
     {
+        SetupTransaction();
         // "a" finishes last, yet must stay first: order decides sort_order and the cover
         SetupUpload("a.png", async () =>
         {
@@ -64,16 +70,28 @@ public class MediaCollectionServiceTests
         });
         SetupUpload("b.png", () => Task.FromResult(Asset("b")));
 
-        var uploaded = await _service.UploadAsync(
-            MediaAssetEntityType.RoomMedia, [NewFile("a.png"), NewFile("b.png")], "folder", _organizationId);
+        IReadOnlyList<MediaAsset>? uploaded = null;
+        var untracked = false;
 
-        Assert.Equal(["a", "b"], uploaded.Select(m => m.StorageKey));
-        Assert.All(uploaded, m =>
+        await _service.AddAsync(
+            MediaAssetEntityType.RoomMedia,
+            [NewFile("a.png"), NewFile("b.png")],
+            "folder",
+            _organizationId,
+            (assets, _) =>
+            {
+                uploaded = assets;
+                untracked = _mediaAssetRepository.Invocations.Count == 0;
+                return Task.FromResult("attached");
+            });
+
+        Assert.Equal(["a", "b"], uploaded!.Select(m => m.StorageKey));
+        Assert.All(uploaded!, m =>
         {
             Assert.Equal(MediaAssetEntityType.RoomMedia, m.EntityType);
             Assert.Null(m.EntityId);
         });
-        _mediaAssetRepository.VerifyNoOtherCalls();
+        Assert.True(untracked);
     }
 
     // A request body that fails if two threads read it at the same time, like the shared buffer behind form files
@@ -112,8 +130,9 @@ public class MediaCollectionServiceTests
     }
 
     [Fact]
-    public async Task UploadAsync_FilesSharingOneRequestBody_NeverReadsTheBodyConcurrently()
+    public async Task AddAsync_FilesSharingOneRequestBody_NeverReadsTheBodyConcurrently()
     {
+        SetupTransaction();
         // Mirrors ASP.NET multipart binding: both form files are views over the same buffered body
         var body = new ExclusiveReadStream("aaaabbbb"u8.ToArray());
         var contents = new ConcurrentDictionary<string, string>();
@@ -130,18 +149,19 @@ public class MediaCollectionServiceTests
                 return Asset(file.FileName);
             }));
 
-        await _service.UploadAsync(
+        await _service.AddAsync(
             MediaAssetEntityType.RoomMedia,
             [NewFile(body, 0, 4, "a.png"), NewFile(body, 4, 4, "b.png")],
             "folder",
-            _organizationId);
+            _organizationId,
+            (_, _) => Task.FromResult("attached"));
 
         Assert.Equal("aaaa", contents["a.png"]);
         Assert.Equal("bbbb", contents["b.png"]);
     }
 
     [Fact]
-    public async Task UploadAsync_OneFileFails_WaitsForOthersDeletesEverySuccessfulUploadAndRethrows()
+    public async Task AddAsync_OneUploadFails_WaitsForOthersDeletesEverySuccessfulUploadAndRethrows()
     {
         SetupUpload("a.png", async () =>
         {
@@ -152,24 +172,207 @@ public class MediaCollectionServiceTests
             new AppValidationException("File content does not match its declared type")));
         SetupUpload("c.png", () => Task.FromResult(Asset("c")));
 
-        await Assert.ThrowsAsync<AppValidationException>(() => _service.UploadAsync(
-            MediaAssetEntityType.RoomMedia, [NewFile("a.png"), NewFile("b.png"), NewFile("c.png")], "folder", _organizationId));
+        await Assert.ThrowsAsync<AppValidationException>(() => _service.AddAsync(
+            MediaAssetEntityType.RoomMedia,
+            [NewFile("a.png"), NewFile("b.png"), NewFile("c.png")],
+            "folder",
+            _organizationId,
+            (_, _) => Task.FromResult("attached")));
 
         _mediaUploader.Verify(u => u.TryDeleteAsync("a", "image/png"), Times.Once);
         _mediaUploader.Verify(u => u.TryDeleteAsync("c", "image/png"), Times.Once);
         _mediaAssetRepository.VerifyNoOtherCalls();
     }
 
+    // Runs the delegate like the real unit of work, then optionally fails the commit
+    private void SetupTransaction(Exception? commitFailure = null) =>
+        _unitOfWork
+            .Setup(u => u.ExecuteInTransactionAsync(It.IsAny<Func<CancellationToken, Task<string>>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (Func<CancellationToken, Task<string>> operation, CancellationToken ct) =>
+            {
+                var result = await operation(ct);
+                return commitFailure is null ? result : throw commitFailure;
+            });
+
     [Fact]
-    public async Task StageAddAsync_AddsEveryAsset()
+    public async Task AddAsync_AttachSucceeds_AttachesThenStagesUploadsInOneTransactionAndKeepsFiles()
     {
-        var a = Asset("a");
-        var b = Asset("b");
+        SetupUpload("a.png", () => Task.FromResult(Asset("a")));
+        SetupUpload("b.png", () => Task.FromResult(Asset("b")));
+        SetupTransaction();
+        var steps = new List<string>();
+        _mediaAssetRepository
+            .Setup(r => r.AddAsync(It.IsAny<MediaAsset>(), It.IsAny<CancellationToken>()))
+            .Callback((MediaAsset asset, CancellationToken _) => steps.Add($"stage:{asset.StorageKey}"));
+        IReadOnlyList<MediaAsset>? attached = null;
 
-        await _service.StageAddAsync([a, b]);
+        var result = await _service.AddAsync(
+            MediaAssetEntityType.RoomMedia,
+            [NewFile("a.png"), NewFile("b.png")],
+            "folder",
+            _organizationId,
+            (uploaded, _) =>
+            {
+                attached = uploaded;
+                steps.Add("attach");
+                return Task.FromResult("attached");
+            });
 
-        _mediaAssetRepository.Verify(r => r.AddAsync(a, It.IsAny<CancellationToken>()), Times.Once);
-        _mediaAssetRepository.Verify(r => r.AddAsync(b, It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal("attached", result);
+        Assert.Equal(["a", "b"], attached!.Select(m => m.StorageKey));
+        // The attach delegate takes the owner's row lock and re-checks limits before anything is staged
+        Assert.Equal(["attach", "stage:a", "stage:b"], steps);
+        _unitOfWork.Verify(
+            u => u.ExecuteInTransactionAsync(It.IsAny<Func<CancellationToken, Task<string>>>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        _mediaUploader.Verify(u => u.TryDeleteAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AddAsync_AttachThrows_DiscardsUploadsWithoutStagingAndRethrows()
+    {
+        SetupUpload("a.png", () => Task.FromResult(Asset("a")));
+        SetupTransaction();
+
+        await Assert.ThrowsAsync<AppConflictException>(() => _service.AddAsync<string>(
+            MediaAssetEntityType.RoomMedia,
+            [NewFile("a.png")],
+            "folder",
+            _organizationId,
+            (_, _) => throw new AppConflictException("limit reached")));
+
+        _mediaUploader.Verify(u => u.TryDeleteAsync("a", "image/png"), Times.Once);
+        _mediaAssetRepository.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task AddAsync_SaveFails_DiscardsUploadsWithoutCheckingDatabaseAndRethrows()
+    {
+        SetupUpload("a.png", () => Task.FromResult(Asset("a")));
+        SetupTransaction(new DbUpdateException("unique violation"));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => _service.AddAsync(
+            MediaAssetEntityType.RoomMedia,
+            [NewFile("a.png")],
+            "folder",
+            _organizationId,
+            (_, _) => Task.FromResult("attached")));
+
+        _mediaUploader.Verify(u => u.TryDeleteAsync("a", "image/png"), Times.Once);
+        _mediaAssetRepository.Verify(r => r.ExistsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AddAsync_CommitFailsAndRowsAbsent_DiscardsUploadsAndRethrows()
+    {
+        var asset = Asset("a");
+        SetupUpload("a.png", () => Task.FromResult(asset));
+        SetupTransaction(new InvalidOperationException("commit failed"));
+        _mediaAssetRepository.Setup(r => r.ExistsAsync(asset.Id, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _service.AddAsync(
+            MediaAssetEntityType.RoomMedia,
+            [NewFile("a.png")],
+            "folder",
+            _organizationId,
+            (_, _) => Task.FromResult("attached")));
+
+        _mediaUploader.Verify(u => u.TryDeleteAsync("a", "image/png"), Times.Once);
+    }
+
+    [Fact]
+    public async Task AddAsync_CommitFailsButRowsPersisted_KeepsFilesAndRethrows()
+    {
+        var asset = Asset("a");
+        SetupUpload("a.png", () => Task.FromResult(asset));
+        SetupTransaction(new InvalidOperationException("connection lost during commit"));
+        _mediaAssetRepository.Setup(r => r.ExistsAsync(asset.Id, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _service.AddAsync(
+            MediaAssetEntityType.RoomMedia,
+            [NewFile("a.png")],
+            "folder",
+            _organizationId,
+            (_, _) => Task.FromResult("attached")));
+
+        _mediaUploader.Verify(u => u.TryDeleteAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AddAsync_CommitFailsAndCheckFails_KeepsFilesAndRethrowsOriginalError()
+    {
+        SetupUpload("a.png", () => Task.FromResult(Asset("a")));
+        SetupTransaction(new InvalidOperationException("connection lost during commit"));
+        _mediaAssetRepository
+            .Setup(r => r.ExistsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("database unreachable"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _service.AddAsync(
+            MediaAssetEntityType.RoomMedia,
+            [NewFile("a.png")],
+            "folder",
+            _organizationId,
+            (_, _) => Task.FromResult("attached")));
+
+        _mediaUploader.Verify(u => u.TryDeleteAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AddAsync_NoFilesAndCommitFails_RethrowsWithoutCheckingDatabase()
+    {
+        SetupTransaction(new InvalidOperationException("connection lost during commit"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _service.AddAsync(
+            MediaAssetEntityType.RoomMedia,
+            [],
+            "folder",
+            _organizationId,
+            (_, _) => Task.FromResult("attached")));
+
+        _mediaAssetRepository.Verify(r => r.ExistsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _mediaUploader.Verify(u => u.TryDeleteAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AddAsync_UploadFails_NeverOpensTransaction()
+    {
+        SetupUpload("a.png", () => Task.FromException<MediaAsset>(
+            new AppValidationException("File content does not match its declared type")));
+        var attachCalled = false;
+
+        await Assert.ThrowsAsync<AppValidationException>(() => _service.AddAsync(
+            MediaAssetEntityType.RoomMedia,
+            [NewFile("a.png")],
+            "folder",
+            _organizationId,
+            (_, _) =>
+            {
+                attachCalled = true;
+                return Task.FromResult("attached");
+            }));
+
+        Assert.False(attachCalled);
+        _unitOfWork.Verify(
+            u => u.ExecuteInTransactionAsync(It.IsAny<Func<CancellationToken, Task<string>>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _mediaAssetRepository.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task AddAsync_InsideAnotherTransaction_ThrowsBeforeUploading()
+    {
+        // A caller's later rollback would orphan the uploads, out of reach of AddAsync's discard handling
+        _unitOfWork.Setup(u => u.HasActiveTransaction).Returns(true);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _service.AddAsync(
+            MediaAssetEntityType.RoomMedia,
+            [NewFile("a.png")],
+            "folder",
+            _organizationId,
+            (_, _) => Task.FromResult("attached")));
+
+        _mediaUploader.VerifyNoOtherCalls();
+        _mediaAssetRepository.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -190,13 +393,5 @@ public class MediaCollectionServiceTests
 
         _mediaUploader.Verify(u => u.TryDeleteAsync("a", "image/png"), Times.Once);
         _mediaUploader.Verify(u => u.TryDeleteAsync("b", "image/png"), Times.Once);
-    }
-
-    [Fact]
-    public async Task DiscardAsync_DeletesUploadedFiles()
-    {
-        await _service.DiscardAsync([Asset("a")]);
-
-        _mediaUploader.Verify(u => u.TryDeleteAsync("a", "image/png"), Times.Once);
     }
 }

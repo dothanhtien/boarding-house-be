@@ -10,4 +10,10 @@ public interface IRoomAssetConditionHistoryService
         Guid assetId,
         CreateRoomAssetConditionHistoryRequest request,
         CancellationToken cancellationToken = default);
+    Task<RoomAssetConditionHistoryResponse> UpdateAsync(
+        Guid roomId,
+        Guid assetId,
+        Guid historyId,
+        UpdateRoomAssetConditionHistoryRequest request,
+        CancellationToken cancellationToken = default);
 }

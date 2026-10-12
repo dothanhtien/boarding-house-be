@@ -11,4 +11,7 @@ public record RoomAssetConditionHistoryResponse
     public string? Note { get; init; }
     public Guid? ChangedBy { get; init; }
     public required DateTimeOffset ChangedAt { get; init; }
+    public DateTimeOffset? UpdatedAt { get; init; }
+    public Guid? UpdatedBy { get; init; }
+    public required List<RoomAssetConditionHistoryMediaResponse> Media { get; init; }
 }

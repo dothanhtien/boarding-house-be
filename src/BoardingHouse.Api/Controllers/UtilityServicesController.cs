@@ -13,7 +13,7 @@ namespace BoardingHouse.Api.Controllers;
 public class UtilityServicesController(IUtilityServiceService utilityServiceService) : ControllerBase
 {
     [HttpGet]
-    [RequireOrganizationScopedPermission("utility-service", "read")]
+    [RequireOrganizationScopedPermission(PermissionResources.UtilityService, PermissionActions.Read)]
     public async Task<ActionResult<ApiResponse<List<UtilityServiceResponse>>>> GetAll([FromQuery] UtilityServiceListQuery query, CancellationToken cancellationToken)
     {
         var services = await utilityServiceService.GetAllAsync(query, cancellationToken);
@@ -21,7 +21,7 @@ public class UtilityServicesController(IUtilityServiceService utilityServiceServ
     }
 
     [HttpGet("{id:guid}")]
-    [RequireOrganizationScopedPermission("utility-service", "read")]
+    [RequireOrganizationScopedPermission(PermissionResources.UtilityService, PermissionActions.Read)]
     public async Task<ActionResult<ApiResponse<UtilityServiceResponse>>> GetById(Guid id, CancellationToken cancellationToken)
     {
         var service = await utilityServiceService.GetByIdAsync(id, cancellationToken);
@@ -29,7 +29,7 @@ public class UtilityServicesController(IUtilityServiceService utilityServiceServ
     }
 
     [HttpPost]
-    [RequireOrganizationScopedPermission("utility-service", "create")]
+    [RequireOrganizationScopedPermission(PermissionResources.UtilityService, PermissionActions.Create)]
     public async Task<ActionResult<ApiResponse<UtilityServiceResponse>>> Create(
         CreateUtilityServiceRequest request, CancellationToken cancellationToken)
     {
@@ -41,7 +41,7 @@ public class UtilityServicesController(IUtilityServiceService utilityServiceServ
     }
 
     [HttpPatch("{id:guid}")]
-    [RequireOrganizationScopedPermission("utility-service", "update")]
+    [RequireOrganizationScopedPermission(PermissionResources.UtilityService, PermissionActions.Update)]
     public async Task<ActionResult<ApiResponse<UtilityServiceResponse>>> Update(Guid id, UpdateUtilityServiceRequest request, CancellationToken cancellationToken)
     {
         var service = await utilityServiceService.UpdateAsync(id, request, cancellationToken);
@@ -49,7 +49,7 @@ public class UtilityServicesController(IUtilityServiceService utilityServiceServ
     }
 
     [HttpDelete("{id:guid}")]
-    [RequireOrganizationScopedPermission("utility-service", "delete")]
+    [RequireOrganizationScopedPermission(PermissionResources.UtilityService, PermissionActions.Delete)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
         await utilityServiceService.DeleteAsync(id, cancellationToken);

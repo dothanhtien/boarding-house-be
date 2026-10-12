@@ -2,12 +2,14 @@ namespace BoardingHouse.Api.Persistence;
 
 public class UnitOfWork(AppDbContext context) : IUnitOfWork
 {
+    public bool HasActiveTransaction => context.Database.CurrentTransaction is not null;
+
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
         context.SaveChangesAsync(cancellationToken);
 
     public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken = default)
     {
-        if (context.Database.CurrentTransaction is not null)
+        if (HasActiveTransaction)
         {
             var nestedResult = await operation(cancellationToken);
             await context.SaveChangesAsync(cancellationToken);

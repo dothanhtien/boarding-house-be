@@ -13,7 +13,7 @@ namespace BoardingHouse.Api.Controllers;
 public class UsersController(IUserService userService) : ControllerBase
 {
     [HttpGet]
-    [RequirePermission("user", "read")]
+    [RequirePermission(PermissionResources.User, PermissionActions.Read)]
     public async Task<ActionResult<ApiResponse<PagedResult<UserResponse>>>> GetAll(
         [FromQuery] UserListQuery query,
         CancellationToken cancellationToken)
@@ -23,7 +23,7 @@ public class UsersController(IUserService userService) : ControllerBase
     }
 
     [HttpGet("{id:guid}")]
-    [RequirePermission("user", "read")]
+    [RequirePermission(PermissionResources.User, PermissionActions.Read)]
     public async Task<ActionResult<ApiResponse<UserResponse>>> GetById(Guid id, CancellationToken cancellationToken)
     {
         var user = await userService.GetByIdAsync(id, cancellationToken);
@@ -31,7 +31,7 @@ public class UsersController(IUserService userService) : ControllerBase
     }
 
     [HttpPost]
-    [RequirePermission("user", "create")]
+    [RequirePermission(PermissionResources.User, PermissionActions.Create)]
     public async Task<ActionResult<ApiResponse<UserResponse>>> Create(CreateUserRequest request, CancellationToken cancellationToken)
     {
         var user = await userService.CreateAsync(request, cancellationToken);
@@ -39,7 +39,7 @@ public class UsersController(IUserService userService) : ControllerBase
     }
 
     [HttpPatch("{id:guid}")]
-    [RequirePermission("user", "update")]
+    [RequirePermission(PermissionResources.User, PermissionActions.Update)]
     public async Task<ActionResult<ApiResponse<UserResponse>>> Update(Guid id, UpdateUserRequest request, CancellationToken cancellationToken)
     {
         var user = await userService.UpdateAsync(id, request, cancellationToken);
@@ -47,7 +47,7 @@ public class UsersController(IUserService userService) : ControllerBase
     }
 
     [HttpDelete("{id:guid}")]
-    [RequirePermission("user", "delete")]
+    [RequirePermission(PermissionResources.User, PermissionActions.Delete)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
         await userService.DeleteAsync(id, cancellationToken);

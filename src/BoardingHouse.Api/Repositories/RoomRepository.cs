@@ -77,16 +77,24 @@ public class RoomRepository(AppDbContext context) : Repository<Room>(context), I
             .AsSplitQuery()
             .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
 
-    public Task<Room?> GetByIdWithPropertyForUpdateAsync(Guid id, CancellationToken cancellationToken = default) =>
+    public Task<Room?> GetByIdWithPropertyAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Context.Rooms
+            .AsNoTracking()
+            .Include(r => r.Property)
+            .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
+
+    public Task<EntityWithOrganizationId<Room>?> GetByIdWithOrganizationIdForUpdateAsync(
+        Guid id, CancellationToken cancellationToken = default) =>
         Context.Rooms
             .FromSql($"SELECT * FROM rooms WHERE id = {id} FOR UPDATE")
-            .Include(r => r.Property)
+            .Select(r => new EntityWithOrganizationId<Room>(r, r.Property!.OrganizationId))
             .FirstOrDefaultAsync(cancellationToken);
 
-    public Task<Room?> GetByIdWithPropertyForShareAsync(Guid id, CancellationToken cancellationToken = default) =>
+    public Task<EntityWithOrganizationId<Room>?> GetByIdWithOrganizationIdForShareAsync(
+        Guid id, CancellationToken cancellationToken = default) =>
         Context.Rooms
             .FromSql($"SELECT * FROM rooms WHERE id = {id} FOR SHARE")
-            .Include(r => r.Property)
+            .Select(r => new EntityWithOrganizationId<Room>(r, r.Property!.OrganizationId))
             .FirstOrDefaultAsync(cancellationToken);
 
     public Task LoadAmenitiesAsync(Room room, CancellationToken cancellationToken = default) =>

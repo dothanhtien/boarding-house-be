@@ -9,7 +9,7 @@ public class RoomAssetConditionHistoryConfiguration : IEntityTypeConfiguration<R
 {
     public void Configure(EntityTypeBuilder<RoomAssetConditionHistory> builder)
     {
-        builder.HasIndex(h => h.AssetId);
+        builder.HasIndex(h => new { h.AssetId, h.ChangedAt, h.Id });
 
         builder.Property(h => h.OldCondition)
             .HasConversion(AssetConditionDbValueConverter.Instance)

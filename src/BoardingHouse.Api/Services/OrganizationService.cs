@@ -47,7 +47,7 @@ public class OrganizationService(
 
     public async Task<OrganizationResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        await organizationScopeAccessor.EnsureScopeAsync(id, "organization", "read", cancellationToken: cancellationToken);
+        await organizationScopeAccessor.EnsureScopeAsync(id, PermissionResources.Organization, PermissionActions.Read, cancellationToken: cancellationToken);
 
         var organization = await organizationRepository.GetByIdWithMembersAsync(id, cancellationToken)
             ?? throw new AppNotFoundException($"Organization '{id}' not found");
@@ -99,7 +99,7 @@ public class OrganizationService(
 
     public async Task<OrganizationResponse> UpdateAsync(Guid id, UpdateOrganizationRequest request, CancellationToken cancellationToken = default)
     {
-        await organizationScopeAccessor.EnsureScopeAsync(id, "organization", "update", cancellationToken: cancellationToken);
+        await organizationScopeAccessor.EnsureScopeAsync(id, PermissionResources.Organization, PermissionActions.Update, cancellationToken: cancellationToken);
 
         var organization = await organizationRepository.GetByIdAsync(id, cancellationToken)
             ?? throw new AppNotFoundException($"Organization '{id}' not found");

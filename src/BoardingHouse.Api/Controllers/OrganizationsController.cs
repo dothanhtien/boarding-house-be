@@ -16,7 +16,7 @@ public class OrganizationsController(
     IOrganizationMemberService organizationMemberService) : ControllerBase
 {
     [HttpGet]
-    [RequirePermission("organization", "read")]
+    [RequirePermission(PermissionResources.Organization, PermissionActions.Read)]
     public async Task<ActionResult<ApiResponse<PagedResult<OrganizationResponse>>>> GetAll(
         [FromQuery] OrganizationListQuery query,
         CancellationToken cancellationToken)
@@ -26,7 +26,7 @@ public class OrganizationsController(
     }
 
     [HttpGet("{id:guid}")]
-    [RequireOrganizationScopedPermission("organization", "read")]
+    [RequireOrganizationScopedPermission(PermissionResources.Organization, PermissionActions.Read)]
     public async Task<ActionResult<ApiResponse<OrganizationResponse>>> GetById(Guid id, CancellationToken cancellationToken)
     {
         var organization = await organizationService.GetByIdAsync(id, cancellationToken);
@@ -34,7 +34,7 @@ public class OrganizationsController(
     }
 
     [HttpPost]
-    [RequirePermission("organization", "create")]
+    [RequirePermission(PermissionResources.Organization, PermissionActions.Create)]
     public async Task<ActionResult<ApiResponse<OrganizationResponse>>> Create(CreateOrganizationRequest request, CancellationToken cancellationToken)
     {
         var organization = await organizationService.CreateAsync(request, cancellationToken);
@@ -45,7 +45,7 @@ public class OrganizationsController(
     }
 
     [HttpPatch("{id:guid}")]
-    [RequireOrganizationScopedPermission("organization", "update")]
+    [RequireOrganizationScopedPermission(PermissionResources.Organization, PermissionActions.Update)]
     public async Task<ActionResult<ApiResponse<OrganizationResponse>>> Update(Guid id, UpdateOrganizationRequest request, CancellationToken cancellationToken)
     {
         var organization = await organizationService.UpdateAsync(id, request, cancellationToken);
@@ -53,7 +53,7 @@ public class OrganizationsController(
     }
 
     [HttpDelete("{id:guid}")]
-    [RequirePermission("organization", "delete")]
+    [RequirePermission(PermissionResources.Organization, PermissionActions.Delete)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
         await organizationService.DeleteAsync(id, cancellationToken);
@@ -61,7 +61,7 @@ public class OrganizationsController(
     }
 
     [HttpGet("{organizationId:guid}/settings")]
-    [RequireOrganizationScopedPermission("organization-setting", "read")]
+    [RequireOrganizationScopedPermission(PermissionResources.OrganizationSetting, PermissionActions.Read)]
     public async Task<ActionResult<ApiResponse<OrganizationSettingsResponse>>> GetSettings(Guid organizationId, CancellationToken cancellationToken)
     {
         var settings = await organizationSettingsService.GetByOrganizationIdAsync(organizationId, cancellationToken);
@@ -69,7 +69,7 @@ public class OrganizationsController(
     }
 
     [HttpPatch("{organizationId:guid}/settings")]
-    [RequireOrganizationScopedPermission("organization-setting", "update")]
+    [RequireOrganizationScopedPermission(PermissionResources.OrganizationSetting, PermissionActions.Update)]
     public async Task<ActionResult<ApiResponse<OrganizationSettingsResponse>>> UpdateSettings(
         Guid organizationId, UpdateOrganizationSettingsRequest request, CancellationToken cancellationToken)
     {
@@ -78,7 +78,7 @@ public class OrganizationsController(
     }
 
     [HttpGet("{organizationId:guid}/members")]
-    [RequirePermission("organization-member", "read")]
+    [RequirePermission(PermissionResources.OrganizationMember, PermissionActions.Read)]
     public async Task<ActionResult<ApiResponse<PagedResult<OrganizationMemberResponse>>>> GetMembers(
         Guid organizationId,
         [FromQuery] OrganizationMemberListQuery query,
@@ -89,7 +89,7 @@ public class OrganizationsController(
     }
 
     [HttpPost("{organizationId:guid}/members")]
-    [RequirePermission("organization-member", "create")]
+    [RequirePermission(PermissionResources.OrganizationMember, PermissionActions.Create)]
     public async Task<ActionResult<ApiResponse<OrganizationMemberResponse>>> AddMember(
         Guid organizationId,
         AddOrganizationMemberRequest request,
@@ -100,7 +100,7 @@ public class OrganizationsController(
     }
 
     [HttpPut("{organizationId:guid}/members/{memberId:guid}")]
-    [RequirePermission("organization-member", "update")]
+    [RequirePermission(PermissionResources.OrganizationMember, PermissionActions.Update)]
     public async Task<ActionResult<ApiResponse<OrganizationMemberResponse>>> UpdateMemberRole(
     Guid organizationId, Guid memberId, UpdateOrganizationMemberRequest request, CancellationToken cancellationToken)
     {
@@ -109,7 +109,7 @@ public class OrganizationsController(
     }
 
     [HttpDelete("{organizationId:guid}/members/{memberId:guid}")]
-    [RequirePermission("organization-member", "delete")]
+    [RequirePermission(PermissionResources.OrganizationMember, PermissionActions.Delete)]
     public async Task<IActionResult> RemoveMember(Guid organizationId, Guid memberId, CancellationToken cancellationToken)
     {
         await organizationMemberService.RemoveAsync(organizationId, memberId, cancellationToken);
