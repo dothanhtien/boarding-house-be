@@ -22,6 +22,7 @@ public class RoomService(
     IPropertyRepository propertyRepository,
     IRoomAssetRepository roomAssetRepository,
     IRoomAssetConditionHistoryRepository roomAssetConditionHistoryRepository,
+    ILeaseRepository leaseRepository,
     IMediaCollectionService mediaCollectionService,
     IStorageProvider storageProvider,
     IUnitOfWork unitOfWork,
@@ -43,7 +44,7 @@ public class RoomService(
         var organizationId = query.OrganizationId ?? currentOrganizationAccessor.OrganizationId;
 
         var scope = await organizationScopeAccessor.GetScopeAsync(PermissionResources.Room, PermissionActions.Read, cancellationToken);
-        if (organizationId is not null && !scope.Includes(organizationId.Value))
+        if (organizationId is not null && !scope.Allows(organizationId.Value))
         {
             throw new AppNotFoundException($"Organization '{organizationId}' not found");
         }
@@ -181,6 +182,12 @@ public class RoomService(
 
             await organizationScopeAccessor.EnsureScopeAsync(
                 organizationId, PermissionResources.Room, PermissionActions.Delete, $"Room '{id}' not found", ct);
+
+            if (await leaseRepository.ExistsOpenByRoomIdAsync(id, ct))
+            {
+                logger.LogWarning("Delete room failed: room still has a draft or active lease ({RoomId})", id);
+                throw new AppConflictException("Cannot delete a room that has a draft or active lease");
+            }
 
             // Amenities must be tracked so EF cascades the room's soft-delete to them
             await roomRepository.LoadAmenitiesAsync(room, ct);

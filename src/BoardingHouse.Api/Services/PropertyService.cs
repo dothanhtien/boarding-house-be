@@ -37,7 +37,7 @@ public class PropertyService(
         var organizationId = query.OrganizationId ?? currentOrganizationAccessor.OrganizationId;
 
         var scope = await organizationScopeAccessor.GetScopeAsync(PermissionResources.Property, PermissionActions.Read, cancellationToken);
-        if (organizationId is not null && !scope.Includes(organizationId.Value))
+        if (organizationId is not null && !scope.Allows(organizationId.Value))
         {
             throw new AppNotFoundException($"Organization '{organizationId}' not found");
         }

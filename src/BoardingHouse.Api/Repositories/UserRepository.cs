@@ -99,4 +99,7 @@ public class UserRepository(AppDbContext context) : Repository<User>(context), I
                     m == null ? null : new MediaLocation(m.StorageKey, m.MimeType))),
             cancellationToken);
     }
+
+    public Task<List<User>> ListByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default) =>
+        Context.Users.Where(u => ids.Contains(u.Id)).ToListAsync(cancellationToken);
 }

@@ -6,7 +6,7 @@ public class OrganizationScope
 
     public required IReadOnlySet<Guid> OrganizationIds { get; init; }
 
-    public bool Includes(Guid organizationId) => IsUnrestricted || OrganizationIds.Contains(organizationId);
+    public bool Allows(Guid organizationId) => IsUnrestricted || OrganizationIds.Contains(organizationId);
 
     public static readonly OrganizationScope None = new()
     {

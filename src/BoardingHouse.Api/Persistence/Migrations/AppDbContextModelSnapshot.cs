@@ -22,6 +22,208 @@ namespace BoardingHouse.Api.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("BoardingHouse.Api.Entities.Lease", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<int?>("BillingDay")
+                        .HasColumnType("integer")
+                        .HasColumnName("billing_day");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<decimal>("DepositAmount")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("deposit_amount");
+
+                    b.Property<DateOnly?>("EndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("end_date");
+
+                    b.Property<string>("LeaseCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("lease_code");
+
+                    b.Property<decimal>("MonthlyRent")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("monthly_rent");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<Guid?>("PreviousLeaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("previous_lease_id");
+
+                    b.Property<Guid>("RoomId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("room_id");
+
+                    b.Property<DateTimeOffset?>("SignedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("signed_at");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("start_date");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("DRAFT")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset?>("TerminatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("terminated_at");
+
+                    b.Property<string>("TerminationReason")
+                        .HasColumnType("text")
+                        .HasColumnName("termination_reason");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_leases");
+
+                    b.HasIndex("PreviousLeaseId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_leases_previous_lease_id")
+                        .HasFilter("deleted_at IS NULL");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_leases_status");
+
+                    b.HasIndex("OrganizationId", "LeaseCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_leases_organization_id_lease_code")
+                        .HasFilter("deleted_at IS NULL");
+
+                    b.HasIndex(new[] { "RoomId" }, "ix_leases_room_id")
+                        .HasDatabaseName("ix_leases_room_id");
+
+                    b.HasIndex(new[] { "RoomId" }, "ix_leases_room_id_active")
+                        .IsUnique()
+                        .HasDatabaseName("ix_leases_room_id_active")
+                        .HasFilter("status = 'ACTIVE' AND deleted_at IS NULL");
+
+                    b.ToTable("leases", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_leases_billing_day", "billing_day IS NULL OR (billing_day BETWEEN 1 AND 28)");
+
+                            t.HasCheckConstraint("ck_leases_deposit_amount", "deposit_amount >= 0");
+
+                            t.HasCheckConstraint("ck_leases_end_date", "end_date IS NULL OR end_date > start_date");
+
+                            t.HasCheckConstraint("ck_leases_monthly_rent", "monthly_rent > 0");
+
+                            t.HasCheckConstraint("ck_leases_previous_lease", "previous_lease_id IS NULL OR previous_lease_id <> id");
+                        });
+                });
+
+            modelBuilder.Entity("BoardingHouse.Api.Entities.LeaseTenant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<bool>("IsRepresentative")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_representative");
+
+                    b.Property<DateOnly?>("JoinedDate")
+                        .HasColumnType("date")
+                        .HasColumnName("joined_date");
+
+                    b.Property<Guid>("LeaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_id");
+
+                    b.Property<DateOnly?>("LeftDate")
+                        .HasColumnType("date")
+                        .HasColumnName("left_date");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_lease_tenants");
+
+                    b.HasIndex("LeaseId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_lease_tenants_lease_id_representative")
+                        .HasFilter("is_representative AND deleted_at IS NULL");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_lease_tenants_user_id");
+
+                    b.HasIndex("LeaseId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_lease_tenants_lease_id_user_id")
+                        .HasFilter("deleted_at IS NULL");
+
+                    b.ToTable("lease_tenants", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_lease_tenants_left_date", "left_date IS NULL OR joined_date IS NULL OR left_date >= joined_date");
+                        });
+                });
+
             modelBuilder.Entity("BoardingHouse.Api.Entities.MediaAsset", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1298,6 +1500,56 @@ namespace BoardingHouse.Api.Persistence.Migrations
                     b.ToTable("utility_services", (string)null);
                 });
 
+            modelBuilder.Entity("BoardingHouse.Api.Entities.Lease", b =>
+                {
+                    b.HasOne("BoardingHouse.Api.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_leases_organizations_organization_id");
+
+                    b.HasOne("BoardingHouse.Api.Entities.Lease", "PreviousLease")
+                        .WithMany()
+                        .HasForeignKey("PreviousLeaseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_leases_leases_previous_lease_id");
+
+                    b.HasOne("BoardingHouse.Api.Entities.Room", "Room")
+                        .WithMany()
+                        .HasForeignKey("RoomId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_leases_rooms_room_id");
+
+                    b.Navigation("Organization");
+
+                    b.Navigation("PreviousLease");
+
+                    b.Navigation("Room");
+                });
+
+            modelBuilder.Entity("BoardingHouse.Api.Entities.LeaseTenant", b =>
+                {
+                    b.HasOne("BoardingHouse.Api.Entities.Lease", "Lease")
+                        .WithMany("Tenants")
+                        .HasForeignKey("LeaseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_lease_tenants_leases_lease_id");
+
+                    b.HasOne("BoardingHouse.Api.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_lease_tenants_users_user_id");
+
+                    b.Navigation("Lease");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("BoardingHouse.Api.Entities.MediaAsset", b =>
                 {
                     b.HasOne("BoardingHouse.Api.Entities.Organization", "Organization")
@@ -1531,6 +1783,11 @@ namespace BoardingHouse.Api.Persistence.Migrations
                         .HasConstraintName("fk_utility_services_properties_property_id");
 
                     b.Navigation("Property");
+                });
+
+            modelBuilder.Entity("BoardingHouse.Api.Entities.Lease", b =>
+                {
+                    b.Navigation("Tenants");
                 });
 
             modelBuilder.Entity("BoardingHouse.Api.Entities.Organization", b =>
