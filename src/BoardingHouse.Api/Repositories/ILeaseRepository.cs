@@ -1,0 +1,35 @@
+using System.Linq.Expressions;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Api.Entities;
+using BoardingHouse.Api.Entities.Enums;
+
+namespace BoardingHouse.Api.Repositories;
+
+public interface ILeaseRepository : IRepository<Lease>
+{
+    Task<PagedResult<Lease>> SearchAsync(
+        Guid? organizationId,
+        IReadOnlySet<Guid>? allowedOrganizationIds,
+        Guid? propertyId,
+        Guid? roomId,
+        LeaseStatus? status,
+        Guid? tenantUserId,
+        string? search,
+        PageRequest pageRequest,
+        Expression<Func<Lease, object>> sortField,
+        SortOrder sortOrder,
+        CancellationToken cancellationToken = default);
+    Task<Lease?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<Lease?> GetByIdWithRoomForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<Lease?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<Lease?> GetByIdForShareAsync(Guid id, CancellationToken cancellationToken = default);
+    Task LoadTenantsAsync(Lease lease, CancellationToken cancellationToken = default);
+    Task LoadTenantsWithUsersAsync(Lease lease, CancellationToken cancellationToken = default);
+    Task<bool> ExistsOpenByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default);
+    Task<bool> ExistsByPreviousLeaseIdAsync(
+        Guid previousLeaseId,
+        Guid? excludingLeaseId = null,
+        CancellationToken cancellationToken = default);
+    Task<bool> IsInRenewalChainAsync(Guid leaseId, Guid chainStartId, CancellationToken cancellationToken = default);
+    void AddTenant(Lease lease, LeaseTenant tenant);
+}

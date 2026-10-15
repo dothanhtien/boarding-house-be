@@ -20,4 +20,5 @@ public interface IUserRepository : IRepository<User>
         Expression<Func<User, object>> sortField,
         SortOrder sortOrder,
         CancellationToken cancellationToken = default);
+    Task<List<User>> ListByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default);
 }

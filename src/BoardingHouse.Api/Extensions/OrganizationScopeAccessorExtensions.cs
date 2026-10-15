@@ -14,7 +14,7 @@ public static class OrganizationScopeAccessorExtensions
         CancellationToken cancellationToken = default)
     {
         var scope = await organizationScopeAccessor.GetScopeAsync(resource, action, cancellationToken);
-        if (!scope.Includes(organizationId))
+        if (!scope.Allows(organizationId))
         {
             throw new AppNotFoundException(notFoundMessage ?? $"Organization '{organizationId}' not found");
         }
