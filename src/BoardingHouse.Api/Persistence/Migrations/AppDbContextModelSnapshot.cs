@@ -1330,6 +1330,112 @@ namespace BoardingHouse.Api.Persistence.Migrations
                     b.ToTable("room_media", (string)null);
                 });
 
+            modelBuilder.Entity("BoardingHouse.Api.Entities.TenantProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateOnly?>("DateOfBirth")
+                        .HasColumnType("date")
+                        .HasColumnName("date_of_birth");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<string>("EmergencyContactName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("emergency_contact_name");
+
+                    b.Property<string>("EmergencyContactPhone")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("emergency_contact_phone");
+
+                    b.Property<string>("Gender")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("gender");
+
+                    b.Property<DateOnly?>("IdentityExpiryDate")
+                        .HasColumnType("date")
+                        .HasColumnName("identity_expiry_date");
+
+                    b.Property<DateOnly?>("IdentityIssuedDate")
+                        .HasColumnType("date")
+                        .HasColumnName("identity_issued_date");
+
+                    b.Property<string>("IdentityIssuedPlace")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("identity_issued_place");
+
+                    b.Property<string>("IdentityNumber")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("identity_number");
+
+                    b.Property<string>("IdentityType")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("identity_type");
+
+                    b.Property<string>("PermanentAddress")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("permanent_address");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_tenant_profiles");
+
+                    b.HasIndex("IdentityNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_tenant_profiles_identity_number")
+                        .HasFilter("identity_number IS NOT NULL AND deleted_at IS NULL");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_tenant_profiles_user_id")
+                        .HasFilter("deleted_at IS NULL");
+
+                    b.ToTable("tenant_profiles", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_tenant_profiles_identity_dates", "identity_issued_date IS NULL OR identity_expiry_date IS NULL OR identity_expiry_date > identity_issued_date");
+
+                            t.HasCheckConstraint("ck_tenant_profiles_identity_details", "identity_number IS NOT NULL OR (identity_issued_date IS NULL AND identity_issued_place IS NULL AND identity_expiry_date IS NULL)");
+
+                            t.HasCheckConstraint("ck_tenant_profiles_identity_pair", "(identity_type IS NULL) = (identity_number IS NULL)");
+                        });
+                });
+
             modelBuilder.Entity("BoardingHouse.Api.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1815,6 +1921,18 @@ namespace BoardingHouse.Api.Persistence.Migrations
                     b.Navigation("MediaAsset");
 
                     b.Navigation("Room");
+                });
+
+            modelBuilder.Entity("BoardingHouse.Api.Entities.TenantProfile", b =>
+                {
+                    b.HasOne("BoardingHouse.Api.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_tenant_profiles_users_user_id");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("BoardingHouse.Api.Entities.UserRole", b =>

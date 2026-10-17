@@ -22,3 +22,6 @@ public class AppForbiddenException(string message)
 
 public class AppInternalException(string message)
     : AppException(message, StatusCodes.Status500InternalServerError);
+
+public class AppTooManyRequestsException(string message)
+    : AppException(message, StatusCodes.Status429TooManyRequests);

@@ -21,6 +21,7 @@ namespace BoardingHouse.UnitTests.Services;
 public class UserServiceTests
 {
     private readonly Mock<IUserRepository> _userRepository = new();
+    private readonly Mock<ITenantProfileRepository> _tenantProfileRepository = new();
     private readonly Mock<IUserCache> _userCache = new();
     private readonly Mock<ICurrentUserAccessor> _currentUserAccessor = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
@@ -38,6 +39,7 @@ public class UserServiceTests
 
         _userService = new UserService(
             _userRepository.Object,
+            _tenantProfileRepository.Object,
             _unitOfWork.Object,
             _userCache.Object,
             _mediaAttachmentService.Object,
@@ -402,6 +404,31 @@ public class UserServiceTests
         _userRepository.Verify(r => r.SoftDelete(user), Times.Once);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         _userCache.Verify(c => c.InvalidateAsync(user.Id, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_UserWithTenantProfile_SoftDeletesProfileInSameSave()
+    {
+        var user = NewUser();
+        var profile = new TenantProfile { UserId = user.Id, CreatedBy = user.Id };
+        _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _tenantProfileRepository.Setup(r => r.GetByUserIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
+
+        await _userService.DeleteAsync(user.Id);
+
+        _tenantProfileRepository.Verify(r => r.SoftDelete(profile), Times.Once);
+        _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_UserWithoutTenantProfile_DoesNotSoftDeleteAnyProfile()
+    {
+        var user = NewUser();
+        _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        await _userService.DeleteAsync(user.Id);
+
+        _tenantProfileRepository.Verify(r => r.SoftDelete(It.IsAny<TenantProfile>()), Times.Never);
     }
 
     [Fact]

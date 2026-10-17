@@ -16,6 +16,7 @@ namespace BoardingHouse.Api.Services;
 
 public class UserService(
     IUserRepository userRepository,
+    ITenantProfileRepository tenantProfileRepository,
     IUnitOfWork unitOfWork,
     IUserCache userCache,
     IMediaAttachmentService mediaAttachmentService,
@@ -234,6 +235,13 @@ public class UserService(
             ?? throw new AppNotFoundException(NotFoundMessages.User(id));
 
         userRepository.SoftDelete(user);
+
+        var tenantProfile = await tenantProfileRepository.GetByUserIdAsync(user.Id, cancellationToken);
+        if (tenantProfile is not null)
+        {
+            tenantProfileRepository.SoftDelete(tenantProfile);
+        }
+
         await unitOfWork.SaveChangesAsync(cancellationToken);
         await userCache.InvalidateAsync(user.Id, cancellationToken);
 

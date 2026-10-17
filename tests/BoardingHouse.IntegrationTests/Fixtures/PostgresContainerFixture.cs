@@ -49,7 +49,8 @@ public class PostgresContainerFixture : IAsyncLifetime
                 room_asset_condition_history_media,
                 utility_services,
                 leases, lease_tenants, lease_status_histories,
-                media_assets
+                media_assets,
+                tenant_profiles
             CASCADE
             """);
     }
