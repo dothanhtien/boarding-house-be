@@ -16,5 +16,8 @@ public record UpdateLeaseTenantRequest
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public Optional<DateOnly?> JoinedDate { get; init; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<DateOnly?> LeftDate { get; init; }
+
     public bool IsDeleted { get; init; }
 }

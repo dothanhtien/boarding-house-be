@@ -74,7 +74,7 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
                 properties, rooms, room_amenities, room_assets, room_asset_condition_histories,
                 room_asset_condition_history_media,
                 utility_services,
-                leases, lease_tenants,
+                leases, lease_tenants, lease_status_histories,
                 media_assets
             CASCADE
             """);

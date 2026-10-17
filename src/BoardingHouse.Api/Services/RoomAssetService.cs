@@ -36,11 +36,11 @@ public class RoomAssetService(IRoomRepository roomRepository,
         else
         {
             var room = await roomRepository.GetByIdWithPropertyAsync(roomId, cancellationToken)
-                ?? throw new AppNotFoundException($"Room '{roomId}' not found");
+                ?? throw new AppNotFoundException(NotFoundMessages.Room(roomId));
 
             var organizationId = room.Property!.OrganizationId;
             await organizationScopeAccessor.EnsureScopeAsync(
-                organizationId, PermissionResources.Room, PermissionActions.Update, $"Room '{roomId}' not found", cancellationToken);
+                organizationId, PermissionResources.Room, PermissionActions.Update, NotFoundMessages.Room(roomId), cancellationToken);
 
             created = await mediaCollectionService.AddAsync(
                 MediaAssetEntityType.RoomAssetConditionPhoto,
@@ -71,10 +71,10 @@ public class RoomAssetService(IRoomRepository roomRepository,
         CancellationToken cancellationToken)
     {
         var (_, organizationId) = await roomRepository.GetByIdWithOrganizationIdForShareAsync(roomId, cancellationToken)
-            ?? throw new AppNotFoundException($"Room '{roomId}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.Room(roomId));
 
         await organizationScopeAccessor.EnsureScopeAsync(
-            organizationId, PermissionResources.Room, PermissionActions.Update, $"Room '{roomId}' not found", cancellationToken);
+            organizationId, PermissionResources.Room, PermissionActions.Update, NotFoundMessages.Room(roomId), cancellationToken);
 
         var actorId = currentUserAccessor.RequiredUser.Id;
         var asset = new RoomAsset
@@ -121,10 +121,10 @@ public class RoomAssetService(IRoomRepository roomRepository,
         var asset = await unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var (existing, organizationId) = await roomAssetRepository.GetByIdWithOrganizationIdForUpdateAsync(roomId, assetId, ct)
-                ?? throw new AppNotFoundException($"Room asset '{assetId}' not found");
+                ?? throw new AppNotFoundException(NotFoundMessages.RoomAsset(assetId));
 
             await organizationScopeAccessor.EnsureScopeAsync(
-                organizationId, PermissionResources.Room, PermissionActions.Update, $"Room asset '{assetId}' not found", ct);
+                organizationId, PermissionResources.Room, PermissionActions.Update, NotFoundMessages.RoomAsset(assetId), ct);
 
             request.Adapt(existing, RoomAssetMappingConfig.UpdateConfig);
 
@@ -143,10 +143,10 @@ public class RoomAssetService(IRoomRepository roomRepository,
         var removedPhotos = await unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var (existing, organizationId) = await roomAssetRepository.GetByIdWithOrganizationIdForUpdateAsync(roomId, assetId, ct)
-                ?? throw new AppNotFoundException($"Room asset '{assetId}' not found");
+                ?? throw new AppNotFoundException(NotFoundMessages.RoomAsset(assetId));
 
             await organizationScopeAccessor.EnsureScopeAsync(
-                organizationId, PermissionResources.Room, PermissionActions.Update, $"Room asset '{assetId}' not found", ct);
+                organizationId, PermissionResources.Room, PermissionActions.Update, NotFoundMessages.RoomAsset(assetId), ct);
 
             var photos = await roomAssetConditionHistoryRepository.RemoveMediaByAssetIdsAsync([existing.Id], ct);
             mediaCollectionService.StageRemove(photos);
@@ -165,13 +165,13 @@ public class RoomAssetService(IRoomRepository roomRepository,
         var (original, split) = await unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             _ = await roomRepository.GetByIdWithOrganizationIdForShareAsync(roomId, ct)
-                ?? throw new AppNotFoundException($"Room '{roomId}' not found");
+                ?? throw new AppNotFoundException(NotFoundMessages.Room(roomId));
 
             var (existing, organizationId) = await roomAssetRepository.GetByIdWithOrganizationIdForUpdateAsync(roomId, assetId, ct)
-                ?? throw new AppNotFoundException($"Room asset '{assetId}' not found");
+                ?? throw new AppNotFoundException(NotFoundMessages.RoomAsset(assetId));
 
             await organizationScopeAccessor.EnsureScopeAsync(
-                organizationId, PermissionResources.Room, PermissionActions.Update, $"Room asset '{assetId}' not found", ct);
+                organizationId, PermissionResources.Room, PermissionActions.Update, NotFoundMessages.RoomAsset(assetId), ct);
 
             if (request.Quantity >= existing.Quantity)
             {

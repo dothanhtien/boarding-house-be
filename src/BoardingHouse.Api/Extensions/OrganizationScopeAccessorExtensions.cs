@@ -1,3 +1,4 @@
+using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Services;
 
@@ -16,7 +17,7 @@ public static class OrganizationScopeAccessorExtensions
         var scope = await organizationScopeAccessor.GetScopeAsync(resource, action, cancellationToken);
         if (!scope.Allows(organizationId))
         {
-            throw new AppNotFoundException(notFoundMessage ?? $"Organization '{organizationId}' not found");
+            throw new AppNotFoundException(notFoundMessage ?? NotFoundMessages.Organization(organizationId));
         }
     }
 }

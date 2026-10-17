@@ -42,8 +42,10 @@ public class RbacSeeder
         (PermissionResources.UtilityService, PermissionActions.Delete, "Delete a utility service"),
         (PermissionResources.Lease, PermissionActions.Read, "View lease list/details"),
         (PermissionResources.Lease, PermissionActions.Create, "Create a new lease"),
-        (PermissionResources.Lease, PermissionActions.Update, "Update a draft lease"),
+        (PermissionResources.Lease, PermissionActions.Update, "Update a lease (draft: all fields; active: tenants only)"),
         (PermissionResources.Lease, PermissionActions.Delete, "Delete a draft lease"),
+        (PermissionResources.Lease, PermissionActions.Activate, "Sign (activate) a draft lease"),
+        (PermissionResources.Lease, PermissionActions.Terminate, "Terminate an active lease"),
     ];
 
     internal static readonly (string Slug, string Name, string Description, RoleScope Scope, string[] Permissions)[] RoleSeeds =
@@ -60,7 +62,7 @@ public class RbacSeeder
                 "property:read", "property:create", "property:update", "property:delete",
                 "room:read", "room:create", "room:update", "room:delete",
                 "utility-service:read", "utility-service:create", "utility-service:update", "utility-service:delete",
-                "lease:read", "lease:create", "lease:update", "lease:delete"]),
+                "lease:read", "lease:create", "lease:update", "lease:delete", "lease:activate", "lease:terminate"]),
         (RoleSlugs.OrganizationStaff, "Organization staff", "Manage day-to-day operations within the organization", RoleScope.Organization,
             [
                 "organization:read", "organization-setting:read",
@@ -68,7 +70,7 @@ public class RbacSeeder
                 "property:read", "property:create", "property:update", "property:delete",
                 "room:read", "room:create", "room:update", "room:delete",
                 "utility-service:read", "utility-service:create", "utility-service:update", "utility-service:delete",
-                "lease:read", "lease:create", "lease:update", "lease:delete"]),
+                "lease:read", "lease:create", "lease:update", "lease:delete", "lease:activate", "lease:terminate"]),
     ];
 
     public static async Task SeedAsync(

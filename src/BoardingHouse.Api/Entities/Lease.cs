@@ -36,4 +36,82 @@ public class Lease : BaseEntity
     public ICollection<LeaseTenant> Tenants { get; set; } = [];
 
     public bool IsEditable => Status == LeaseStatus.Draft;
+
+    public bool CanTransitionTo(LeaseStatus next) =>
+        AllowedTransitions[Status].Contains(next) && (next != LeaseStatus.Expired || EndDate is not null);
+
+    public LeaseStatusHistory Activate(DateTimeOffset now, Guid changedBy)
+    {
+        var history = TransitionTo(LeaseStatus.Active, now, changedBy, reason: null);
+
+        SignedAt = now;
+
+        foreach (var tenant in Tenants.Where(t => t.JoinedDate is null))
+        {
+            tenant.JoinedDate = StartDate;
+        }
+
+        RequiredRoom.RoomStatus = RoomStatus.Occupied;
+
+        return history;
+    }
+
+    public LeaseStatusHistory Terminate(DateTimeOffset now, Guid changedBy, DateOnly leftDate, string reason)
+    {
+        var history = TransitionTo(LeaseStatus.Terminated, now, changedBy, reason);
+        TerminatedAt = now;
+        TerminationReason = reason;
+        MoveOutTenants(leftDate);
+        RequiredRoom.RoomStatus = RoomStatus.Available;
+        return history;
+    }
+
+    public LeaseStatusHistory Expire(DateTimeOffset now, Guid changedBy)
+    {
+        var history = TransitionTo(LeaseStatus.Expired, now, changedBy, reason: null);
+        MoveOutTenants(EndDate!.Value);
+        RequiredRoom.RoomStatus = RoomStatus.Available;
+        return history;
+    }
+
+    private static readonly Dictionary<LeaseStatus, LeaseStatus[]> AllowedTransitions = new()
+    {
+        [LeaseStatus.Draft] = [LeaseStatus.Active],
+        [LeaseStatus.Active] = [LeaseStatus.Expired, LeaseStatus.Terminated],
+        [LeaseStatus.Expired] = [],
+        [LeaseStatus.Terminated] = []
+    };
+
+    private Room RequiredRoom =>
+        Room ?? throw new InvalidOperationException("Lease.Room must be loaded to change the lease status");
+
+    private LeaseStatusHistory TransitionTo(LeaseStatus next, DateTimeOffset now, Guid changedBy, string? reason)
+    {
+        if (!CanTransitionTo(next))
+        {
+            throw new InvalidOperationException($"Cannot transition lease from {Status} to {next}");
+        }
+
+        var history = new LeaseStatusHistory
+        {
+            LeaseId = Id,
+            OldStatus = Status,
+            NewStatus = next,
+            Reason = reason,
+            ChangedBy = changedBy,
+            ChangedAt = now
+        };
+
+        Status = next;
+
+        return history;
+    }
+
+    private void MoveOutTenants(DateOnly leftDate)
+    {
+        foreach (var tenant in Tenants.Where(t => t.LeftDate is null || t.LeftDate > leftDate))
+        {
+            tenant.LeftDate = leftDate;
+        }
+    }
 }

@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
+using BoardingHouse.Api.DTOs.Leases;
 using BoardingHouse.Api.DTOs.Organizations;
 using BoardingHouse.Api.DTOs.Properties;
 using BoardingHouse.Api.DTOs.RoomAssets;
@@ -1296,5 +1297,57 @@ public class RoomsControllerIntegrationTests(PostgresApiFactory factory)
         Assert.Equal(HttpStatusCode.NotFound, delete.StatusCode);
         Assert.Single(factory.Storage.Files);
         Assert.Single((await GetRoomDetailsAsync(otherRoom.Id)).Media);
+    }
+
+    // Creates a draft with one representative tenant through the API and activates it, so the room is really OCCUPIED.
+    private async Task<Guid> CreateActiveLeaseAsync(Guid roomId)
+    {
+        var register = await factory.CreateClient().PostAsJsonAsync("/api/auth/register", new RegisterRequest
+        {
+            Email = $"tenant-{Guid.NewGuid():N}@test.com",
+            Phone = $"09{Random.Shared.Next(10000000, 99999999)}",
+            Password = ActorPassword,
+            PasswordConfirmation = ActorPassword,
+            FullName = "Tenant"
+        });
+        var tenantId = (await register.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())!.Data!.Id;
+
+        var create = await _client.PostAsJsonAsync("/api/leases", new CreateLeaseRequest
+        {
+            RoomId = roomId,
+            StartDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            MonthlyRent = 3_000_000,
+            DepositAmount = 1_000_000,
+            Tenants = [new CreateLeaseTenantRequest { UserId = tenantId, IsRepresentative = true }]
+        }, JsonOptions);
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var leaseId = (await create.Content.ReadFromJsonAsync<ApiResponse<LeaseResponse>>(JsonOptions))!.Data!.Id;
+
+        var activate = await _client.PostAsync($"/api/leases/{leaseId}/activate", content: null);
+        Assert.Equal(HttpStatusCode.OK, activate.StatusCode);
+        return leaseId;
+    }
+
+    [Fact]
+    public async Task Update_RoomStatusOccupied_Returns400()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+
+        var response = await _client.PatchAsJsonAsync($"/api/rooms/{room.Id}", new UpdateRoomRequest { RoomStatus = RoomStatus.Occupied });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_RoomStatusOfRoomWithActiveLease_Returns409UnlessUnchanged()
+    {
+        var room = await CreateRoomAsync(_client, ValidCreateRequest());
+        await CreateActiveLeaseAsync(room.Id);
+
+        var toMaintenance = await _client.PatchAsJsonAsync($"/api/rooms/{room.Id}", new UpdateRoomRequest { RoomStatus = RoomStatus.Maintenance });
+        var unchanged = await _client.PatchAsJsonAsync($"/api/rooms/{room.Id}", new UpdateRoomRequest { RoomStatus = RoomStatus.Occupied });
+
+        Assert.Equal(HttpStatusCode.Conflict, toMaintenance.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, unchanged.StatusCode);
     }
 }

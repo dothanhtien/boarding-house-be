@@ -54,7 +54,7 @@ public class UserService(
     public async Task<UserResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var (user, avatar) = await userRepository.GetByIdWithAvatarAsync(id, cancellationToken)
-            ?? throw new AppNotFoundException($"User '{id}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.User(id));
 
         return user.Adapt<UserResponse>() with
         {
@@ -100,7 +100,7 @@ public class UserService(
     public async Task<UserResponse> UpdateAsync(Guid id, UpdateUserRequest request, CancellationToken cancellationToken = default)
     {
         var (user, avatar) = await userRepository.GetByIdWithAvatarAsync(id, cancellationToken)
-            ?? throw new AppNotFoundException($"User '{id}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.User(id));
 
         if (request.Email.IsSet)
         {
@@ -158,7 +158,7 @@ public class UserService(
         Guid id, UpdateUserAvatarRequest request, CancellationToken cancellationToken = default)
     {
         var (user, _) = await userRepository.GetByIdWithRolesAndOrganizationsAsync(id, cancellationToken)
-            ?? throw new AppNotFoundException($"User '{id}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.User(id));
 
         var change = await mediaAttachmentService.StageReplaceAsync(
             MediaAssetEntityType.UserAvatar,
@@ -198,7 +198,7 @@ public class UserService(
     {
         if (!await userRepository.ExistsAsync(id, cancellationToken))
         {
-            throw new AppNotFoundException($"User '{id}' not found");
+            throw new AppNotFoundException(NotFoundMessages.User(id));
         }
 
         var change = await mediaAttachmentService.StageRemoveAsync(MediaAssetEntityType.UserAvatar, id, cancellationToken);
@@ -231,7 +231,7 @@ public class UserService(
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var user = await userRepository.GetByIdAsync(id, cancellationToken)
-            ?? throw new AppNotFoundException($"User '{id}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.User(id));
 
         userRepository.SoftDelete(user);
         await unitOfWork.SaveChangesAsync(cancellationToken);

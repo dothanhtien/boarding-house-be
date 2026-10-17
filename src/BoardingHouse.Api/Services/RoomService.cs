@@ -46,7 +46,7 @@ public class RoomService(
         var scope = await organizationScopeAccessor.GetScopeAsync(PermissionResources.Room, PermissionActions.Read, cancellationToken);
         if (organizationId is not null && !scope.Allows(organizationId.Value))
         {
-            throw new AppNotFoundException($"Organization '{organizationId}' not found");
+            throw new AppNotFoundException(NotFoundMessages.Organization(organizationId.Value));
         }
 
         var allowedOrganizationIds = organizationId is null && !scope.IsUnrestricted ? scope.OrganizationIds : null;
@@ -73,10 +73,10 @@ public class RoomService(
     public async Task<RoomDetailsResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var room = await roomRepository.GetByIdWithDetailsAsync(id, cancellationToken)
-            ?? throw new AppNotFoundException($"Room '{id}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.Room(id));
 
         await organizationScopeAccessor.EnsureScopeAsync(
-            room.Property!.OrganizationId, PermissionResources.Room, PermissionActions.Read, $"Room '{id}' not found", cancellationToken);
+            room.Property!.OrganizationId, PermissionResources.Room, PermissionActions.Read, NotFoundMessages.Room(id), cancellationToken);
 
         return await ToDetailsResponseAsync(room, cancellationToken);
     }
@@ -89,10 +89,10 @@ public class RoomService(
             {
                 // FOR SHARE blocks a concurrent PropertyService.DeleteAsync (FOR UPDATE) until this insert commits
                 var property = await propertyRepository.GetByIdForShareAsync(request.PropertyId, ct)
-                    ?? throw new AppNotFoundException($"Property '{request.PropertyId}' not found");
+                    ?? throw new AppNotFoundException(NotFoundMessages.Property(request.PropertyId));
 
                 await organizationScopeAccessor.EnsureScopeAsync(
-                    property.OrganizationId, PermissionResources.Room, PermissionActions.Create, $"Property '{request.PropertyId}' not found", ct);
+                    property.OrganizationId, PermissionResources.Room, PermissionActions.Create, NotFoundMessages.Property(request.PropertyId), ct);
 
                 var created = new Room
                 {
@@ -138,10 +138,33 @@ public class RoomService(
             var room = await unitOfWork.ExecuteInTransactionAsync(async ct =>
             {
                 var (existing, organizationId) = await roomRepository.GetByIdWithOrganizationIdForUpdateAsync(id, ct)
-                    ?? throw new AppNotFoundException($"Room '{id}' not found");
+                    ?? throw new AppNotFoundException(NotFoundMessages.Room(id));
 
                 await organizationScopeAccessor.EnsureScopeAsync(
-                    organizationId, PermissionResources.Room, PermissionActions.Update, $"Room '{id}' not found", ct);
+                    organizationId, PermissionResources.Room, PermissionActions.Update, NotFoundMessages.Room(id), ct);
+
+                if (request.RoomStatus.IsSet && request.RoomStatus.Value != existing.RoomStatus)
+                {
+                    if (request.RoomStatus.Value == RoomStatus.Occupied)
+                    {
+                        throw new AppValidationException("Room status OCCUPIED is managed by leases");
+                    }
+
+                    if (await leaseRepository.ExistsActiveByRoomIdAsync(id, ct))
+                    {
+                        throw new AppConflictException("Room has an active lease");
+                    }
+                }
+
+                if (request.Capacity is { IsSet: true, Value: { } capacity } && capacity < (existing.Capacity ?? int.MaxValue))
+                {
+                    var currentTenants = await leaseRepository.CountCurrentTenantsOfActiveLeaseByRoomIdAsync(id, ct);
+                    if (capacity < currentTenants)
+                    {
+                        throw new AppConflictException(
+                            $"Capacity cannot be lower than the {currentTenants} current tenants of the room's active lease");
+                    }
+                }
 
                 await roomRepository.LoadAmenitiesAsync(existing, ct);
 
@@ -156,6 +179,7 @@ public class RoomService(
                 }
 
                 roomRepository.Update(existing);
+
                 await roomRepository.LoadAssetsAsync(existing, ct);
                 await roomRepository.LoadMediaAsync(existing, ct);
 
@@ -178,10 +202,10 @@ public class RoomService(
         var removedMedia = await unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var (room, organizationId) = await roomRepository.GetByIdWithOrganizationIdForUpdateAsync(id, ct)
-                ?? throw new AppNotFoundException($"Room '{id}' not found");
+                ?? throw new AppNotFoundException(NotFoundMessages.Room(id));
 
             await organizationScopeAccessor.EnsureScopeAsync(
-                organizationId, PermissionResources.Room, PermissionActions.Delete, $"Room '{id}' not found", ct);
+                organizationId, PermissionResources.Room, PermissionActions.Delete, NotFoundMessages.Room(id), ct);
 
             if (await leaseRepository.ExistsOpenByRoomIdAsync(id, ct))
             {
@@ -220,11 +244,11 @@ public class RoomService(
         var files = request.Files!;
 
         var room = await roomRepository.GetByIdWithDetailsAsync(roomId, cancellationToken)
-            ?? throw new AppNotFoundException($"Room '{roomId}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.Room(roomId));
 
         var organizationId = room.Property!.OrganizationId;
         await organizationScopeAccessor.EnsureScopeAsync(
-            organizationId, PermissionResources.Room, PermissionActions.Update, $"Room '{roomId}' not found", cancellationToken);
+            organizationId, PermissionResources.Room, PermissionActions.Update, NotFoundMessages.Room(roomId), cancellationToken);
 
         EnsureMediaLimit(room, files.Count);
 
@@ -295,7 +319,7 @@ public class RoomService(
             var room = await LockRoomForMediaChangeAsync(roomId, ct);
 
             var target = room.Media.FirstOrDefault(m => m.MediaAssetId == mediaId)
-                ?? throw new AppNotFoundException($"Room media '{mediaId}' not found");
+                ?? throw new AppNotFoundException(NotFoundMessages.RoomMedia(mediaId));
 
             roomRepository.RemoveMedia(room, target);
             mediaCollectionService.StageRemove([target.MediaAsset!]);
@@ -323,7 +347,7 @@ public class RoomService(
         var unknown = changes.FirstOrDefault(c => c.Id is not null && !existingById.ContainsKey(c.Id.Value));
         if (unknown is not null)
         {
-            throw new AppNotFoundException($"Room amenity '{unknown.Id}' not found");
+            throw new AppNotFoundException(NotFoundMessages.RoomAmenity(unknown.Id!.Value));
         }
 
         var deletedCount = changes.Count(c => c.IsDeleted);
@@ -378,10 +402,10 @@ public class RoomService(
     private async Task<Room> LockRoomForMediaChangeAsync(Guid roomId, CancellationToken cancellationToken)
     {
         var (room, organizationId) = await roomRepository.GetByIdWithOrganizationIdForUpdateAsync(roomId, cancellationToken)
-            ?? throw new AppNotFoundException($"Room '{roomId}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.Room(roomId));
 
         await organizationScopeAccessor.EnsureScopeAsync(
-            organizationId, PermissionResources.Room, PermissionActions.Update, $"Room '{roomId}' not found", cancellationToken);
+            organizationId, PermissionResources.Room, PermissionActions.Update, NotFoundMessages.Room(roomId), cancellationToken);
 
         await roomRepository.LoadMediaAsync(room, cancellationToken);
 
@@ -409,7 +433,7 @@ public class RoomService(
     private async Task ChangeCoverAsync(Room room, Guid coverMediaId, CancellationToken cancellationToken)
     {
         var cover = room.Media.FirstOrDefault(m => m.MediaAssetId == coverMediaId)
-            ?? throw new AppNotFoundException($"Room media '{coverMediaId}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.RoomMedia(coverMediaId));
 
         var previous = room.Media.FirstOrDefault(m => m.IsCover);
         if (previous == cover)

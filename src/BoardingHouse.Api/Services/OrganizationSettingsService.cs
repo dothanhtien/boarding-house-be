@@ -82,7 +82,7 @@ public class OrganizationSettingsService(
         var exists = await organizationRepository.ExistsAsync(organizationId, cancellationToken);
         if (!exists)
         {
-            throw new AppNotFoundException($"Organization {organizationId} not found");
+            throw new AppNotFoundException(NotFoundMessages.Organization(organizationId));
         }
     }
 }

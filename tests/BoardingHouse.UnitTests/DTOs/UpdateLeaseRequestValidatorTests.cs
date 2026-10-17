@@ -137,4 +137,18 @@ public class UpdateLeaseRequestValidatorTests
 
         result.ShouldNotHaveAnyValidationErrors();
     }
+
+    [Fact]
+    public void Validate_NewTenantWithLeftDate_HasError()
+    {
+        var result = _validator.TestValidate(new UpdateLeaseRequest
+        {
+            Tenants = new List<UpdateLeaseTenantRequest>
+            {
+                new() { UserId = Guid.NewGuid(), LeftDate = new DateOnly(2026, 11, 5) }
+            }
+        });
+
+        result.ShouldHaveValidationErrorFor("Tenants[0].LeftDate");
+    }
 }

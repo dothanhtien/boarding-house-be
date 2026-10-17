@@ -50,7 +50,7 @@ public class OrganizationService(
         await organizationScopeAccessor.EnsureScopeAsync(id, PermissionResources.Organization, PermissionActions.Read, cancellationToken: cancellationToken);
 
         var organization = await organizationRepository.GetByIdWithMembersAsync(id, cancellationToken)
-            ?? throw new AppNotFoundException($"Organization '{id}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.Organization(id));
 
         return organization.Adapt<OrganizationResponse>();
     }
@@ -58,7 +58,7 @@ public class OrganizationService(
     public async Task<OrganizationResponse> CreateAsync(CreateOrganizationRequest request, CancellationToken cancellationToken = default)
     {
         var owner = await userRepository.GetByIdAsync(request.OwnerId, cancellationToken)
-            ?? throw new AppNotFoundException($"User '{request.OwnerId}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.User(request.OwnerId));
 
         var ownerRole = await GetOrganizationRoleAsync(RoleSlugs.OrganizationAdmin, cancellationToken);
 
@@ -102,7 +102,7 @@ public class OrganizationService(
         await organizationScopeAccessor.EnsureScopeAsync(id, PermissionResources.Organization, PermissionActions.Update, cancellationToken: cancellationToken);
 
         var organization = await organizationRepository.GetByIdAsync(id, cancellationToken)
-            ?? throw new AppNotFoundException($"Organization '{id}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.Organization(id));
 
         request.Adapt(organization, OrganizationMappingConfig.UpdateConfig);
 
@@ -120,7 +120,7 @@ public class OrganizationService(
         logger.LogInformation("Organization updated ({OrganizationId})", organization.Id);
 
         var updated = await organizationRepository.GetByIdWithMembersAsync(id, cancellationToken)
-            ?? throw new AppNotFoundException($"Organization '{id}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.Organization(id));
 
         return updated.Adapt<OrganizationResponse>();
     }
@@ -128,7 +128,7 @@ public class OrganizationService(
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var organization = await organizationRepository.GetByIdAsync(id, cancellationToken)
-            ?? throw new AppNotFoundException($"Organization '{id}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.Organization(id));
 
         organizationRepository.SoftDelete(organization);
         await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -143,7 +143,7 @@ public class OrganizationService(
     private async Task<List<Guid>> SetOwnerAsync(Guid organizationId, Guid ownerId, bool keepPreviousOwnerAsStaff, CancellationToken cancellationToken)
     {
         _ = await userRepository.GetByIdAsync(ownerId, cancellationToken)
-            ?? throw new AppNotFoundException($"User '{ownerId}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.User(ownerId));
 
         var ownerRole = await GetOrganizationRoleAsync(RoleSlugs.OrganizationAdmin, cancellationToken);
 

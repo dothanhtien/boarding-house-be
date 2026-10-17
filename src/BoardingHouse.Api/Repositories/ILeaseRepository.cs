@@ -25,6 +25,10 @@ public interface ILeaseRepository : IRepository<Lease>
     Task<Lease?> GetByIdForShareAsync(Guid id, CancellationToken cancellationToken = default);
     Task LoadTenantsAsync(Lease lease, CancellationToken cancellationToken = default);
     Task LoadTenantsWithUsersAsync(Lease lease, CancellationToken cancellationToken = default);
+    Task<Guid?> GetRoomIdAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<Guid?> GetOrganizationIdAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<bool> ExistsActiveByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default);
+    Task<int> CountCurrentTenantsOfActiveLeaseByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default);
     Task<bool> ExistsOpenByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default);
     Task<bool> ExistsByPreviousLeaseIdAsync(
         Guid previousLeaseId,

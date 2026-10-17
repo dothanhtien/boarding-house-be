@@ -150,6 +150,53 @@ namespace BoardingHouse.Api.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("BoardingHouse.Api.Entities.LeaseStatusHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTimeOffset>("ChangedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("changed_at");
+
+                    b.Property<Guid?>("ChangedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("changed_by");
+
+                    b.Property<Guid>("LeaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_id");
+
+                    b.Property<string>("NewStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("new_status");
+
+                    b.Property<string>("OldStatus")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("old_status");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.HasKey("Id")
+                        .HasName("pk_lease_status_histories");
+
+                    b.HasIndex("ChangedBy")
+                        .HasDatabaseName("ix_lease_status_histories_changed_by");
+
+                    b.HasIndex("LeaseId", "ChangedAt")
+                        .HasDatabaseName("ix_lease_status_histories_lease_id_changed_at");
+
+                    b.ToTable("lease_status_histories", (string)null);
+                });
+
             modelBuilder.Entity("BoardingHouse.Api.Entities.LeaseTenant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -216,7 +263,7 @@ namespace BoardingHouse.Api.Persistence.Migrations
                     b.HasIndex("LeaseId", "UserId")
                         .IsUnique()
                         .HasDatabaseName("ix_lease_tenants_lease_id_user_id")
-                        .HasFilter("deleted_at IS NULL");
+                        .HasFilter("left_date IS NULL AND deleted_at IS NULL");
 
                     b.ToTable("lease_tenants", null, t =>
                         {
@@ -1527,6 +1574,24 @@ namespace BoardingHouse.Api.Persistence.Migrations
                     b.Navigation("PreviousLease");
 
                     b.Navigation("Room");
+                });
+
+            modelBuilder.Entity("BoardingHouse.Api.Entities.LeaseStatusHistory", b =>
+                {
+                    b.HasOne("BoardingHouse.Api.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ChangedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_lease_status_histories_users_changed_by");
+
+                    b.HasOne("BoardingHouse.Api.Entities.Lease", "Lease")
+                        .WithMany()
+                        .HasForeignKey("LeaseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_lease_status_histories_leases_lease_id");
+
+                    b.Navigation("Lease");
                 });
 
             modelBuilder.Entity("BoardingHouse.Api.Entities.LeaseTenant", b =>
