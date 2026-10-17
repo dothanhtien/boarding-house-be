@@ -13,7 +13,7 @@ public class LeaseTenantConfiguration : IEntityTypeConfiguration<LeaseTenant>
     {
         builder.HasIndex(t => new { t.LeaseId, t.UserId })
             .IsUnique()
-            .HasFilter("deleted_at IS NULL")
+            .HasFilter("left_date IS NULL AND deleted_at IS NULL")
             .HasDatabaseName(LeaseIdUserIdUniqueIndex);
 
         builder.HasIndex(t => t.LeaseId)

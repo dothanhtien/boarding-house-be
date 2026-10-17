@@ -28,6 +28,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<RoomAssetConditionHistoryMedia> RoomAssetConditionHistoryMedia => Set<RoomAssetConditionHistoryMedia>();
     public DbSet<Lease> Leases => Set<Lease>();
     public DbSet<LeaseTenant> LeaseTenants => Set<LeaseTenant>();
+    public DbSet<LeaseStatusHistory> LeaseStatusHistories => Set<LeaseStatusHistory>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
         optionsBuilder.AddInterceptors(TimestampPrecisionSaveChangesInterceptor.Instance);

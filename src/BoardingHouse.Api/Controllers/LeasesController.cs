@@ -55,4 +55,30 @@ public class LeasesController(ILeaseService leaseService) : ControllerBase
         await leaseService.DeleteAsync(id, cancellationToken);
         return NoContent();
     }
+
+    [HttpPost("{id:guid}/activate")]
+    [RequireOrganizationScopedPermission(PermissionResources.Lease, PermissionActions.Activate)]
+    public async Task<ActionResult<ApiResponse<LeaseResponse>>> Activate(Guid id, CancellationToken cancellationToken)
+    {
+        var lease = await leaseService.ActivateAsync(id, cancellationToken);
+        return Ok(new ApiResponse<LeaseResponse> { Data = lease });
+    }
+
+    [HttpPost("{id:guid}/terminate")]
+    [RequireOrganizationScopedPermission(PermissionResources.Lease, PermissionActions.Terminate)]
+    public async Task<ActionResult<ApiResponse<LeaseResponse>>> Terminate(
+        Guid id, TerminateLeaseRequest request, CancellationToken cancellationToken)
+    {
+        var lease = await leaseService.TerminateAsync(id, request, cancellationToken);
+        return Ok(new ApiResponse<LeaseResponse> { Data = lease });
+    }
+
+    [HttpGet("{id:guid}/status-histories")]
+    [RequireOrganizationScopedPermission(PermissionResources.Lease, PermissionActions.Read)]
+    public async Task<ActionResult<ApiResponse<List<LeaseStatusHistoryResponse>>>> GetStatusHistories(
+        Guid id, CancellationToken cancellationToken)
+    {
+        var histories = await leaseService.GetStatusHistoriesAsync(id, cancellationToken);
+        return Ok(new ApiResponse<List<LeaseStatusHistoryResponse>> { Data = histories });
+    }
 }

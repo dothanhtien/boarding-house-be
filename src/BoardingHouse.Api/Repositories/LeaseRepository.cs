@@ -94,6 +94,27 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
             .AsNoTracking()
             .FirstOrDefaultAsync(cancellationToken);
 
+    public Task<Guid?> GetRoomIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Context.Leases
+            .Where(l => l.Id == id)
+            .Select(l => (Guid?)l.RoomId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<Guid?> GetOrganizationIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Context.Leases
+            .Where(l => l.Id == id)
+            .Select(l => (Guid?)l.OrganizationId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<bool> ExistsActiveByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default) =>
+        Context.Leases.AnyAsync(
+            l => l.RoomId == roomId && l.Status == LeaseStatus.Active, cancellationToken);
+
+    public Task<int> CountCurrentTenantsOfActiveLeaseByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default) =>
+        Context.LeaseTenants.CountAsync(
+            t => t.Lease!.RoomId == roomId && t.Lease.Status == LeaseStatus.Active && t.LeftDate == null,
+            cancellationToken);
+
     public Task<bool> ExistsOpenByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default) =>
         Context.Leases.AnyAsync(
             l => l.RoomId == roomId && (l.Status == LeaseStatus.Draft || l.Status == LeaseStatus.Active),

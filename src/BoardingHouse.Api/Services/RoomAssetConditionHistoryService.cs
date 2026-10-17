@@ -25,13 +25,13 @@ public class RoomAssetConditionHistoryService(
     public async Task<List<RoomAssetConditionHistoryResponse>> GetAllAsync(Guid roomId, Guid assetId, CancellationToken cancellationToken = default)
     {
         var organizationId = await roomAssetRepository.GetOrganizationIdAsync(roomId, assetId, cancellationToken)
-            ?? throw new AppNotFoundException(RoomAssetNotFoundMessage(assetId));
+            ?? throw new AppNotFoundException(NotFoundMessages.RoomAsset(assetId));
 
         await organizationScopeAccessor.EnsureScopeAsync(
             organizationId,
             PermissionResources.Room,
             PermissionActions.Read,
-            RoomAssetNotFoundMessage(assetId),
+            NotFoundMessages.RoomAsset(assetId),
             cancellationToken);
 
         var histories = await roomAssetConditionHistoryRepository.ListByAssetIdAsync(assetId, cancellationToken);
@@ -60,10 +60,14 @@ public class RoomAssetConditionHistoryService(
         else
         {
             var organizationId = await roomAssetRepository.GetOrganizationIdAsync(roomId, assetId, cancellationToken)
-                ?? throw new AppNotFoundException(RoomAssetNotFoundMessage(assetId));
+                ?? throw new AppNotFoundException(NotFoundMessages.RoomAsset(assetId));
 
             await organizationScopeAccessor.EnsureScopeAsync(
-                organizationId, PermissionResources.Room, PermissionActions.Update, RoomAssetNotFoundMessage(assetId), cancellationToken);
+                organizationId,
+                PermissionResources.Room,
+                PermissionActions.Update,
+                NotFoundMessages.RoomAsset(assetId),
+                cancellationToken);
 
             history = await mediaCollectionService.AddAsync(
                 MediaAssetEntityType.RoomAssetConditionPhoto,
@@ -90,7 +94,7 @@ public class RoomAssetConditionHistoryService(
     {
         var files = request.Files ?? [];
         var removeIds = request.RemoveMediaIds ?? [];
-        var historyNotFoundMessage = $"Room asset condition history '{historyId}' not found";
+        var historyNotFoundMessage = NotFoundMessages.RoomAssetConditionHistory(historyId);
 
         (RoomAssetConditionHistory History, List<MediaAsset> Removed) result;
         if (files.Count == 0)
@@ -102,10 +106,14 @@ public class RoomAssetConditionHistoryService(
         else
         {
             var organizationId = await roomAssetRepository.GetOrganizationIdAsync(roomId, assetId, cancellationToken)
-                ?? throw new AppNotFoundException(RoomAssetNotFoundMessage(assetId));
+                ?? throw new AppNotFoundException(NotFoundMessages.RoomAsset(assetId));
 
             await organizationScopeAccessor.EnsureScopeAsync(
-                organizationId, PermissionResources.Room, PermissionActions.Update, RoomAssetNotFoundMessage(assetId), cancellationToken);
+                organizationId,
+                PermissionResources.Room,
+                PermissionActions.Update,
+                NotFoundMessages.RoomAsset(assetId),
+                cancellationToken);
 
             var current = await roomAssetConditionHistoryRepository.GetByIdInAssetWithMediaAsync(
                     assetId, historyId, asNoTracking: true, cancellationToken)
@@ -139,10 +147,14 @@ public class RoomAssetConditionHistoryService(
         CancellationToken cancellationToken)
     {
         var (asset, organizationId) = await roomAssetRepository.GetByIdWithOrganizationIdForUpdateAsync(roomId, assetId, cancellationToken)
-            ?? throw new AppNotFoundException(RoomAssetNotFoundMessage(assetId));
+            ?? throw new AppNotFoundException(NotFoundMessages.RoomAsset(assetId));
 
         await organizationScopeAccessor.EnsureScopeAsync(
-            organizationId, PermissionResources.Room, PermissionActions.Update, RoomAssetNotFoundMessage(assetId), cancellationToken);
+            organizationId,
+            PermissionResources.Room,
+            PermissionActions.Update,
+            NotFoundMessages.RoomAsset(assetId),
+            cancellationToken);
 
         var userId = currentUserAccessor.RequiredUser.Id;
         var created = new RoomAssetConditionHistory
@@ -183,14 +195,18 @@ public class RoomAssetConditionHistoryService(
         CancellationToken cancellationToken)
     {
         var (_, organizationId) = await roomAssetRepository.GetByIdWithOrganizationIdForUpdateAsync(roomId, assetId, cancellationToken)
-            ?? throw new AppNotFoundException(RoomAssetNotFoundMessage(assetId));
+            ?? throw new AppNotFoundException(NotFoundMessages.RoomAsset(assetId));
 
         await organizationScopeAccessor.EnsureScopeAsync(
-            organizationId, PermissionResources.Room, PermissionActions.Update, RoomAssetNotFoundMessage(assetId), cancellationToken);
+            organizationId,
+            PermissionResources.Room,
+            PermissionActions.Update,
+            NotFoundMessages.RoomAsset(assetId),
+            cancellationToken);
 
         var entry = await roomAssetConditionHistoryRepository.GetByIdInAssetWithMediaAsync(
                 assetId, historyId, asNoTracking: false, cancellationToken)
-            ?? throw new AppNotFoundException($"Room asset condition history '{historyId}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.RoomAssetConditionHistory(historyId));
         EnsureCanUpdate(entry, removeIds, uploaded.Count);
         var history = entry.History;
 
@@ -242,7 +258,7 @@ public class RoomAssetConditionHistoryService(
         var unknown = removeIds.Where(id => !currentMediaIds.Contains(id)).Cast<Guid?>().FirstOrDefault();
         if (unknown is not null)
         {
-            throw new AppNotFoundException($"Room asset condition photo '{unknown}' not found");
+            throw new AppNotFoundException(NotFoundMessages.RoomAssetConditionPhoto(unknown.Value));
         }
 
         if (addedCount == 0)
@@ -260,8 +276,6 @@ public class RoomAssetConditionHistoryService(
         {
             Media = history.Media.ToMediaResponses(storageProvider)
         };
-
-    private static string RoomAssetNotFoundMessage(Guid assetId) => $"Room asset '{assetId}' not found";
 
     internal static string PhotoFolder(Guid organizationId, Guid roomId, Guid assetId) =>
         $"organizations/{organizationId}/rooms/{roomId}/assets/{assetId}";

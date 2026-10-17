@@ -63,7 +63,7 @@ public class OrganizationMemberService(
         await EnsureOrganizationExistsAsync(organizationId, cancellationToken);
 
         var user = await userRepository.GetByIdAsync(request.UserId, cancellationToken)
-            ?? throw new AppNotFoundException($"User '{request.UserId}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.User(request.UserId));
 
         var role = await GetOrganizationScopedRoleAsync(request.RoleId, cancellationToken);
 
@@ -115,7 +115,7 @@ public class OrganizationMemberService(
         var member = await organizationMemberRepository.GetByIdWithUserAsync(memberId, cancellationToken);
         if (member is null || member.OrganizationId != organizationId)
         {
-            throw new AppNotFoundException($"Organization member '{memberId}' not found");
+            throw new AppNotFoundException(NotFoundMessages.OrganizationMember(memberId));
         }
 
         await EnsureNotOwnerAsync(member, cancellationToken);
@@ -142,7 +142,7 @@ public class OrganizationMemberService(
         var member = await organizationMemberRepository.GetByIdAsync(memberId, cancellationToken);
         if (member is null || member.OrganizationId != organizationId)
         {
-            throw new AppNotFoundException($"Organization member '{memberId}' not found");
+            throw new AppNotFoundException(NotFoundMessages.OrganizationMember(memberId));
         }
 
         await EnsureNotOwnerAsync(member, cancellationToken);
@@ -159,7 +159,7 @@ public class OrganizationMemberService(
     {
         if (!await organizationRepository.ExistsAsync(organizationId, cancellationToken))
         {
-            throw new AppNotFoundException($"Organization '{organizationId}' not found");
+            throw new AppNotFoundException(NotFoundMessages.Organization(organizationId));
         }
     }
 
@@ -178,7 +178,7 @@ public class OrganizationMemberService(
     private async Task<Role> GetOrganizationScopedRoleAsync(Guid roleId, CancellationToken cancellationToken)
     {
         var role = await roleRepository.GetByIdAsync(roleId, cancellationToken)
-            ?? throw new AppNotFoundException($"Role '{roleId}' not found");
+            ?? throw new AppNotFoundException(NotFoundMessages.Role(roleId));
 
         if (role.Scope != RoleScope.Organization)
         {

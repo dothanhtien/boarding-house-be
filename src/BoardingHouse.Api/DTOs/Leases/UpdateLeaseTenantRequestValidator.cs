@@ -17,5 +17,9 @@ public class UpdateLeaseTenantRequestValidator : AbstractValidator<UpdateLeaseTe
         RuleFor(x => x.UserId)
             .Null().WithMessage("UserId cannot be changed on an existing tenant")
             .When(x => x.Id is not null);
+
+        RuleFor(x => x.LeftDate)
+            .Must(d => !d.IsSet).WithMessage("LeftDate can only be set on an existing tenant")
+            .When(x => x.Id is null);
     }
 }

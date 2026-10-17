@@ -27,6 +27,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IRoomAssetRepository, RoomAssetRepository>();
         services.AddScoped<IRoomAssetConditionHistoryRepository, RoomAssetConditionHistoryRepository>();
         services.AddScoped<ILeaseRepository, LeaseRepository>();
+        services.AddScoped<ILeaseStatusHistoryRepository, LeaseStatusHistoryRepository>();
 
         return services;
     }
