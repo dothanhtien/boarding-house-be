@@ -433,6 +433,45 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
     }
 
     [Fact]
+    public async Task Delete_UserWithTenantProfile_SoftDeletesProfileAndFreesIdentityNumber()
+    {
+        var created = (await (await _client.PostAsJsonAsync("/api/users", ValidCreateRequest()))
+            .Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())!.Data!;
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            context.TenantProfiles.Add(new TenantProfile
+            {
+                UserId = created.Id,
+                CreatedBy = _actorId,
+                IdentityType = IdentityType.CitizenIdentityCard,
+                IdentityNumber = "001095012345"
+            });
+            await context.SaveChangesAsync();
+        }
+
+        var response = await _client.DeleteAsync($"/api/users/{created.Id}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var profile = await context.TenantProfiles.IgnoreQueryFilters().SingleAsync(t => t.UserId == created.Id);
+            Assert.NotNull(profile.DeletedAt);
+
+            context.TenantProfiles.Add(new TenantProfile
+            {
+                UserId = _actorId,
+                CreatedBy = _actorId,
+                IdentityType = IdentityType.CitizenIdentityCard,
+                IdentityNumber = "001095012345"
+            });
+            await context.SaveChangesAsync();
+        }
+    }
+
+    [Fact]
     public async Task FullLifecycle_CreateUpdateDelete_BehavesCorrectly()
     {
         var createResponse = await _client.PostAsJsonAsync("/api/users", ValidCreateRequest());

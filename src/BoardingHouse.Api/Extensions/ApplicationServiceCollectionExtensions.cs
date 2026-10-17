@@ -4,6 +4,7 @@ using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services;
 using BoardingHouse.Api.Services.Caching;
 using BoardingHouse.Api.Services.Storage;
+using BoardingHouse.Api.Services.Throttling;
 using FluentValidation;
 using Mapster;
 
@@ -28,6 +29,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IRoomAssetConditionHistoryRepository, RoomAssetConditionHistoryRepository>();
         services.AddScoped<ILeaseRepository, LeaseRepository>();
         services.AddScoped<ILeaseStatusHistoryRepository, LeaseStatusHistoryRepository>();
+        services.AddScoped<ITenantProfileRepository, TenantProfileRepository>();
 
         return services;
     }
@@ -47,6 +49,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IRoomAssetConditionHistoryService, RoomAssetConditionHistoryService>();
         services.AddScoped<IUtilityServiceService, UtilityServiceService>();
         services.AddScoped<ILeaseService, LeaseService>();
+        services.AddScoped<ITenantProfileService, TenantProfileService>();
 
         services.AddScoped<IMediaAttachmentService, MediaAttachmentService>();
         services.AddScoped<IMediaCollectionService, MediaCollectionService>();
@@ -58,6 +61,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IUserCache, UserCache>();
         services.AddScoped<IRolePermissionCache, RolePermissionCache>();
         services.AddScoped<IOrganizationMembershipCache, OrganizationMembershipCache>();
+        services.AddScoped<IAttemptLimiter, DistributedAttemptLimiter>();
 
         // Process-wide static configuration — runs once when the host is built.
         TypeAdapterConfig.GlobalSettings.Scan(typeof(Program).Assembly);
