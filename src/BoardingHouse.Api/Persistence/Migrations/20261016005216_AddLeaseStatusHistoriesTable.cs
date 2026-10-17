@@ -50,15 +50,6 @@ namespace BoardingHouse.Api.Persistence.Migrations
                 table: "lease_status_histories",
                 columns: new[] { "lease_id", "changed_at" });
 
-            migrationBuilder.Sql(
-                """
-                INSERT INTO lease_status_histories (id, lease_id, old_status, new_status, changed_by, changed_at)
-                SELECT gen_random_uuid(), l.id, NULL, l.status, u.id, l.created_at
-                FROM leases l
-                LEFT JOIN users u ON u.id = l.created_by
-                WHERE l.deleted_at IS NULL
-                """);
-
             migrationBuilder.DropIndex(
                 name: "ix_lease_tenants_lease_id_user_id",
                 table: "lease_tenants");

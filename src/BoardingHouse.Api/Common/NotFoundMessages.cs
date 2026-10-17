@@ -1,7 +1,5 @@
 namespace BoardingHouse.Api.Common;
 
-// Messages for AppNotFoundException and EnsureScopeAsync — kept in one place so the same resource reads the same
-// everywhere in API responses.
 public static class NotFoundMessages
 {
     public static string Lease(Guid id) => $"Lease '{id}' not found";
