@@ -76,7 +76,7 @@ public class LeasesControllerIntegrationTests(PostgresApiFactory factory)
 
         await factory.GrantPlatformAdminRoleAsync(actor!.Id);
 
-        var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Email = ActorEmail, Password = Password });
+        var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Identifier = ActorEmail, Password = Password });
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));
         _actorId = actor.Id;
     }
@@ -191,7 +191,7 @@ public class LeasesControllerIntegrationTests(PostgresApiFactory factory)
         });
         await context.SaveChangesAsync();
 
-        var loginResponse = await memberClient.PostAsJsonAsync("/api/auth/login", new LoginRequest { Email = email, Password = Password });
+        var loginResponse = await memberClient.PostAsJsonAsync("/api/auth/login", new LoginRequest { Identifier = email, Password = Password });
         memberClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));
 
         return (memberClient, organization.Id);
@@ -218,7 +218,7 @@ public class LeasesControllerIntegrationTests(PostgresApiFactory factory)
             PasswordConfirmation = Password,
             FullName = "No Role"
         });
-        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Email = email, Password = Password });
+        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Identifier = email, Password = Password });
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));
 
         var response = await client.PostAsJsonAsync("/api/leases", ValidCreateRequest(), JsonOptions);

@@ -6,25 +6,31 @@ public class LoginRequestValidatorTests
 {
     private readonly LoginRequestValidator _validator = new();
 
-    private static LoginRequest Valid() => new() { Email = "user@test.com", Password = "password123" };
+    private static LoginRequest Valid() => new() { Identifier = "user@test.com", Password = "password123" };
 
-    [Fact]
-    public void Validate_ValidRequest_IsValid()
+    [Theory]
+    [InlineData("user@test.com")]
+    [InlineData("0912345678")]
+    [InlineData("+84 912.345.678")]
+    public void Validate_EmailOrPhone_IsValid(string identifier)
     {
-        var result = _validator.Validate(Valid());
+        var result = _validator.Validate(Valid() with { Identifier = identifier });
 
         Assert.True(result.IsValid);
     }
 
     [Theory]
     [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("@test.com")]
     [InlineData("not-an-email")]
-    public void Validate_InvalidEmail_HasEmailError(string email)
+    [InlineData("09abc")]
+    public void Validate_InvalidIdentifier_HasIdentifierError(string identifier)
     {
-        var result = _validator.Validate(Valid() with { Email = email });
+        var result = _validator.Validate(Valid() with { Identifier = identifier });
 
         Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, e => e.PropertyName == nameof(LoginRequest.Email));
+        Assert.Contains(result.Errors, e => e.PropertyName == nameof(LoginRequest.Identifier));
     }
 
     [Fact]

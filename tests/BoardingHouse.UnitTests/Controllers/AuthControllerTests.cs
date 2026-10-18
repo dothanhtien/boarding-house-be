@@ -43,7 +43,7 @@ public class AuthControllerTests
     {
         _controller.HttpContext.Connection.RemoteIpAddress = IPAddress.Parse("::ffff:192.168.1.10");
 
-        await _controller.Login(new LoginRequest { Email = "user@test.com", Password = "password" }, CancellationToken.None);
+        await _controller.Login(new LoginRequest { Identifier = "user@test.com", Password = "password" }, CancellationToken.None);
 
         _authService.Verify(s => s.LoginAsync(
             It.IsAny<LoginRequest>(),
@@ -57,7 +57,7 @@ public class AuthControllerTests
     {
         _controller.HttpContext.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.5");
 
-        await _controller.Login(new LoginRequest { Email = "user@test.com", Password = "password" }, CancellationToken.None);
+        await _controller.Login(new LoginRequest { Identifier = "user@test.com", Password = "password" }, CancellationToken.None);
 
         _authService.Verify(s => s.LoginAsync(
             It.IsAny<LoginRequest>(),
@@ -71,7 +71,7 @@ public class AuthControllerTests
     {
         _controller.HttpContext.Connection.RemoteIpAddress = null;
 
-        await _controller.Login(new LoginRequest { Email = "user@test.com", Password = "password" }, CancellationToken.None);
+        await _controller.Login(new LoginRequest { Identifier = "user@test.com", Password = "password" }, CancellationToken.None);
 
         _authService.Verify(s => s.LoginAsync(
             It.IsAny<LoginRequest>(),

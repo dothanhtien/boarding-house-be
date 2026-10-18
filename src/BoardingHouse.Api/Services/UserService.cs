@@ -27,7 +27,7 @@ public class UserService(
     private static readonly Dictionary<string, Expression<Func<User, object>>> SortableFields = new(StringComparer.OrdinalIgnoreCase)
     {
         [""] = u => u.CreatedAt,
-        ["email"] = u => u.Email,
+        ["email"] = u => u.Email!,
         ["fullName"] = u => u.FullName,
         ["createdAt"] = u => u.CreatedAt,
         ["isActive"] = u => u.IsActive
@@ -66,17 +66,20 @@ public class UserService(
     public async Task<UserResponse> CreateAsync(CreateUserRequest request, CancellationToken cancellationToken = default)
     {
         var email = request.Email.Trim().ToLowerInvariant();
+        var phone = PhoneNumber.Normalize(request.Phone);
+        var maskedEmail = EmailAddress.Mask(email);
+        var maskedPhone = PhoneNumber.Mask(phone ?? "");
 
-        if (await userRepository.ExistsByEmailOrPhoneAsync(email, request.Phone, cancellationToken))
+        if (await userRepository.ExistsByEmailOrPhoneAsync(email, phone, cancellationToken))
         {
-            logger.LogWarning("Create user failed: email or phone already in use ({Email})", email);
+            logger.LogWarning("Create user failed: email or phone already in use ({Email}, {Phone})", maskedEmail, maskedPhone);
             throw new AppConflictException("Email or phone already in use");
         }
 
         var user = new User
         {
             Email = email,
-            Phone = request.Phone,
+            Phone = phone,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password, workFactor: 12),
             FullName = request.FullName,
             CreatedBy = currentUserAccessor.User?.Id ?? SentinelActors.System
@@ -89,11 +92,11 @@ public class UserService(
         }
         catch (DbUpdateException ex) when (ex.IsUniqueViolation())
         {
-            logger.LogWarning("Create user failed: email or phone already in use ({Email})", email);
+            logger.LogWarning("Create user failed: email or phone already in use ({Email}, {Phone})", maskedEmail, maskedPhone);
             throw new AppConflictException("Email or phone already in use");
         }
 
-        logger.LogInformation("User created ({UserId}, {Email})", user.Id, email);
+        logger.LogInformation("User created ({UserId}, {Email}, {Phone})", user.Id, maskedEmail, maskedPhone);
 
         return user.Adapt<UserResponse>();
     }
@@ -106,11 +109,12 @@ public class UserService(
         if (request.Email.IsSet)
         {
             var email = request.Email.Value!.Trim().ToLowerInvariant();
+            var maskedEmail = EmailAddress.Mask(email);
 
             if (email != user.Email &&
                 await userRepository.ExistsByEmailExcludingUserAsync(email, user.Id, cancellationToken))
             {
-                logger.LogWarning("Update user failed: email already in use ({Email})", email);
+                logger.LogWarning("Update user failed: email already in use ({Email})", maskedEmail);
                 throw new AppConflictException("Email already in use");
             }
 
@@ -119,16 +123,17 @@ public class UserService(
 
         if (request.Phone.IsSet)
         {
-            if (request.Phone.Value != user.Phone &&
-                request.Phone.Value != string.Empty &&
-                request.Phone.Value is not null &&
-                await userRepository.ExistsByPhoneExcludingUserAsync(request.Phone.Value, user.Id, cancellationToken))
+            var phone = PhoneNumber.Normalize(request.Phone.Value);
+
+            if (phone != user.Phone &&
+                phone is not null &&
+                await userRepository.ExistsByPhoneExcludingUserAsync(phone, user.Id, cancellationToken))
             {
                 logger.LogWarning("Update user failed: phone already in use ({UserId})", id);
                 throw new AppConflictException("Phone already in use");
             }
 
-            user.Phone = request.Phone.Value;
+            user.Phone = phone;
         }
 
         request.FullName.ApplyIfSet(v => user.FullName = v!);

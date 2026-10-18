@@ -27,7 +27,7 @@ public class OrganizationMemberService(
     {
         [""] = m => m.CreatedAt,
         ["createdAt"] = m => m.CreatedAt,
-        ["userEmail"] = m => m.User!.Email,
+        ["userEmail"] = m => m.User!.Email!,
         ["userFullName"] = m => m.User!.FullName,
         ["roleName"] = m => m.Role!.Name
     };

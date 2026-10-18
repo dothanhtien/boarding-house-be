@@ -50,6 +50,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IUtilityServiceService, UtilityServiceService>();
         services.AddScoped<ILeaseService, LeaseService>();
         services.AddScoped<ITenantProfileService, TenantProfileService>();
+        services.AddScoped<ITenantService, TenantService>();
 
         services.AddScoped<IMediaAttachmentService, MediaAttachmentService>();
         services.AddScoped<IMediaCollectionService, MediaCollectionService>();

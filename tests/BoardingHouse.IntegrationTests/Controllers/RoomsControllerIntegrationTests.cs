@@ -74,7 +74,7 @@ public class RoomsControllerIntegrationTests(PostgresApiFactory factory)
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = ActorEmail,
+            Identifier = ActorEmail,
             Password = ActorPassword
         });
 
@@ -151,7 +151,7 @@ public class RoomsControllerIntegrationTests(PostgresApiFactory factory)
 
         var loginResponse = await memberClient.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = email,
+            Identifier = email,
             Password = ActorPassword
         });
         memberClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));
@@ -380,7 +380,7 @@ public class RoomsControllerIntegrationTests(PostgresApiFactory factory)
 
         var loginResponse = await unprivilegedClient.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = "no-permission-room@test.com",
+            Identifier = "no-permission-room@test.com",
             Password = ActorPassword
         });
         unprivilegedClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));

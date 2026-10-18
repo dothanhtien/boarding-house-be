@@ -137,7 +137,7 @@ public class AuthServiceTests
         };
         _userRepository.Setup(r => r.GetByEmailWithRolesAndOrganizationsAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(new EntityWithMedia<User>(user, null));
 
-        var request = new LoginRequest { Email = "user@test.com", Password = "wrong-password" };
+        var request = new LoginRequest { Identifier = "user@test.com", Password = "wrong-password" };
 
         await Assert.ThrowsAsync<AppUnauthorizedException>(() => _authService.LoginAsync(request, null, null));
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
@@ -156,7 +156,7 @@ public class AuthServiceTests
         };
         _userRepository.Setup(r => r.GetByEmailWithRolesAndOrganizationsAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(new EntityWithMedia<User>(user, null));
 
-        var request = new LoginRequest { Email = "user@test.com", Password = "password1" };
+        var request = new LoginRequest { Identifier = "user@test.com", Password = "password1" };
 
         await Assert.ThrowsAsync<AppUnauthorizedException>(() => _authService.LoginAsync(request, null, null));
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
@@ -172,7 +172,7 @@ public class AuthServiceTests
         _tokenService.Setup(t => t.GenerateRefreshToken()).Returns("refresh-token");
         _tokenService.Setup(t => t.HashToken(It.IsAny<string>())).Returns("refresh-token-hash");
 
-        var request = new LoginRequest { Email = "user@test.com", Password = "password1" };
+        var request = new LoginRequest { Identifier = "user@test.com", Password = "password1" };
 
         var beforeCall = DateTimeOffset.UtcNow;
         var response = await _authService.LoginAsync(request, "127.0.0.1", "test-agent");
@@ -311,5 +311,50 @@ public class AuthServiceTests
 
         await _authService.LogoutAsync("unknown");
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task LoginAsync_ByPhone_NormalizesAndLooksUpByPhone()
+    {
+        var user = new User { Phone = "0912345678", PasswordHash = BCrypt.Net.BCrypt.HashPassword("password1"), FullName = "Tenant", CreatedBy = SentinelActors.System };
+        _userRepository.Setup(r => r.GetByPhoneWithRolesAndOrganizationsAsync("0912345678", It.IsAny<CancellationToken>())).ReturnsAsync(new EntityWithMedia<User>(user, null));
+        _tokenService.Setup(t => t.GenerateAccessToken(It.IsAny<User>())).Returns(("access-token", DateTimeOffset.UtcNow.AddMinutes(15)));
+        _tokenService.Setup(t => t.GenerateRefreshToken()).Returns("refresh-token");
+        _tokenService.Setup(t => t.HashToken(It.IsAny<string>())).Returns("refresh-token-hash");
+
+        var response = await _authService.LoginAsync(new LoginRequest { Identifier = "+84 912.345.678", Password = "password1" }, null, null);
+
+        Assert.Null(response.User.Email);
+        Assert.Equal("0912345678", response.User.Phone);
+        _userRepository.Verify(r => r.GetByEmailWithRolesAndOrganizationsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task LoginAsync_ByPhoneUnknown_ThrowsAppUnauthorizedException()
+    {
+        _userRepository.Setup(r => r.GetByPhoneWithRolesAndOrganizationsAsync("0912345678", It.IsAny<CancellationToken>())).ReturnsAsync((EntityWithMedia<User>?)null);
+
+        var ex = await Assert.ThrowsAsync<AppUnauthorizedException>(() =>
+            _authService.LoginAsync(new LoginRequest { Identifier = "0912345678", Password = "password1" }, null, null));
+
+        Assert.Equal("Email/phone or password is invalid", ex.Message);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_InternationalVietnamPhone_StoresNormalizedPhone()
+    {
+        _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        var response = await _authService.RegisterAsync(new RegisterRequest
+        {
+            Email = "user@test.com",
+            Phone = "+84912345678",
+            Password = "password",
+            PasswordConfirmation = "password",
+            FullName = "Test User"
+        });
+
+        Assert.Equal("0912345678", response.Phone);
+        _userRepository.Verify(r => r.ExistsByEmailOrPhoneAsync("user@test.com", "0912345678", It.IsAny<CancellationToken>()), Times.Once);
     }
 }

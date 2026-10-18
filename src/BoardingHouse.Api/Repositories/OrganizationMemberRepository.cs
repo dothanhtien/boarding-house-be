@@ -41,7 +41,7 @@ public class OrganizationMemberRepository(AppDbContext context) : Repository<Org
         {
             var pattern = LikePattern.Contains(search.Trim());
             members = members.Where(m =>
-                EF.Functions.ILike(m.User!.Email, pattern, LikePattern.EscapeCharacter) ||
+                EF.Functions.ILike(m.User!.Email!, pattern, LikePattern.EscapeCharacter) ||
                 EF.Functions.ILike(m.User!.FullName, pattern, LikePattern.EscapeCharacter));
         }
 

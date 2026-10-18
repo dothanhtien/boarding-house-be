@@ -133,6 +133,7 @@ from the edit screen. Reorder or change the cover with `PATCH /api/rooms/{id}/me
 
 ## Authentication & RBAC
 
+- **Login** (`POST /api/auth/login`) takes `{ identifier, password }`, where `identifier` is either an email (anything containing `@`) or a phone. Phones are stored and matched in normalized form (spaces/dots/dashes stripped, `+84` → `0`), so `+84 912.345.678` and `0912345678` log into the same account. Tenants created by organization staff (`POST /api/tenants`) may have no email and log in by phone.
 - **JWT access tokens** are short-lived (`Jwt:AccessTokenExpirationMinutes` in `appsettings.json`, default 15 min), signed with `JWT_SECRET`.
 - **Refresh tokens** are longer-lived (`Jwt:RefreshTokenExpirationDays`, default 7 days), stored in the `refresh_tokens` table, and rotated on each use (`POST /api/auth/refresh-token`); `POST /api/auth/logout` revokes one.
 - **RBAC** (`Role`, `Permission`, `RolePermission`, `UserRole` entities) models user access; default roles/permissions are populated by `RbacSeeder`.

@@ -75,7 +75,7 @@ public class RoomAssetsControllerIntegrationTests(PostgresApiFactory factory)
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = ActorEmail,
+            Identifier = ActorEmail,
             Password = ActorPassword
         });
 
@@ -207,7 +207,7 @@ public class RoomAssetsControllerIntegrationTests(PostgresApiFactory factory)
 
         var loginResponse = await memberClient.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = email,
+            Identifier = email,
             Password = ActorPassword
         });
         memberClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));

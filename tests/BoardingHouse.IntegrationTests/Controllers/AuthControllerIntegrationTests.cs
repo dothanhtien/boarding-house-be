@@ -77,7 +77,7 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = email,
+            Identifier = email,
             Password = Password
         });
 
@@ -174,7 +174,7 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
 
         var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = "user@test.com",
+            Identifier = "user@test.com",
             Password = Password
         });
 
@@ -196,7 +196,7 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
 
         var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = "user@test.com",
+            Identifier = "user@test.com",
             Password = "wrong-password"
         });
 
@@ -211,7 +211,7 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
 
         var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = "user@test.com",
+            Identifier = "user@test.com",
             Password = Password
         });
 
@@ -223,7 +223,7 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
     {
         var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = "unknown@test.com",
+            Identifier = "unknown@test.com",
             Password = Password
         });
 
@@ -665,5 +665,49 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         var response = await _client.DeleteAsync("/api/auth/me/avatar");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Login_ByPhoneInAnyFormat_Returns200()
+    {
+        await _client.PostAsJsonAsync("/api/auth/register", ValidRegisterRequest() with { Phone = "+84912345678" });
+
+        var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Identifier = "091 234 5678", Password = Password });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>();
+        Assert.Equal("0912345678", body!.Data!.Phone);
+    }
+
+    [Fact]
+    public async Task Login_ByPhoneWrongPassword_Returns401()
+    {
+        await _client.PostAsJsonAsync("/api/auth/register", ValidRegisterRequest());
+
+        var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Identifier = "0900000000", Password = "wrong-password" });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Login_IdentifierNeitherEmailNorPhone_Returns400()
+    {
+        var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
+        {
+            Identifier = "not-an-email",
+            Password = Password
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Register_SamePhoneInInternationalFormat_Returns409()
+    {
+        await _client.PostAsJsonAsync("/api/auth/register", ValidRegisterRequest() with { Phone = "0912345678" });
+
+        var response = await _client.PostAsJsonAsync("/api/auth/register", ValidRegisterRequest("other@test.com") with { Phone = "+84912345678" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 }
