@@ -1,0 +1,8 @@
+namespace BoardingHouse.Domain.Entities.Enums;
+
+public enum RevokedReason
+{
+    Rotation,
+    Logout,
+    Suspicious
+}

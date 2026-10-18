@@ -1,16 +1,17 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Auth;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services;
 using BoardingHouse.Api.Services.Storage;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.UnitTests.Common;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging.Abstractions;
-using Moq;
 
 namespace BoardingHouse.UnitTests.Services;
 

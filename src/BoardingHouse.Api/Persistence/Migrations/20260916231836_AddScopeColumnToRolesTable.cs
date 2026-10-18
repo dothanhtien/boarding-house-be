@@ -1,7 +1,7 @@
-﻿using BoardingHouse.Api.Entities.Enums;
+﻿using Microsoft.EntityFrameworkCore.Migrations;
 using BoardingHouse.Api.Persistence.Converters;
 using BoardingHouse.Api.Persistence.Seed;
-using Microsoft.EntityFrameworkCore.Migrations;
+using BoardingHouse.Domain.Entities.Enums;
 
 #nullable disable
 

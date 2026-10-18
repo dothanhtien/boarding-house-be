@@ -1,14 +1,14 @@
 using System.Linq.Expressions;
+using Mapster;
+using Microsoft.EntityFrameworkCore;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Organizations;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services.Caching;
-using Mapster;
-using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Api.Services;
 

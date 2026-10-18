@@ -1,4 +1,4 @@
-using BoardingHouse.Api.Entities;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Services.Caching;
 

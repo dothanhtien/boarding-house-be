@@ -1,6 +1,6 @@
-using BoardingHouse.Api.DTOs.TenantProfiles;
-using BoardingHouse.Api.Entities.Enums;
 using FluentValidation.TestHelper;
+using BoardingHouse.Api.DTOs.TenantProfiles;
+using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.UnitTests.DTOs;
 

@@ -1,6 +1,6 @@
 using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Exceptions;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Services.Storage;
 

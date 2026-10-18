@@ -1,6 +1,6 @@
-using BoardingHouse.Api.DTOs.Organizations;
-using BoardingHouse.Api.Entities;
 using Mapster;
+using BoardingHouse.Api.DTOs.Organizations;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Mappings;
 

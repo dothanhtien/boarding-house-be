@@ -1,9 +1,9 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Entities.Enums;
-using BoardingHouse.Api.Persistence.Seed;
-using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Api.Persistence.Seed;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.IntegrationTests.Fixtures;
 
 namespace BoardingHouse.IntegrationTests.Persistence;
 

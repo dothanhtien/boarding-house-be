@@ -1,10 +1,10 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Persistence;
 using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using BoardingHouse.Api.Exceptions;
+using BoardingHouse.Api.Persistence;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.IntegrationTests.Persistence;
 

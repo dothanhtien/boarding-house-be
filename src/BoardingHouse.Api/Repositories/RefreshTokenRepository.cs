@@ -1,6 +1,6 @@
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Persistence;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Api.Persistence;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Repositories;
 

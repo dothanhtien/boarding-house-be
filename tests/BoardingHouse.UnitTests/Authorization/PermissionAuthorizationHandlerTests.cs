@@ -1,9 +1,10 @@
-using BoardingHouse.Api.Authorization;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Moq;
+using BoardingHouse.Api.Authorization;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Api.Services;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.UnitTests.Authorization;
 

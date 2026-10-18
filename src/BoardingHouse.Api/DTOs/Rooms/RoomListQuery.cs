@@ -1,5 +1,5 @@
 using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities.Enums;
+using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Api.DTOs.Rooms;
 

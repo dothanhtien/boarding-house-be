@@ -1,7 +1,7 @@
+using Mapster;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Users;
-using BoardingHouse.Api.Entities;
-using Mapster;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Mappings;
 

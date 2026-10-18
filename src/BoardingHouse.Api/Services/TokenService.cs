@@ -2,8 +2,8 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
-using BoardingHouse.Api.Entities;
 using Microsoft.IdentityModel.Tokens;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Services;
 

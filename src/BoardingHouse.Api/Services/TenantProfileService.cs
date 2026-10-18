@@ -1,14 +1,14 @@
+using Mapster;
+using Microsoft.EntityFrameworkCore;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.TenantProfiles;
-using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Mappings;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Configurations;
 using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services.Throttling;
-using Mapster;
-using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Services;
 

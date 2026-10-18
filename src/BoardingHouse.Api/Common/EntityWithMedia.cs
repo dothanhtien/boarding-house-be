@@ -1,3 +1,5 @@
+using BoardingHouse.Domain.Common;
+
 namespace BoardingHouse.Api.Common;
 
 public sealed record MediaLocation(string StorageKey, string MimeType);

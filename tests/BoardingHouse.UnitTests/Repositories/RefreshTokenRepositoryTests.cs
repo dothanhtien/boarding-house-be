@@ -1,8 +1,8 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
+using Microsoft.EntityFrameworkCore;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
-using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.UnitTests.Repositories;
 

@@ -1,6 +1,6 @@
-using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services.Storage;
+using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Api.Services;
 

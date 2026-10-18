@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Domain.Common;
 
 namespace BoardingHouse.Api.Common;
 

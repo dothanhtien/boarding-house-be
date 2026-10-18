@@ -1,5 +1,5 @@
-using BoardingHouse.Api.Entities;
 using FluentValidation;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.DTOs.Rooms;
 

@@ -1,6 +1,6 @@
 using System.Linq.Expressions;
 using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Repositories;
 

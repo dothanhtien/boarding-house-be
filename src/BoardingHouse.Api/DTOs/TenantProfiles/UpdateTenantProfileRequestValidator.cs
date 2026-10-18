@@ -1,5 +1,5 @@
-using BoardingHouse.Api.Entities.Enums;
 using FluentValidation;
+using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Api.DTOs.TenantProfiles;
 

@@ -1,6 +1,6 @@
-using BoardingHouse.Api.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Persistence.Configurations;
 

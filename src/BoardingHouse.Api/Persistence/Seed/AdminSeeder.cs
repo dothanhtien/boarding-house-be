@@ -1,7 +1,8 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Exceptions;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Api.Exceptions;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Persistence.Seed;
 

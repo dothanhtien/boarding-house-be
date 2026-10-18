@@ -1,4 +1,3 @@
-using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Roles;
 
 namespace BoardingHouse.Api.Services;

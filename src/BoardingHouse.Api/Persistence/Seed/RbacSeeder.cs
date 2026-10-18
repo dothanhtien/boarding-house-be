@@ -1,10 +1,11 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Entities.Enums;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Services.Caching;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Api.Exceptions;
+using BoardingHouse.Api.Services.Caching;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Api.Persistence.Seed;
 

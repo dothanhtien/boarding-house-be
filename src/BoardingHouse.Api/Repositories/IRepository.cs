@@ -1,4 +1,4 @@
-using BoardingHouse.Api.Common;
+using BoardingHouse.Domain.Common;
 
 namespace BoardingHouse.Api.Repositories;
 

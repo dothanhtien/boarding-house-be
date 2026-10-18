@@ -1,18 +1,18 @@
 using System.Linq.Expressions;
 using System.Security.Cryptography;
+using Mapster;
+using Microsoft.EntityFrameworkCore;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Common.CurrentOrganization;
 using BoardingHouse.Api.DTOs.Leases;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Entities.Enums;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Mappings;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Configurations;
 using BoardingHouse.Api.Repositories;
-using Mapster;
-using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Api.Services;
 

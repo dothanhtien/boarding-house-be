@@ -1,5 +1,5 @@
 using BoardingHouse.Api.DTOs.Rooms;
-using BoardingHouse.Api.Entities;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.UnitTests.DTOs;
 

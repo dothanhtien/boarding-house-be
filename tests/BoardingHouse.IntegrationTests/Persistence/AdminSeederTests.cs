@@ -1,6 +1,7 @@
-using BoardingHouse.Api.Persistence.Seed;
-using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Api.Persistence.Seed;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.IntegrationTests.Fixtures;
 
 namespace BoardingHouse.IntegrationTests.Persistence;
 
@@ -67,12 +68,12 @@ public class AdminSeederTests(PostgresContainerFixture fixture) : IClassFixture<
     {
         await using var context = fixture.CreateContext();
         await RbacSeeder.SeedAsync(context);
-        context.Users.Add(new BoardingHouse.Api.Entities.User
+        context.Users.Add(new Domain.Entities.User
         {
             Email = Email,
             PasswordHash = "hashed-password",
             FullName = FullName,
-            CreatedBy = BoardingHouse.Api.Common.SentinelActors.System
+            CreatedBy = SentinelActors.System
         });
         await context.SaveChangesAsync();
 

@@ -1,6 +1,6 @@
 using System.Text.Json;
-using BoardingHouse.Api.Entities;
 using Microsoft.Extensions.Caching.Distributed;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Services.Caching;
 

@@ -1,6 +1,6 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
 using FluentValidation;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.DTOs.Leases;
 

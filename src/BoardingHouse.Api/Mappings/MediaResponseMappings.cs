@@ -1,7 +1,7 @@
 using BoardingHouse.Api.DTOs.RoomAssetConditionHistories;
 using BoardingHouse.Api.DTOs.Rooms;
-using BoardingHouse.Api.Entities;
 using BoardingHouse.Api.Services.Storage;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Mappings;
 
@@ -42,11 +42,11 @@ public static class MediaResponseMappings
 
     public static RoomAssetCurrentPhotosResponse ToCurrentPhotosResponse(
         this RoomAssetConditionHistory history, bool isLatest, IStorageProvider storageProvider) => new()
-    {
-        ConditionHistoryId = history.Id,
-        Condition = history.NewCondition,
-        ChangedAt = history.ChangedAt,
-        IsLatest = isLatest,
-        Media = history.Media.ToMediaResponses(storageProvider)
-    };
+        {
+            ConditionHistoryId = history.Id,
+            Condition = history.NewCondition,
+            ChangedAt = history.ChangedAt,
+            IsLatest = isLatest,
+            Media = history.Media.ToMediaResponses(storageProvider)
+        };
 }

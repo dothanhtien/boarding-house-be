@@ -1,8 +1,8 @@
 using System.Linq.Expressions;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Persistence;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Api.Persistence;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Repositories;
 

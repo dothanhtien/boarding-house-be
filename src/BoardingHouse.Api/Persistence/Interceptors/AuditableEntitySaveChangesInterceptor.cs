@@ -1,6 +1,7 @@
-using BoardingHouse.Api.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Domain.Common;
 
 namespace BoardingHouse.Api.Persistence.Interceptors;
 

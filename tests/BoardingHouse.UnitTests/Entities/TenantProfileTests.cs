@@ -1,5 +1,5 @@
 using System.Reflection;
-using BoardingHouse.Api.Entities;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.UnitTests.Entities;
 

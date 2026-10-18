@@ -1,9 +1,9 @@
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Entities.Enums;
+using Microsoft.EntityFrameworkCore;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services.Storage;
-using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Api.Services;
 

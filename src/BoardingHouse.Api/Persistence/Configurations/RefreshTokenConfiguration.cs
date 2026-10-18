@@ -1,8 +1,7 @@
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Entities.Enums;
-using BoardingHouse.Api.Persistence.Converters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using BoardingHouse.Api.Persistence.Converters;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Persistence.Configurations;
 
