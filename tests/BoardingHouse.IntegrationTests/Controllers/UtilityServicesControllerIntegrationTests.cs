@@ -71,7 +71,7 @@ public class UtilityServicesControllerIntegrationTests(PostgresApiFactory factor
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = ActorEmail,
+            Identifier = ActorEmail,
             Password = ActorPassword
         });
 
@@ -158,7 +158,7 @@ public class UtilityServicesControllerIntegrationTests(PostgresApiFactory factor
 
         var loginResponse = await memberClient.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = email,
+            Identifier = email,
             Password = ActorPassword
         });
         memberClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));
@@ -397,7 +397,7 @@ public class UtilityServicesControllerIntegrationTests(PostgresApiFactory factor
 
         var loginResponse = await unprivilegedClient.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = "no-permission-utility-service@test.com",
+            Identifier = "no-permission-utility-service@test.com",
             Password = ActorPassword
         });
         unprivilegedClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));

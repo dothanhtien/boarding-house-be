@@ -11,4 +11,5 @@ public static class PermissionResources
     public const string Room = "room";
     public const string UtilityService = "utility-service";
     public const string Lease = "lease";
+    public const string Tenant = "tenant";
 }

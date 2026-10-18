@@ -5,7 +5,7 @@ namespace BoardingHouse.Api.DTOs.Users;
 public record UserResponse
 {
     public required Guid Id { get; init; }
-    public required string Email { get; init; }
+    public string? Email { get; init; }
     public DateTimeOffset? EmailVerifiedAt { get; init; }
     public string? Phone { get; init; }
     public required string FullName { get; init; }

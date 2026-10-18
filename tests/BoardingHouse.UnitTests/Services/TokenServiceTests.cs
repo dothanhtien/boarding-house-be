@@ -57,4 +57,17 @@ public class TokenServiceTests
 
         Assert.NotEqual(hash1, hash2);
     }
+
+    [Fact]
+    public void GenerateAccessToken_UserWithoutEmail_OmitsEmailClaim()
+    {
+        var service = CreateService();
+        var user = new User { Phone = "0912345678", PasswordHash = "hashed-password", FullName = "Tenant", CreatedBy = SentinelActors.System };
+
+        var (token, _) = service.GenerateAccessToken(user);
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+
+        Assert.Equal(user.Id.ToString(), jwt.Subject);
+        Assert.DoesNotContain(jwt.Claims, c => c.Type == JwtRegisteredClaimNames.Email);
+    }
 }

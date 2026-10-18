@@ -25,17 +25,20 @@ public class AuthService(
     public async Task<UserResponse> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default)
     {
         var email = request.Email.Trim().ToLowerInvariant();
+        var phone = PhoneNumber.Normalize(request.Phone);
+        var maskedEmail = EmailAddress.Mask(email);
+        var maskedPhone = PhoneNumber.Mask(phone ?? "");
 
-        if (await userRepository.ExistsByEmailOrPhoneAsync(email, request.Phone, cancellationToken))
+        if (await userRepository.ExistsByEmailOrPhoneAsync(email, phone, cancellationToken))
         {
-            logger.LogWarning("Registration failed: email or phone already in use ({Email})", email);
+            logger.LogWarning("Registration failed: email or phone already in use ({Email}, {Phone})", maskedEmail, maskedPhone);
             throw new AppConflictException("Email or phone already in use");
         }
 
         var user = new User
         {
             Email = email,
-            Phone = request.Phone,
+            Phone = phone,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password, workFactor: 12),
             FullName = request.FullName,
             CreatedBy = SentinelActors.SelfRegistration
@@ -44,7 +47,7 @@ public class AuthService(
         await userRepository.AddAsync(user, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        logger.LogInformation("User registered ({UserId}, {Email})", user.Id, email);
+        logger.LogInformation("User registered ({UserId}, {Email}, {Phone})", user.Id, maskedEmail, maskedPhone);
 
         return user.Adapt<UserResponse>();
     }
@@ -66,15 +69,19 @@ public class AuthService(
         string? userAgent,
         CancellationToken cancellationToken = default)
     {
-        var userWithAvatar = await userRepository.GetByEmailWithRolesAndOrganizationsAsync(request.Email, cancellationToken);
+        var isEmail = LoginRequest.IsEmail(request.Identifier);
+        var identifier = isEmail ? request.Identifier.Trim() : PhoneNumber.Normalize(request.Identifier)!;
+        var userWithAvatar = isEmail
+            ? await userRepository.GetByEmailWithRolesAndOrganizationsAsync(identifier, cancellationToken)
+            : await userRepository.GetByPhoneWithRolesAndOrganizationsAsync(identifier, cancellationToken);
         var user = userWithAvatar?.Entity;
 
         if (user is null
             || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash)
             || !user.IsActive)
         {
-            logger.LogWarning("Login failed for {Email} from {IpAddress}", request.Email, ipAddress);
-            throw new AppUnauthorizedException("Email or password is invalid");
+            logger.LogWarning("Login failed for {Identifier} from {IpAddress}", isEmail ? EmailAddress.Mask(identifier) : PhoneNumber.Mask(identifier), ipAddress);
+            throw new AppUnauthorizedException("Email/phone or password is invalid");
         }
 
         user.LastLoginAt = DateTimeOffset.UtcNow;

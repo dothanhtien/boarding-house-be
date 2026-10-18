@@ -63,7 +63,7 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = ActorEmail,
+            Identifier = ActorEmail,
             Password = ActorPassword
         });
 
@@ -109,7 +109,7 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
             await beforeLogin(user!.Id);
         }
 
-        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Email = email, Password = ActorPassword });
+        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Identifier = email, Password = ActorPassword });
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));
 
         return (client, user!.Id);
@@ -303,7 +303,7 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
 
         var loginResponse = await unprivilegedClient.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = "no-permission@test.com",
+            Identifier = "no-permission@test.com",
             Password = ActorPassword
         });
         unprivilegedClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));

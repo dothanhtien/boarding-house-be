@@ -14,6 +14,7 @@ public static class NotFoundMessages
     public static string RoomAssetConditionHistory(Guid id) => $"Room asset condition history '{id}' not found";
     public static string RoomAssetConditionPhoto(Guid id) => $"Room asset condition photo '{id}' not found";
     public static string RoomMedia(Guid id) => $"Room media '{id}' not found";
+    public static string Tenant(Guid id) => $"Tenant '{id}' not found";
     public static string User(Guid id) => $"User '{id}' not found";
     public static string UtilityService(Guid id) => $"Utility service '{id}' not found";
 }

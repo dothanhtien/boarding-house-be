@@ -136,6 +136,36 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
                 """)
             .SingleAsync(cancellationToken);
 
+    public Task<bool> ExistsTenantInOrganizationsAsync(
+        Guid userId, IReadOnlySet<Guid> organizationIds, CancellationToken cancellationToken = default) =>
+        Context.LeaseTenants
+            .IgnoreQueryFilters()
+            .AnyAsync(t => t.UserId == userId
+                && t.DeletedAt == null
+                && t.Lease!.DeletedAt == null
+                && organizationIds.Contains(t.Lease.OrganizationId),
+                cancellationToken);
+
+    public Task<List<Lease>> ListByTenantUserIdAsync(
+        Guid userId, IReadOnlySet<Guid>? allowedOrganizationIds, CancellationToken cancellationToken = default)
+    {
+        var leases = Context.Leases
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Where(l => l.DeletedAt == null && l.Tenants.Any(t => t.UserId == userId && t.DeletedAt == null));
+
+        if (allowedOrganizationIds is not null)
+        {
+            leases = leases.Where(l => allowedOrganizationIds.Contains(l.OrganizationId));
+        }
+
+        return leases
+            .Include(l => l.Room)
+            .OrderByDescending(l => l.StartDate)
+            .ThenBy(l => l.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     public Task LoadTenantsAsync(Lease lease, CancellationToken cancellationToken = default) =>
         Context.Entry(lease).Collection(l => l.Tenants).LoadAsync(cancellationToken);
 

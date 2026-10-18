@@ -7,10 +7,12 @@ namespace BoardingHouse.Api.Repositories;
 public interface IUserRepository : IRepository<User>
 {
     Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default);
+    Task<User?> GetByPhoneAsync(string phone, CancellationToken cancellationToken = default);
     Task<EntityWithMedia<User>?> GetByIdWithAvatarAsync(Guid id, CancellationToken cancellationToken = default);
     Task<EntityWithMedia<User>?> GetByEmailWithRolesAndOrganizationsAsync(string email, CancellationToken cancellationToken = default);
+    Task<EntityWithMedia<User>?> GetByPhoneWithRolesAndOrganizationsAsync(string phone, CancellationToken cancellationToken = default);
     Task<EntityWithMedia<User>?> GetByIdWithRolesAndOrganizationsAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<bool> ExistsByEmailOrPhoneAsync(string email, string? phone, CancellationToken cancellationToken = default);
+    Task<bool> ExistsByEmailOrPhoneAsync(string? email, string? phone, CancellationToken cancellationToken = default);
     Task<bool> ExistsByEmailExcludingUserAsync(string email, Guid excludeUserId, CancellationToken cancellationToken = default);
     Task<bool> ExistsByPhoneExcludingUserAsync(string phone, Guid excludeUserId, CancellationToken cancellationToken = default);
     Task<PagedResult<EntityWithMedia<User>>> SearchAsync(

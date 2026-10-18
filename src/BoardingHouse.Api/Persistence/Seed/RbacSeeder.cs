@@ -46,6 +46,9 @@ public class RbacSeeder
         (PermissionResources.Lease, PermissionActions.Delete, "Delete a draft lease"),
         (PermissionResources.Lease, PermissionActions.Activate, "Sign (activate) a draft lease"),
         (PermissionResources.Lease, PermissionActions.Terminate, "Terminate an active lease"),
+        (PermissionResources.Tenant, PermissionActions.Read, "Look up tenants and view tenant profiles"),
+        (PermissionResources.Tenant, PermissionActions.Create, "Create a tenant account"),
+        (PermissionResources.Tenant, PermissionActions.Update, "Update a tenant profile"),
     ];
 
     internal static readonly (string Slug, string Name, string Description, RoleScope Scope, string[] Permissions)[] RoleSeeds =
@@ -54,7 +57,7 @@ public class RbacSeeder
         (RoleSlugs.PlatformStaff, "Platform Staff", "Platform staff — limited permissions", RoleScope.Platform,
             [
                 "user:read", "role:read", "organization:read", "organization-setting:read",
-                "organization-member:read", "property:read", "room:read", "utility-service:read", "lease:read"]),
+                "organization-member:read", "property:read", "room:read", "utility-service:read", "lease:read", "tenant:read"]),
         (RoleSlugs.OrganizationAdmin, "Organization Admin", "Full rights within the organization", RoleScope.Organization,
             [
                 "organization:read", "organization:update", "organization-setting:read", "organization-setting:update",
@@ -62,7 +65,8 @@ public class RbacSeeder
                 "property:read", "property:create", "property:update", "property:delete",
                 "room:read", "room:create", "room:update", "room:delete",
                 "utility-service:read", "utility-service:create", "utility-service:update", "utility-service:delete",
-                "lease:read", "lease:create", "lease:update", "lease:delete", "lease:activate", "lease:terminate"]),
+                "lease:read", "lease:create", "lease:update", "lease:delete", "lease:activate", "lease:terminate",
+                "tenant:read", "tenant:create", "tenant:update"]),
         (RoleSlugs.OrganizationStaff, "Organization staff", "Manage day-to-day operations within the organization", RoleScope.Organization,
             [
                 "organization:read", "organization-setting:read",
@@ -70,7 +74,8 @@ public class RbacSeeder
                 "property:read", "property:create", "property:update", "property:delete",
                 "room:read", "room:create", "room:update", "room:delete",
                 "utility-service:read", "utility-service:create", "utility-service:update", "utility-service:delete",
-                "lease:read", "lease:create", "lease:update", "lease:delete", "lease:activate", "lease:terminate"]),
+                "lease:read", "lease:create", "lease:update", "lease:delete", "lease:activate", "lease:terminate",
+                "tenant:read", "tenant:create", "tenant:update"]),
     ];
 
     public static async Task SeedAsync(

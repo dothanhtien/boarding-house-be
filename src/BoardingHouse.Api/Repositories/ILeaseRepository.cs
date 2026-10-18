@@ -35,5 +35,7 @@ public interface ILeaseRepository : IRepository<Lease>
         Guid? excludingLeaseId = null,
         CancellationToken cancellationToken = default);
     Task<bool> IsInRenewalChainAsync(Guid leaseId, Guid chainStartId, CancellationToken cancellationToken = default);
+    Task<bool> ExistsTenantInOrganizationsAsync(Guid userId, IReadOnlySet<Guid> organizationIds, CancellationToken cancellationToken = default);
+    Task<List<Lease>> ListByTenantUserIdAsync(Guid userId, IReadOnlySet<Guid>? allowedOrganizationIds, CancellationToken cancellationToken = default);
     void AddTenant(Lease lease, LeaseTenant tenant);
 }

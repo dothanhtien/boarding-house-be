@@ -58,7 +58,7 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = ActorEmail,
+            Identifier = ActorEmail,
             Password = ActorPassword
         });
 

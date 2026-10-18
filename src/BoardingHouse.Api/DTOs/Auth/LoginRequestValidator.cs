@@ -1,3 +1,4 @@
+using BoardingHouse.Api.Common;
 using FluentValidation;
 
 namespace BoardingHouse.Api.DTOs.Auth;
@@ -6,9 +7,17 @@ public class LoginRequestValidator : AbstractValidator<LoginRequest>
 {
     public LoginRequestValidator()
     {
-        RuleFor(x => x.Email)
-            .NotEmpty().WithMessage("Email is required")
-            .EmailAddress().WithMessage("Email is invalid");
+        RuleFor(x => x.Identifier)
+            .NotEmpty().WithMessage("Email or phone is required");
+
+        RuleFor(x => x.Identifier)
+            .EmailAddress().WithMessage("Email is invalid")
+            .When(x => !string.IsNullOrWhiteSpace(x.Identifier) && LoginRequest.IsEmail(x.Identifier));
+
+        RuleFor(x => x.Identifier)
+            .Must(PhoneNumber.IsValid).WithMessage("Phone is invalid")
+            .When(x => !string.IsNullOrWhiteSpace(x.Identifier) && !LoginRequest.IsEmail(x.Identifier));
+
         RuleFor(x => x.Password)
             .NotEmpty().WithMessage("Password is required");
     }

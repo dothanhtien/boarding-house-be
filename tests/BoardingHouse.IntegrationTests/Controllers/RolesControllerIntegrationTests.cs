@@ -49,7 +49,7 @@ public class RolesControllerIntegrationTests(PostgresApiFactory factory)
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = ActorEmail,
+            Identifier = ActorEmail,
             Password = ActorPassword
         });
 
@@ -94,7 +94,7 @@ public class RolesControllerIntegrationTests(PostgresApiFactory factory)
 
         var loginResponse = await unprivilegedClient.PostAsJsonAsync("/api/auth/login", new LoginRequest
         {
-            Email = "no-permission@test.com",
+            Identifier = "no-permission@test.com",
             Password = ActorPassword
         });
         unprivilegedClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));

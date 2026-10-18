@@ -1461,7 +1461,6 @@ namespace BoardingHouse.Api.Persistence.Migrations
                         .HasColumnName("deleted_by");
 
                     b.Property<string>("Email")
-                        .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
                         .HasColumnName("email");
@@ -1508,7 +1507,7 @@ namespace BoardingHouse.Api.Persistence.Migrations
                     b.HasIndex("Email")
                         .IsUnique()
                         .HasDatabaseName("ix_users_email")
-                        .HasFilter("deleted_at IS NULL");
+                        .HasFilter("email IS NOT NULL AND deleted_at IS NULL");
 
                     b.HasIndex("IsActive")
                         .HasDatabaseName("ix_users_is_active");
