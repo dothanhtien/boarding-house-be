@@ -2,12 +2,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
-using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Interceptors;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Api.Common.CurrentUser;
 
 namespace BoardingHouse.UnitTests.Persistence;
 

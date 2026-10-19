@@ -1,0 +1,32 @@
+using System.Text.Json.Serialization;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Domain.Entities.Enums;
+
+namespace BoardingHouse.Application.DTOs.Organizations;
+
+public record UpdateOrganizationSettingsRequest
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<int?> DefaultBillingDay { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<LateFeeType?> LateFeeType { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<decimal?> LateFeeValue { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<int?> LateFeeGraceDays { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<decimal?> VatRate { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<string> BankAccountNumber { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<string> BankName { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<string> BankAccountName { get; init; }
+}

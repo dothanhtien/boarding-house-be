@@ -1,8 +1,9 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using BoardingHouse.Domain.Common;
+using BoardingHouse.Application.Common.Listing;
 
-namespace BoardingHouse.Api.Common;
+namespace BoardingHouse.Api.Common.Listing;
 
 public static class QueryableListExtensions
 {

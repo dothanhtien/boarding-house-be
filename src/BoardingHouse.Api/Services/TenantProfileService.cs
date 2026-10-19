@@ -1,14 +1,12 @@
 using Mapster;
-using Microsoft.EntityFrameworkCore;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.TenantProfiles;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Mappings;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Persistence.Configurations;
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.Api.Services.Throttling;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Services.Throttling;
+using BoardingHouse.Application.DTOs.TenantProfiles;
+using BoardingHouse.Application.Mappings;
+using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Domain.Entities;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Services;
 
@@ -78,12 +76,12 @@ public class TenantProfileService(
         {
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation(TenantProfileConfiguration.IdentityNumberUniqueIndex))
+        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.TenantProfileIdentityNumber)
         {
             logger.LogWarning("Upsert tenant profile failed: identity document already in use ({UserId})", userId);
             throw new AppConflictException("This identity document is already used by another tenant profile");
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation(TenantProfileConfiguration.UserIdUniqueIndex))
+        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.TenantProfileUserId)
         {
             logger.LogWarning("Upsert tenant profile failed: profile created by a concurrent request ({UserId})", userId);
             throw new AppConflictException("Tenant profile was modified by another request, please retry");

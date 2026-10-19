@@ -3,6 +3,7 @@ using BoardingHouse.Api.Exceptions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
+using BoardingHouse.Application.Exceptions;
 
 namespace BoardingHouse.UnitTests.Exceptions;
 
@@ -44,6 +45,20 @@ public class GlobalExceptionHandlerTests
         var json = ReadBodyAsJson(body);
         Assert.Equal("User not found", json.GetProperty("title").GetString());
         Assert.Equal("test-correlation-id", json.GetProperty("correlationId").GetString());
+    }
+
+    [Fact]
+    public async Task TryHandleAsync_UniqueConstraintViolationException_Returns409WithGenericTitle()
+    {
+        var handler = CreateHandler(Environments.Production);
+        var (context, body) = CreateHttpContext();
+
+        var handled = await handler.TryHandleAsync(
+            context, new UniqueConstraintViolationException("ix_users_email", new Exception()), CancellationToken.None);
+
+        Assert.True(handled);
+        Assert.Equal(StatusCodes.Status409Conflict, context.Response.StatusCode);
+        Assert.Equal("A record with the same value already exists", ReadBodyAsJson(body).GetProperty("title").GetString());
     }
 
     [Fact]

@@ -1,9 +1,11 @@
+using BoardingHouse.Api.Common.Listing;
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
-using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Common.Listing;
 
 namespace BoardingHouse.Api.Repositories;
 

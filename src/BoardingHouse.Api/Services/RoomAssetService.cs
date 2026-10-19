@@ -1,19 +1,23 @@
 using Mapster;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.RoomAssets;
-using BoardingHouse.Api.DTOs.Rooms;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Extensions;
-using BoardingHouse.Api.Mappings;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.Api.Services.Storage;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.Rooms;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Mappings;
+using BoardingHouse.Application.DTOs.RoomAssets;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Api.DTOs.RoomAssets;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Services;
 
-public class RoomAssetService(IRoomRepository roomRepository,
+public class RoomAssetService(
+    IRoomRepository roomRepository,
     IRoomAssetRepository roomAssetRepository,
     IRoomAssetConditionHistoryRepository roomAssetConditionHistoryRepository,
     IMediaCollectionService mediaCollectionService,
@@ -25,7 +29,7 @@ public class RoomAssetService(IRoomRepository roomRepository,
 {
     public async Task<RoomDetailsAssetResponse> CreateAsync(Guid roomId, CreateRoomAssetRequest request, CancellationToken cancellationToken = default)
     {
-        var files = request.Files ?? [];
+        var files = request.Files.ToFileUploads();
         var assetId = Guid.NewGuid();
 
         (RoomAsset Asset, RoomAssetConditionHistory History) created;

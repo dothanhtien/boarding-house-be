@@ -1,8 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using BoardingHouse.Api.Common;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
+using BoardingHouse.Application.Common;
 
 namespace BoardingHouse.Api.OpenApi;
 

@@ -1,0 +1,11 @@
+using BoardingHouse.Domain.Entities;
+
+namespace BoardingHouse.Application.Repositories;
+
+public interface IOrganizationSettingsRepository
+{
+    Task<OrganizationSettings?> GetByOrganizationIdAsync(Guid organizationId, CancellationToken cancellationToken = default);
+    Task AddAsync(OrganizationSettings settings, CancellationToken cancellationToken = default);
+    void Update(OrganizationSettings settings);
+    void Detach(OrganizationSettings settings);
+}

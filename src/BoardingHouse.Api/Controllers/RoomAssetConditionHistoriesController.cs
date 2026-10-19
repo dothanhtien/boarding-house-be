@@ -2,9 +2,11 @@ using BoardingHouse.Api.Authorization;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.RoomAssetConditionHistories;
 using BoardingHouse.Api.Services;
-using BoardingHouse.Api.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.RoomAssetConditionHistories;
+using BoardingHouse.Application.Services.Storage;
 
 namespace BoardingHouse.Api.Controllers;
 

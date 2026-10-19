@@ -1,10 +1,10 @@
 using Microsoft.Extensions.DependencyInjection;
-using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Services;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.IntegrationTests.Fixtures;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.IntegrationTests.Services;
 

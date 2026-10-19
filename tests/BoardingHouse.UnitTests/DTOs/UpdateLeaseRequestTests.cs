@@ -1,4 +1,4 @@
-using BoardingHouse.Api.DTOs.Leases;
+using BoardingHouse.Application.DTOs.Leases;
 
 namespace BoardingHouse.UnitTests.DTOs;
 

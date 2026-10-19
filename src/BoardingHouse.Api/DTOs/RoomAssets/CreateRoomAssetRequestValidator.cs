@@ -1,5 +1,5 @@
-using BoardingHouse.Api.DTOs.Media;
 using FluentValidation;
+using BoardingHouse.Api.DTOs.Media;
 
 namespace BoardingHouse.Api.DTOs.RoomAssets;
 

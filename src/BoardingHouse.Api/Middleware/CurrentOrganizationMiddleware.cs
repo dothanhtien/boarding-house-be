@@ -1,4 +1,4 @@
-using BoardingHouse.Api.Common.CurrentOrganization;
+using BoardingHouse.Application.Common.CurrentOrganization;
 
 namespace BoardingHouse.Api.Middleware;
 

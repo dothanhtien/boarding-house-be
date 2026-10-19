@@ -1,12 +1,15 @@
-using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Common.CurrentOrganization;
+using BoardingHouse.Api.Common.CurrentUser;
 using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services;
 using BoardingHouse.Api.Services.Caching;
-using BoardingHouse.Api.Services.Storage;
 using BoardingHouse.Api.Services.Throttling;
-using FluentValidation;
-using Mapster;
+using BoardingHouse.Application.Common.CurrentOrganization;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Services.Caching;
+using BoardingHouse.Application.Services.Throttling;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Extensions;
 
@@ -52,10 +55,6 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ITenantProfileService, TenantProfileService>();
         services.AddScoped<ITenantService, TenantService>();
 
-        services.AddScoped<IMediaAttachmentService, MediaAttachmentService>();
-        services.AddScoped<IMediaCollectionService, MediaCollectionService>();
-        services.AddScoped<IMediaUploader, MediaUploader>();
-
         services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
         services.AddScoped<ICurrentOrganizationAccessor, CurrentOrganizationAccessor>();
 
@@ -63,14 +62,6 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IRolePermissionCache, RolePermissionCache>();
         services.AddScoped<IOrganizationMembershipCache, OrganizationMembershipCache>();
         services.AddScoped<IAttemptLimiter, DistributedAttemptLimiter>();
-
-        // Process-wide static configuration — runs once when the host is built.
-        TypeAdapterConfig.GlobalSettings.Scan(typeof(Program).Assembly);
-
-        services.AddValidatorsFromAssemblyContaining<Program>();
-
-        // Stop at the first failed rule within a property so each field surfaces a single error.
-        ValidatorOptions.Global.DefaultRuleLevelCascadeMode = CascadeMode.Stop;
 
         return services;
     }

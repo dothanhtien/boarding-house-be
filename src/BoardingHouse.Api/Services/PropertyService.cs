@@ -1,15 +1,16 @@
 using Mapster;
-using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Common.CurrentOrganization;
-using BoardingHouse.Api.DTOs.Properties;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Extensions;
-using BoardingHouse.Api.Mappings;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Repositories;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Common.CurrentOrganization;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.Properties;
+using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Domain.Entities;
+using BoardingHouse.Application.Mappings;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Services;
 
@@ -103,7 +104,7 @@ public class PropertyService(
             await propertyRepository.AddAsync(property, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+        catch (UniqueConstraintViolationException)
         {
             logger.LogWarning("Create property failed: name already in use in organization ({OrganizationId})", organizationId);
             throw new AppConflictException("A property with this name already exists in the organization");
@@ -133,7 +134,7 @@ public class PropertyService(
             propertyRepository.Update(property);
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+        catch (UniqueConstraintViolationException)
         {
             logger.LogWarning("Update property failed: name already in use in organization ({PropertyId})", id);
             throw new AppConflictException("A property with this name already exists in the organization");

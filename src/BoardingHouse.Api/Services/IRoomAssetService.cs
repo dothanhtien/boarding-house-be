@@ -1,5 +1,6 @@
+using BoardingHouse.Application.DTOs.RoomAssets;
+using BoardingHouse.Application.DTOs.Rooms;
 using BoardingHouse.Api.DTOs.RoomAssets;
-using BoardingHouse.Api.DTOs.Rooms;
 
 namespace BoardingHouse.Api.Services;
 

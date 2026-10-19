@@ -1,14 +1,15 @@
 using Mapster;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Auth;
-using BoardingHouse.Api.DTOs.Users;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.Api.Services.Storage;
+using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Application.DTOs.Users;
+using BoardingHouse.Application.DTOs.Auth;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Repositories;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Services;
 
 namespace BoardingHouse.Api.Services;
 
@@ -18,11 +19,8 @@ public class AuthService(
     IUnitOfWork unitOfWork,
     ITokenService tokenService,
     IStorageProvider storageProvider,
-    IConfiguration configuration,
     ILogger<AuthService> logger) : IAuthService
 {
-    private TimeSpan RefreshTokenLifetime => TimeSpan.FromDays(configuration.GetValue<int>("Jwt:RefreshTokenExpirationDays"));
-
     public async Task<UserResponse> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default)
     {
         var email = request.Email.Trim().ToLowerInvariant();
@@ -149,7 +147,7 @@ public class AuthService(
         }
 
         var newRefreshToken = tokenService.GenerateRefreshToken();
-        var newExpiresAt = DateTimeOffset.UtcNow.Add(RefreshTokenLifetime);
+        var newExpiresAt = DateTimeOffset.UtcNow.Add(tokenService.RefreshTokenLifetime);
         var newRefreshTokenEntity = new RefreshToken
         {
             UserId = user.Id,
@@ -199,7 +197,7 @@ public class AuthService(
     {
         var (accessToken, accessTokenExpiresAt) = tokenService.GenerateAccessToken(user);
         var refreshToken = tokenService.GenerateRefreshToken();
-        var expiresAt = DateTimeOffset.UtcNow.Add(RefreshTokenLifetime);
+        var expiresAt = DateTimeOffset.UtcNow.Add(tokenService.RefreshTokenLifetime);
 
         var refreshTokenEntity = new RefreshToken
         {

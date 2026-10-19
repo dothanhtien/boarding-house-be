@@ -1,14 +1,13 @@
 using Mapster;
-using Microsoft.EntityFrameworkCore;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.UtilityServices;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Extensions;
-using BoardingHouse.Api.Mappings;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Persistence.Configurations;
-using BoardingHouse.Api.Repositories;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.UtilityServices;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Mappings;
 using BoardingHouse.Domain.Entities;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Services;
 
@@ -84,7 +83,7 @@ public class UtilityServiceService(
 
             return service.Adapt<UtilityServiceResponse>();
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation(UtilityServiceConfiguration.PropertyIdNameUniqueIndex))
+        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.UtilityServicePropertyIdName)
         {
             logger.LogWarning("Create utility service failed: name already in use in property ({PropertyId})", request.PropertyId);
             throw new AppConflictException("A utility service with this name already exists in the property");
@@ -116,7 +115,7 @@ public class UtilityServiceService(
 
             return service.Adapt<UtilityServiceResponse>();
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation(UtilityServiceConfiguration.PropertyIdNameUniqueIndex))
+        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.UtilityServicePropertyIdName)
         {
             logger.LogWarning("Update utility service failed: name already in use in property ({UtilityServiceId})", id);
             throw new AppConflictException("A utility service with this name already exists in the property");

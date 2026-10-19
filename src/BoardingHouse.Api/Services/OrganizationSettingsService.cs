@@ -1,13 +1,13 @@
 using Mapster;
-using Microsoft.EntityFrameworkCore;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Organizations;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Extensions;
-using BoardingHouse.Api.Mappings;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Repositories;
 using BoardingHouse.Domain.Entities;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.Organizations;
+using BoardingHouse.Application.Mappings;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Services;
 
@@ -56,7 +56,7 @@ public class OrganizationSettingsService(
                 logger.LogInformation("Organization settings created ({OrganizationId})", organizationId);
                 return settings.Adapt<OrganizationSettingsResponse>();
             }
-            catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+            catch (UniqueConstraintViolationException)
             {
                 organizationSettingsRepository.Detach(settings);
                 logger.LogInformation("Organization settings creation raced with a concurrent write ({OrganizationId}); retrying as update", organizationId);

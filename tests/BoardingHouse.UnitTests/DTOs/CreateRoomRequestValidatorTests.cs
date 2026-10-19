@@ -1,7 +1,7 @@
 using System.Globalization;
 using FluentValidation.TestHelper;
-using BoardingHouse.Api.DTOs.Rooms;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.DTOs.Rooms;
 
 namespace BoardingHouse.UnitTests.DTOs;
 

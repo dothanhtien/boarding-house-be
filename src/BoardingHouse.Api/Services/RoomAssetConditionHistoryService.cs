@@ -1,14 +1,17 @@
 using Mapster;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.RoomAssetConditionHistories;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Extensions;
-using BoardingHouse.Api.Mappings;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.Api.Services.Storage;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.RoomAssetConditionHistories;
+using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Mappings;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Api.DTOs.RoomAssetConditionHistories;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Services;
 
@@ -44,7 +47,7 @@ public class RoomAssetConditionHistoryService(
         CreateRoomAssetConditionHistoryRequest request,
         CancellationToken cancellationToken = default)
     {
-        var files = request.Files ?? [];
+        var files = request.Files.ToFileUploads();
         var newCondition = request.NewCondition!.Value;
 
         RoomAssetConditionHistory history;
@@ -92,7 +95,7 @@ public class RoomAssetConditionHistoryService(
         UpdateRoomAssetConditionHistoryRequest request,
         CancellationToken cancellationToken = default)
     {
-        var files = request.Files ?? [];
+        var files = request.Files.ToFileUploads();
         var removeIds = request.RemoveMediaIds ?? [];
         var historyNotFoundMessage = NotFoundMessages.RoomAssetConditionHistory(historyId);
 

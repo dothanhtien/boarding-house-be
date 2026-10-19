@@ -1,16 +1,15 @@
 using Mapster;
-using Microsoft.EntityFrameworkCore;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Common.CurrentOrganization;
-using BoardingHouse.Api.DTOs.TenantProfiles;
-using BoardingHouse.Api.DTOs.Tenants;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Extensions;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Persistence.Configurations;
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.Api.Services.Throttling;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.CurrentOrganization;
+using BoardingHouse.Application.Services.Throttling;
+using BoardingHouse.Application.DTOs.Tenants;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.DTOs.TenantProfiles;
 using BoardingHouse.Domain.Entities;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Services;
 
@@ -106,8 +105,7 @@ public class TenantService(
 
             return user.Adapt<TenantResponse>() with { Profile = profile };
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation(UserConfiguration.EmailUniqueIndex)
-            || ex.IsUniqueViolation(UserConfiguration.PhoneUniqueIndex))
+        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName is UniqueIndexNames.UserEmail or UniqueIndexNames.UserPhone)
         {
             logger.LogWarning("Create tenant failed: phone or email already in use (organization {OrganizationId})", organizationId);
             throw new AppConflictException(DuplicateUserMessage);

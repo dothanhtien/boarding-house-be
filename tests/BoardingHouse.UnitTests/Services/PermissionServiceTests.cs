@@ -1,7 +1,7 @@
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.Api.Services;
-using BoardingHouse.Api.Services.Caching;
 using Moq;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Services.Caching;
 
 namespace BoardingHouse.UnitTests.Services;
 

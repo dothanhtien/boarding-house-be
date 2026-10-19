@@ -1,11 +1,11 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.Api.Services.Caching;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services.Caching;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Extensions;
 

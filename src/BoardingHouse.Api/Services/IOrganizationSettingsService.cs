@@ -1,4 +1,4 @@
-using BoardingHouse.Api.DTOs.Organizations;
+using BoardingHouse.Application.DTOs.Organizations;
 
 namespace BoardingHouse.Api.Services;
 

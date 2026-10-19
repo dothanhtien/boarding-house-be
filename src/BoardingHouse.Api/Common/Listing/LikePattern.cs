@@ -1,4 +1,4 @@
-namespace BoardingHouse.Api.Common;
+namespace BoardingHouse.Api.Common.Listing;
 
 public static class LikePattern
 {

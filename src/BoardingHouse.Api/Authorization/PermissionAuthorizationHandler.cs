@@ -1,6 +1,6 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Services;
 using Microsoft.AspNetCore.Authorization;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Authorization;
 

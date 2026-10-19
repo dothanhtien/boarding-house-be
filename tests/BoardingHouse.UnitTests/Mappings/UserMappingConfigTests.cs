@@ -1,10 +1,10 @@
 using Mapster;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.UnitTests.Common;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.Users;
 
 namespace BoardingHouse.UnitTests.Mappings;
 

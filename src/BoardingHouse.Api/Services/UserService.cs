@@ -1,17 +1,20 @@
 using System.Linq.Expressions;
 using Mapster;
-using Microsoft.EntityFrameworkCore;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Users;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Persistence.Configurations;
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.Api.Services.Caching;
-using BoardingHouse.Api.Services.Storage;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.Users;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Services.Caching;
+using BoardingHouse.Application.Services.Storage;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Api.DTOs.Users;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Services;
 
@@ -91,7 +94,7 @@ public class UserService(
             await userRepository.AddAsync(user, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+        catch (UniqueConstraintViolationException)
         {
             logger.LogWarning("Create user failed: email or phone already in use ({Email}, {Phone})", maskedEmail, maskedPhone);
             throw new AppConflictException("Email or phone already in use");
@@ -145,7 +148,7 @@ public class UserService(
             userRepository.Update(user);
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+        catch (UniqueConstraintViolationException)
         {
             logger.LogWarning("Update user failed: email or phone already in use ({UserId})", id);
             throw new AppConflictException("Email or phone already in use");
@@ -170,7 +173,7 @@ public class UserService(
         var change = await mediaAttachmentService.StageReplaceAsync(
             MediaAssetEntityType.UserAvatar,
             user.Id,
-            request.File!,
+            request.File!.ToFileUpload(),
             $"users/{user.Id}",
             organizationId: null,
             cancellationToken);
@@ -179,7 +182,7 @@ public class UserService(
         {
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation(MediaAssetConfiguration.EntityTypeEntityIdUniqueIndex))
+        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.MediaAssetEntityTypeEntityId)
         {
             await mediaAttachmentService.DiscardAsync(change);
             logger.LogWarning("Update user avatar failed: avatar changed concurrently ({UserId})", user.Id);
@@ -218,7 +221,7 @@ public class UserService(
         {
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation(MediaAssetConfiguration.EntityTypeEntityIdUniqueIndex))
+        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.MediaAssetEntityTypeEntityId)
         {
             await mediaAttachmentService.DiscardAsync(change);
             logger.LogWarning("Remove user avatar failed: avatar changed concurrently ({UserId})", id);

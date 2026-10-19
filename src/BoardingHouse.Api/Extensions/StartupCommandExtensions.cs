@@ -1,8 +1,8 @@
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Seed;
-using BoardingHouse.Api.Services.Caching;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
+using BoardingHouse.Application.Services.Caching;
 
 namespace BoardingHouse.Api.Extensions;
 

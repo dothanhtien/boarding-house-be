@@ -1,4 +1,4 @@
-using BoardingHouse.Api.Common;
+using BoardingHouse.Api.Common.CurrentUser;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Interceptors;
 using Microsoft.EntityFrameworkCore;

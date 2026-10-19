@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using BoardingHouse.Api.Common.ModelBinding;
 using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Api.OpenApi;
+using FluentValidation;
 using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 
@@ -37,6 +38,8 @@ public static class ApiServiceCollectionExtensions
             options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         });
 
+        // Multipart form DTOs (IFormFile) and their validators stay in the Api; the rest live in Application.
+        services.AddValidatorsFromAssemblyContaining<Program>();
         services.AddFluentValidationAutoValidation();
 
         services.AddExceptionHandler<GlobalExceptionHandler>();

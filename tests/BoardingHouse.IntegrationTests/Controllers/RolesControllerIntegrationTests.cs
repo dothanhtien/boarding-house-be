@@ -2,10 +2,10 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Auth;
-using BoardingHouse.Api.DTOs.Roles;
-using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.IntegrationTests.Fixtures;
+using BoardingHouse.Application.DTOs.Auth;
+using BoardingHouse.Application.DTOs.Roles;
+using BoardingHouse.Application.DTOs.Users;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 

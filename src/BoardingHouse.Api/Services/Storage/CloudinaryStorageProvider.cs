@@ -1,8 +1,9 @@
 using CloudinaryDotNet;
 using CloudinaryDotNet.Actions;
 using Microsoft.Extensions.Options;
-using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Services.Storage;
 
 namespace BoardingHouse.Api.Services.Storage;
 

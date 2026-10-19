@@ -1,4 +1,4 @@
-using BoardingHouse.Api.DTOs.UtilityServices;
+using BoardingHouse.Application.DTOs.UtilityServices;
 
 namespace BoardingHouse.Api.Services;
 

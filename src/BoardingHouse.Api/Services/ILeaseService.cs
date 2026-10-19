@@ -1,5 +1,5 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Leases;
+using BoardingHouse.Application.DTOs.Leases;
+using BoardingHouse.Application.Common.Listing;
 
 namespace BoardingHouse.Api.Services;
 

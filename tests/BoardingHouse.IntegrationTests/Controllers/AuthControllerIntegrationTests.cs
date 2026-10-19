@@ -8,13 +8,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Auth;
-using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.IntegrationTests.Fixtures;
+using BoardingHouse.Application.DTOs.Auth;
+using BoardingHouse.Application.DTOs.Users;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 

@@ -1,17 +1,17 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Auth;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services;
-using BoardingHouse.Api.Services.Storage;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.UnitTests.Common;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.Auth;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Services.Storage;
 
 namespace BoardingHouse.UnitTests.Services;
 
@@ -27,12 +27,7 @@ public class AuthServiceTests
     {
         MapsterTestSupport.EnsureUserMappingRegistered();
 
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Jwt:RefreshTokenExpirationDays"] = "7"
-            })
-            .Build();
+        _tokenService.SetupGet(t => t.RefreshTokenLifetime).Returns(TimeSpan.FromDays(7));
 
         _authService = new AuthService(
             _userRepository.Object,
@@ -40,7 +35,6 @@ public class AuthServiceTests
             _unitOfWork.Object,
             _tokenService.Object,
             new Mock<IStorageProvider>().Object,
-            configuration,
             NullLogger<AuthService>.Instance);
     }
 

@@ -1,4 +1,4 @@
-using BoardingHouse.Api.DTOs.Users;
+using BoardingHouse.Application.DTOs.Users;
 
 namespace BoardingHouse.UnitTests.DTOs;
 

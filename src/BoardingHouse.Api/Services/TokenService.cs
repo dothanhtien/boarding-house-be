@@ -3,12 +3,16 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
+using BoardingHouse.Application.Services;
 using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Api.Services;
 
 public class TokenService(IConfiguration configuration) : ITokenService
 {
+    public TimeSpan RefreshTokenLifetime =>
+        TimeSpan.FromDays(configuration.GetValue<int>("Jwt:RefreshTokenExpirationDays"));
+
     public (string Token, DateTimeOffset ExpiresAt) GenerateAccessToken(User user)
     {
         var claims = new List<Claim>

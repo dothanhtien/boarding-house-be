@@ -1,19 +1,20 @@
 using Mapster;
-using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Common.CurrentOrganization;
-using BoardingHouse.Api.DTOs.Media;
-using BoardingHouse.Api.DTOs.Rooms;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Extensions;
-using BoardingHouse.Api.Mappings;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Persistence.Configurations;
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.Api.Services.Storage;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Common.CurrentOrganization;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.Rooms;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Mappings;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Api.DTOs.Media;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Services;
 
@@ -124,7 +125,7 @@ public class RoomService(
             logger.LogInformation("Room created ({RoomId})", room.Id);
             return room.Adapt<RoomDetailsResponse>() with { Media = [] };
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation(RoomConfiguration.PropertyIdRoomNumberUniqueIndex))
+        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.RoomPropertyIdRoomNumber)
         {
             logger.LogWarning("Create room failed: room number already in use in property ({PropertyId})", request.PropertyId);
             throw new AppConflictException("A room with this number already exists in the property");
@@ -190,7 +191,7 @@ public class RoomService(
 
             return await ToDetailsResponseAsync(room, cancellationToken);
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation(RoomConfiguration.PropertyIdRoomNumberUniqueIndex))
+        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.RoomPropertyIdRoomNumber)
         {
             logger.LogWarning("Update room failed: room number already in use in property ({RoomId})", id);
             throw new AppConflictException("A room with this number already exists in the property");
@@ -241,7 +242,7 @@ public class RoomService(
     public async Task<List<RoomMediaResponse>> AddMediaAsync(
         Guid roomId, AddImagesRequest request, CancellationToken cancellationToken = default)
     {
-        var files = request.Files!;
+        var files = request.Files.ToFileUploads();
 
         var room = await roomRepository.GetByIdWithDetailsAsync(roomId, cancellationToken)
             ?? throw new AppNotFoundException(NotFoundMessages.Room(roomId));

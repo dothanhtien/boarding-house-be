@@ -2,11 +2,12 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Services.Storage;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.UnitTests.Services.Storage;
 
@@ -48,12 +49,12 @@ public class MediaUploaderTests
         _uploader = new MediaUploader(_storageProvider.Object, _currentUserAccessor.Object, NullLogger<MediaUploader>.Instance);
     }
 
-    private static IFormFile NewFile(byte[] content, string contentType) =>
-        new FormFile(new MemoryStream(content), 0, content.Length, "file", "me.bin")
+    private static IFileUpload NewFile(byte[] content, string contentType) =>
+        new FormFileUpload(new FormFile(new MemoryStream(content), 0, content.Length, "file", "me.bin")
         {
             Headers = new HeaderDictionary(),
             ContentType = contentType
-        };
+        });
 
     public static TheoryData<byte[], string> MatchingFiles => new()
     {

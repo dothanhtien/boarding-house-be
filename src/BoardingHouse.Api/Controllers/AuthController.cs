@@ -1,11 +1,13 @@
 using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Services;
-using BoardingHouse.Api.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using BoardingHouse.Application.DTOs.Auth;
+using BoardingHouse.Application.DTOs.Users;
+using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Controllers;
 

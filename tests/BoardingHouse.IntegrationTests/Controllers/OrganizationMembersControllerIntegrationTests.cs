@@ -2,13 +2,14 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Auth;
-using BoardingHouse.Api.DTOs.Organizations;
-using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using BoardingHouse.Application.DTOs.Auth;
+using BoardingHouse.Application.DTOs.Organizations;
+using BoardingHouse.Application.DTOs.Users;
+using BoardingHouse.Application.Common.Listing;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 

@@ -1,14 +1,15 @@
 using System.Linq.Expressions;
 using Mapster;
-using Microsoft.EntityFrameworkCore;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Organizations;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.Api.Services.Caching;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.Organizations;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services.Caching;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Services;
 
@@ -88,7 +89,7 @@ public class OrganizationMemberService(
             await organizationMemberRepository.AddAsync(member, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation())
+        catch (UniqueConstraintViolationException)
         {
             logger.LogWarning("Add organization member failed: user already a member ({OrganizationId}, {UserId})", organizationId, request.UserId);
             throw new AppConflictException("User is already a member of this organization");

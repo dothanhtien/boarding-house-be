@@ -1,5 +1,6 @@
 using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Middleware;
+using BoardingHouse.Application;
 using Scalar.AspNetCore;
 using Serilog;
 
@@ -22,6 +23,7 @@ try
     builder.Services
         .AddApiControllers()
         .AddApiDocumentation()
+        .AddApplication()
         .AddPersistence(builder.Configuration)
         .AddMediaStorage(builder.Configuration)
         .AddRepositories()

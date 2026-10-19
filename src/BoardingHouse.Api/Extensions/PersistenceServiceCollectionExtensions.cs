@@ -1,7 +1,8 @@
-using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Interceptors;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Extensions;
 

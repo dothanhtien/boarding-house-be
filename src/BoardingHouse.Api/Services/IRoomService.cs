@@ -1,6 +1,6 @@
-using BoardingHouse.Api.Common;
+using BoardingHouse.Application.DTOs.Rooms;
 using BoardingHouse.Api.DTOs.Media;
-using BoardingHouse.Api.DTOs.Rooms;
+using BoardingHouse.Application.Common.Listing;
 
 namespace BoardingHouse.Api.Services;
 

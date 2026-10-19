@@ -1,5 +1,5 @@
-using BoardingHouse.Api.DTOs.TenantProfiles;
-using BoardingHouse.Api.DTOs.Tenants;
+using BoardingHouse.Application.DTOs.TenantProfiles;
+using BoardingHouse.Application.DTOs.Tenants;
 
 namespace BoardingHouse.Api.Services;
 

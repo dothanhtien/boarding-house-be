@@ -1,9 +1,11 @@
 using BoardingHouse.Api.Authorization;
 using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Organizations;
 using BoardingHouse.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.Organizations;
+using BoardingHouse.Application.Common.Listing;
 
 namespace BoardingHouse.Api.Controllers;
 

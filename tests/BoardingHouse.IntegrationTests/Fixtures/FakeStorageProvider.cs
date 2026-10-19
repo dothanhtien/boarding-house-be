@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
-using BoardingHouse.Api.Services.Storage;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Services.Storage;
 
 namespace BoardingHouse.IntegrationTests.Fixtures;
 

@@ -1,8 +1,9 @@
 using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.TenantProfiles;
 using BoardingHouse.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using BoardingHouse.Application.DTOs.TenantProfiles;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Controllers;
 

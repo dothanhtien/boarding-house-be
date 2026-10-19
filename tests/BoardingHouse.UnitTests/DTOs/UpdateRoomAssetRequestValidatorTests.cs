@@ -1,5 +1,5 @@
-using BoardingHouse.Api.DTOs.RoomAssets;
 using FluentValidation.TestHelper;
+using BoardingHouse.Application.DTOs.RoomAssets;
 
 namespace BoardingHouse.UnitTests.DTOs;
 

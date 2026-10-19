@@ -4,18 +4,23 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Npgsql;
-using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Users;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Configurations;
-using BoardingHouse.Api.Repositories;
 using BoardingHouse.Api.Services;
-using BoardingHouse.Api.Services.Caching;
-using BoardingHouse.Api.Services.Storage;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.Users;
+using BoardingHouse.Api.Exceptions;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Services.Caching;
+using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.UnitTests.Services;
 
@@ -251,7 +256,7 @@ public class UserServiceTests
             PasswordConfirmation = "password"
         };
 
-        await Assert.ThrowsAsync<DbUpdateException>(() => _userService.CreateAsync(request));
+        await Assert.ThrowsAsync<PersistenceException>(() => _userService.CreateAsync(request));
     }
 
     [Fact]
@@ -513,7 +518,7 @@ public class UserServiceTests
         var change = new MediaAttachmentChange(NewAvatarAsset("root/users/x/new"), NewAvatarAsset("root/users/x/old"));
         _mediaAttachmentService
             .Setup(s => s.StageReplaceAsync(
-                MediaAssetEntityType.UserAvatar, user.Id, file, $"users/{user.Id}", null, It.IsAny<CancellationToken>()))
+                MediaAssetEntityType.UserAvatar, user.Id, It.Is<IFileUpload>(f => f.FileName == file.FileName), $"users/{user.Id}", null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(change);
 
         var response = await _userService.UpdateAvatarAsync(user.Id, new UpdateUserAvatarRequest { File = file });
@@ -605,7 +610,7 @@ public class UserServiceTests
     private void SetupStageReplaceReturns(MediaAttachmentChange change) =>
         _mediaAttachmentService
             .Setup(s => s.StageReplaceAsync(
-                It.IsAny<MediaAssetEntityType>(), It.IsAny<Guid>(), It.IsAny<IFormFile>(), It.IsAny<string>(), It.IsAny<Guid?>(),
+                It.IsAny<MediaAssetEntityType>(), It.IsAny<Guid>(), It.IsAny<IFileUpload>(), It.IsAny<string>(), It.IsAny<Guid?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(change);
 
@@ -616,8 +621,9 @@ public class UserServiceTests
             ContentType = "image/png"
         };
 
+    // Mirrors UnitOfWork: EF Core failures reach services already translated into PersistenceException.
     private void SetupSaveChangesThrows(Exception inner) =>
         _unitOfWork
             .Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new DbUpdateException("Save failed", inner));
+            .ThrowsAsync(new DbUpdateException("Save failed", inner).ToPersistenceException());
 }

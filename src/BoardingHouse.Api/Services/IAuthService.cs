@@ -1,5 +1,5 @@
-using BoardingHouse.Api.DTOs.Auth;
-using BoardingHouse.Api.DTOs.Users;
+using BoardingHouse.Application.DTOs.Auth;
+using BoardingHouse.Application.DTOs.Users;
 
 namespace BoardingHouse.Api.Services;
 

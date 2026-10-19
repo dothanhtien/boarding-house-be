@@ -1,3 +1,4 @@
+using BoardingHouse.Application.DTOs.RoomAssetConditionHistories;
 using BoardingHouse.Api.DTOs.RoomAssetConditionHistories;
 
 namespace BoardingHouse.Api.Services;

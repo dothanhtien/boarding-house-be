@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
+using BoardingHouse.Application.Services.Throttling;
 
 namespace BoardingHouse.Api.Services.Throttling;
 

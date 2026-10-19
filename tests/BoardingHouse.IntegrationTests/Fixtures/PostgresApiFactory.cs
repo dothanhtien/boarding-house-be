@@ -10,9 +10,9 @@ using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Seed;
-using BoardingHouse.Api.Services.Storage;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
+using BoardingHouse.Application.Services.Storage;
 
 namespace BoardingHouse.IntegrationTests.Fixtures;
 

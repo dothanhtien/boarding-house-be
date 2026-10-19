@@ -1,14 +1,16 @@
 using System.Linq.Expressions;
 using Mapster;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Organizations;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Extensions;
-using BoardingHouse.Api.Mappings;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.Api.Services.Caching;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Services.Caching;
+using BoardingHouse.Application.DTOs.Organizations;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Mappings;
 using BoardingHouse.Domain.Entities;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Services;
 

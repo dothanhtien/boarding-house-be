@@ -8,16 +8,16 @@ using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Auth;
-using BoardingHouse.Api.DTOs.Organizations;
-using BoardingHouse.Api.DTOs.Properties;
-using BoardingHouse.Api.DTOs.UtilityServices;
-using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Persistence;
 using BoardingHouse.Api.Persistence.Seed;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.DTOs.Auth;
+using BoardingHouse.Application.DTOs.Organizations;
+using BoardingHouse.Application.DTOs.Properties;
+using BoardingHouse.Application.DTOs.Users;
+using BoardingHouse.Application.DTOs.UtilityServices;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 

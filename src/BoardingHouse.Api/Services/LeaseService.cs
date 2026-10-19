@@ -1,18 +1,18 @@
 using System.Linq.Expressions;
 using System.Security.Cryptography;
 using Mapster;
-using Microsoft.EntityFrameworkCore;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Common.CurrentOrganization;
-using BoardingHouse.Api.DTOs.Leases;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Extensions;
-using BoardingHouse.Api.Mappings;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Persistence.Configurations;
-using BoardingHouse.Api.Repositories;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.CurrentOrganization;
+using BoardingHouse.Application.DTOs.Leases;
+using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Mappings;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Api.Services;
 
@@ -169,14 +169,14 @@ public class LeaseService(
             logger.LogInformation("Lease created ({LeaseId})", lease.Id);
             return lease.Adapt<LeaseResponse>();
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation(LeaseConfiguration.OrganizationIdLeaseCodeUniqueIndex))
+        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.LeaseOrganizationIdLeaseCode)
         {
             logger.LogWarning("Create lease failed: lease code already in use in organization (room {RoomId})", request.RoomId);
             throw new AppConflictException(request.LeaseCode is null
                 ? "The generated lease code collided with an existing one, please retry"
                 : "A lease with this code already exists in the organization");
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation(LeaseConfiguration.PreviousLeaseIdUniqueIndex))
+        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.LeasePreviousLeaseId)
         {
             logger.LogWarning("Create lease failed: previous lease already renewed ({PreviousLeaseId})", request.PreviousLeaseId);
             throw new AppConflictException("The previous lease has already been renewed by another lease");
@@ -261,12 +261,12 @@ public class LeaseService(
             logger.LogInformation("Lease updated ({LeaseId})", lease.Id);
             return lease.Adapt<LeaseResponse>();
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation(LeaseConfiguration.OrganizationIdLeaseCodeUniqueIndex))
+        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.LeaseOrganizationIdLeaseCode)
         {
             logger.LogWarning("Update lease failed: lease code already in use in organization ({LeaseId})", id);
             throw new AppConflictException("A lease with this code already exists in the organization");
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation(LeaseConfiguration.PreviousLeaseIdUniqueIndex))
+        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.LeasePreviousLeaseId)
         {
             logger.LogWarning("Update lease failed: previous lease already renewed ({LeaseId})", id);
             throw new AppConflictException("The previous lease has already been renewed by another lease");
@@ -366,7 +366,7 @@ public class LeaseService(
             logger.LogInformation("Lease activated ({LeaseId})", lease.Id);
             return lease.Adapt<LeaseResponse>();
         }
-        catch (DbUpdateException ex) when (ex.IsUniqueViolation(LeaseConfiguration.RoomIdActiveUniqueIndex))
+        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.LeaseRoomIdActive)
         {
             logger.LogWarning("Activate lease failed: room already has an active lease ({LeaseId})", id);
             throw new AppConflictException("Room already has an active lease");

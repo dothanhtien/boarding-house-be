@@ -1,6 +1,6 @@
 using BoardingHouse.Api.DTOs.Media;
-using BoardingHouse.Api.Services.Storage;
 using Microsoft.AspNetCore.Http;
+using BoardingHouse.Application.Services.Storage;
 
 namespace BoardingHouse.UnitTests.DTOs;
 
