@@ -11,9 +11,15 @@ services:
     build:
       target: dev
     volumes:
-      - ./src/BoardingHouse.Api:/src/src/BoardingHouse.Api
+      - ./src:/src/src
       - api_bin:/src/src/BoardingHouse.Api/bin
       - api_obj:/src/src/BoardingHouse.Api/obj
+      - application_bin:/src/src/BoardingHouse.Application/bin
+      - application_obj:/src/src/BoardingHouse.Application/obj
+      - domain_bin:/src/src/BoardingHouse.Domain/bin
+      - domain_obj:/src/src/BoardingHouse.Domain/obj
+      - infrastructure_bin:/src/src/BoardingHouse.Infrastructure/bin
+      - infrastructure_obj:/src/src/BoardingHouse.Infrastructure/obj
       - api_nuget_cache:/root/.nuget/packages
     environment:
       DOTNET_USE_POLLING_FILE_WATCHER: "true"
@@ -37,5 +43,11 @@ services:
 volumes:
   api_bin:
   api_obj:
+  application_bin:
+  application_obj:
+  domain_bin:
+  domain_obj:
+  infrastructure_bin:
+  infrastructure_obj:
   api_nuget_cache:
   pgadmin_data:
