@@ -1,5 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
-using BoardingHouse.Api.Persistence;
+using BoardingHouse.Infrastructure.Persistence;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.IntegrationTests.Fixtures;

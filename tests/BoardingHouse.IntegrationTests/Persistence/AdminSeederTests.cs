@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using BoardingHouse.Api.Persistence.Seed;
+using BoardingHouse.Infrastructure.Persistence.Seed;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.IntegrationTests.Fixtures;
 

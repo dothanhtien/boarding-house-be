@@ -1,6 +1,8 @@
 using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Middleware;
 using BoardingHouse.Application;
+using BoardingHouse.Infrastructure;
+using BoardingHouse.Infrastructure.Persistence;
 using Scalar.AspNetCore;
 using Serilog;
 
@@ -24,9 +26,7 @@ try
         .AddApiControllers()
         .AddApiDocumentation()
         .AddApplication()
-        .AddPersistence(builder.Configuration)
-        .AddMediaStorage(builder.Configuration)
-        .AddRepositories()
+        .AddInfrastructure(builder.Configuration)
         .AddApplicationServices()
         .AddPermissionAuthorization()
         .AddJwtAuthentication(builder.Configuration)

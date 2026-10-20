@@ -7,7 +7,7 @@ using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Persistence;
+using BoardingHouse.Infrastructure.Persistence;
 using BoardingHouse.Api.Services;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Application.DTOs.Auth;

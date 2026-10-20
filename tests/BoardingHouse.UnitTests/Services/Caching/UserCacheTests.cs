@@ -4,7 +4,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
-using BoardingHouse.Api.Services.Caching;
+using BoardingHouse.Infrastructure.Services.Caching;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 

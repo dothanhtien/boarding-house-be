@@ -1,8 +1,8 @@
 using System.Data.Common;
 using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Repositories;
+using BoardingHouse.Infrastructure.Persistence;
+using BoardingHouse.Infrastructure.Repositories;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;

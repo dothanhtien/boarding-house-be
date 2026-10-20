@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using BoardingHouse.Api.Repositories;
+using BoardingHouse.Infrastructure.Repositories;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;

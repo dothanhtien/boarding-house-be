@@ -1,4 +1,4 @@
-using BoardingHouse.Api.Services.Storage;
+using BoardingHouse.Infrastructure.Services.Storage;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 

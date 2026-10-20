@@ -1,6 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.Extensions.Configuration;
-using BoardingHouse.Api.Services;
+using BoardingHouse.Infrastructure.Services;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 

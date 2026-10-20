@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Persistence;
+using BoardingHouse.Infrastructure.Persistence;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.IntegrationTests.Fixtures;
 using BoardingHouse.Application.DTOs.Auth;
