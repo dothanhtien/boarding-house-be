@@ -6,10 +6,9 @@ using BoardingHouse.Application.Common;
 using BoardingHouse.Application.DTOs.Organizations;
 using BoardingHouse.Application.Mappings;
 using BoardingHouse.Application.Exceptions;
-using BoardingHouse.Application.Services;
 using BoardingHouse.Application.Common.CurrentUser;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public class OrganizationSettingsService(
     IOrganizationSettingsRepository organizationSettingsRepository,

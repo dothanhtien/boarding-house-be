@@ -1,12 +1,12 @@
 using System.Net;
 using BoardingHouse.Api.Controllers;
-using BoardingHouse.Api.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using BoardingHouse.Application.DTOs.Auth;
 using BoardingHouse.Application.DTOs.Users;
 using BoardingHouse.Application.Common.CurrentUser;
+using BoardingHouse.Application.Services;
 
 namespace BoardingHouse.UnitTests.Controllers;
 

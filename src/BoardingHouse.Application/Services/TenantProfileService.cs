@@ -8,7 +8,7 @@ using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Application.Common.CurrentUser;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public class TenantProfileService(
     ITenantProfileRepository tenantProfileRepository,

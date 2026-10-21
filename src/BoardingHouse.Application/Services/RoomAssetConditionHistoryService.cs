@@ -8,12 +8,9 @@ using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Application.Mappings;
-using BoardingHouse.Application.Services;
-using BoardingHouse.Api.DTOs.RoomAssetConditionHistories;
-using BoardingHouse.Api.Common;
 using BoardingHouse.Application.Common.CurrentUser;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public class RoomAssetConditionHistoryService(
     IRoomAssetRepository roomAssetRepository,
@@ -44,17 +41,16 @@ public class RoomAssetConditionHistoryService(
     public async Task<RoomAssetConditionHistoryResponse> CreateAsync(
         Guid roomId,
         Guid assetId,
-        CreateRoomAssetConditionHistoryRequest request,
+        AssetCondition newCondition,
+        string? note,
+        IReadOnlyList<IFileUpload> files,
         CancellationToken cancellationToken = default)
     {
-        var files = request.Files.ToFileUploads();
-        var newCondition = request.NewCondition!.Value;
-
         RoomAssetConditionHistory history;
         if (files.Count == 0)
         {
             history = await unitOfWork.ExecuteInTransactionAsync(
-                ct => AppendEntryAsync(roomId, assetId, newCondition, request.Note, [], ct),
+                ct => AppendEntryAsync(roomId, assetId, newCondition, note, [], ct),
                 cancellationToken);
 
             logger.LogInformation(
@@ -77,7 +73,7 @@ public class RoomAssetConditionHistoryService(
                 files,
                 PhotoFolder(organizationId, roomId, assetId),
                 organizationId,
-                (uploaded, ct) => AppendEntryAsync(roomId, assetId, newCondition, request.Note, uploaded, ct),
+                (uploaded, ct) => AppendEntryAsync(roomId, assetId, newCondition, note, uploaded, ct),
                 cancellationToken);
 
             logger.LogInformation(
@@ -92,18 +88,19 @@ public class RoomAssetConditionHistoryService(
         Guid roomId,
         Guid assetId,
         Guid historyId,
-        UpdateRoomAssetConditionHistoryRequest request,
+        Optional<string?> note,
+        IReadOnlyList<Guid>? removeMediaIds,
+        IReadOnlyList<IFileUpload> files,
         CancellationToken cancellationToken = default)
     {
-        var files = request.Files.ToFileUploads();
-        var removeIds = request.RemoveMediaIds ?? [];
+        var removeIds = removeMediaIds ?? [];
         var historyNotFoundMessage = NotFoundMessages.RoomAssetConditionHistory(historyId);
 
         (RoomAssetConditionHistory History, List<MediaAsset> Removed) result;
         if (files.Count == 0)
         {
             result = await unitOfWork.ExecuteInTransactionAsync(
-                ct => ApplyUpdateAsync(roomId, assetId, historyId, request.Note, removeIds, [], ct),
+                ct => ApplyUpdateAsync(roomId, assetId, historyId, note, removeIds, [], ct),
                 cancellationToken);
         }
         else
@@ -128,7 +125,7 @@ public class RoomAssetConditionHistoryService(
                 files,
                 PhotoFolder(organizationId, roomId, assetId),
                 organizationId,
-                (uploaded, ct) => ApplyUpdateAsync(roomId, assetId, historyId, request.Note, removeIds, uploaded, ct),
+                (uploaded, ct) => ApplyUpdateAsync(roomId, assetId, historyId, note, removeIds, uploaded, ct),
                 cancellationToken);
         }
 

@@ -1,6 +1,6 @@
 using BoardingHouse.Application.DTOs.Organizations;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public interface IOrganizationSettingsService
 {

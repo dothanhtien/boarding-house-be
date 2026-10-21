@@ -10,13 +10,10 @@ using BoardingHouse.Application.Services.Storage;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
-using BoardingHouse.Application.Services;
-using BoardingHouse.Api.DTOs.Users;
-using BoardingHouse.Api.Common;
 using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.Common.CurrentUser;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public class UserService(
     IUserRepository userRepository,
@@ -164,8 +161,7 @@ public class UserService(
         };
     }
 
-    public async Task<UserResponse> UpdateAvatarAsync(
-        Guid id, UpdateUserAvatarRequest request, CancellationToken cancellationToken = default)
+    public async Task<UserResponse> UpdateAvatarAsync(Guid id, IFileUpload file, CancellationToken cancellationToken = default)
     {
         var (user, _) = await userRepository.GetByIdWithRolesAndOrganizationsAsync(id, cancellationToken)
             ?? throw new AppNotFoundException(NotFoundMessages.User(id));
@@ -173,7 +169,7 @@ public class UserService(
         var change = await mediaAttachmentService.StageReplaceAsync(
             MediaAssetEntityType.UserAvatar,
             user.Id,
-            request.File!.ToFileUpload(),
+            file,
             $"users/{user.Id}",
             organizationId: null,
             cancellationToken);

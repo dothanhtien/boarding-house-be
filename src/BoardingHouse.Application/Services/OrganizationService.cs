@@ -8,11 +8,10 @@ using BoardingHouse.Application.DTOs.Organizations;
 using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Application.Mappings;
 using BoardingHouse.Domain.Entities;
-using BoardingHouse.Application.Services;
 using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.Common.CurrentUser;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public class OrganizationService(
     IOrganizationRepository organizationRepository,

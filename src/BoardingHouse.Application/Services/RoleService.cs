@@ -2,7 +2,7 @@ using Mapster;
 using BoardingHouse.Application.DTOs.Roles;
 using BoardingHouse.Application.Repositories;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public class RoleService(IRoleRepository roleRepository) : IRoleService
 {

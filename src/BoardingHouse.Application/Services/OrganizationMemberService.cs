@@ -11,7 +11,7 @@ using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.Common.CurrentUser;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public class OrganizationMemberService(
     IOrganizationMemberRepository organizationMemberRepository,

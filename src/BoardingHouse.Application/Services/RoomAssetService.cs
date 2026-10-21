@@ -9,12 +9,9 @@ using BoardingHouse.Application.DTOs.Rooms;
 using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Application.Mappings;
 using BoardingHouse.Application.DTOs.RoomAssets;
-using BoardingHouse.Application.Services;
-using BoardingHouse.Api.DTOs.RoomAssets;
-using BoardingHouse.Api.Common;
 using BoardingHouse.Application.Common.CurrentUser;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public class RoomAssetService(
     IRoomRepository roomRepository,
@@ -27,15 +24,23 @@ public class RoomAssetService(
     ICurrentUserAccessor currentUserAccessor,
     ILogger<RoomAssetService> logger) : IRoomAssetService
 {
-    public async Task<RoomDetailsAssetResponse> CreateAsync(Guid roomId, CreateRoomAssetRequest request, CancellationToken cancellationToken = default)
+    public async Task<RoomDetailsAssetResponse> CreateAsync(
+        Guid roomId,
+        string name,
+        int quantity,
+        DateOnly? purchaseDate,
+        decimal? purchaseUnitPrice,
+        string? note,
+        IReadOnlyList<IFileUpload> files,
+        CancellationToken cancellationToken = default)
     {
-        var files = request.Files.ToFileUploads();
         var assetId = Guid.NewGuid();
 
         (RoomAsset Asset, RoomAssetConditionHistory History) created;
         if (files.Count == 0)
         {
-            created = await unitOfWork.ExecuteInTransactionAsync(ct => AddAssetAsync(roomId, assetId, request, [], ct), cancellationToken);
+            created = await unitOfWork.ExecuteInTransactionAsync(ct => AddAssetAsync(
+                roomId, assetId, name, quantity, purchaseDate, purchaseUnitPrice, note, [], ct), cancellationToken);
         }
         else
         {
@@ -51,7 +56,7 @@ public class RoomAssetService(
                 files,
                 RoomAssetConditionHistoryService.PhotoFolder(organizationId, roomId, assetId),
                 organizationId,
-                (uploaded, ct) => AddAssetAsync(roomId, assetId, request, uploaded, ct),
+                (uploaded, ct) => AddAssetAsync(roomId, assetId, name, quantity, purchaseDate, purchaseUnitPrice, note, uploaded, ct),
                 cancellationToken);
         }
 
@@ -70,7 +75,11 @@ public class RoomAssetService(
     private async Task<(RoomAsset Asset, RoomAssetConditionHistory History)> AddAssetAsync(
         Guid roomId,
         Guid assetId,
-        CreateRoomAssetRequest request,
+        string name,
+        int quantity,
+        DateOnly? purchaseDate,
+        decimal? purchaseUnitPrice,
+        string? note,
         IReadOnlyList<MediaAsset> uploaded,
         CancellationToken cancellationToken)
     {
@@ -85,12 +94,12 @@ public class RoomAssetService(
         {
             Id = assetId,
             RoomId = roomId,
-            Name = request.Name,
-            Quantity = request.Quantity,
-            PurchaseDate = request.PurchaseDate,
-            PurchaseUnitPrice = request.PurchaseUnitPrice,
+            Name = name,
+            Quantity = quantity,
+            PurchaseDate = purchaseDate,
+            PurchaseUnitPrice = purchaseUnitPrice,
             Condition = AssetCondition.Good,
-            Note = request.Note,
+            Note = note,
             CreatedBy = actorId
         };
         await roomAssetRepository.AddAsync(asset, cancellationToken);

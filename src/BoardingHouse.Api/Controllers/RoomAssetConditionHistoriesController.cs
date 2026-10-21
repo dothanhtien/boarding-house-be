@@ -1,12 +1,12 @@
 using BoardingHouse.Api.Authorization;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.RoomAssetConditionHistories;
-using BoardingHouse.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.DTOs.RoomAssetConditionHistories;
 using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Application.Services;
 
 namespace BoardingHouse.Api.Controllers;
 
@@ -38,7 +38,8 @@ public class RoomAssetConditionHistoriesController(
         [FromForm] CreateRoomAssetConditionHistoryRequest request,
         CancellationToken cancellationToken)
     {
-        var history = await roomAssetConditionHistoryService.CreateAsync(roomId, assetId, request, cancellationToken);
+        var history = await roomAssetConditionHistoryService.CreateAsync(
+            roomId, assetId, request.NewCondition!.Value, request.Note, request.Files.ToFileUploads(), cancellationToken);
         return CreatedAtAction(
             nameof(GetAll),
             new { roomId, assetId },
@@ -61,7 +62,9 @@ public class RoomAssetConditionHistoriesController(
             roomId,
             assetId,
             historyId,
-            request,
+            request.Note,
+            request.RemoveMediaIds,
+            request.Files.ToFileUploads(),
             cancellationToken);
         return Ok(new ApiResponse<RoomAssetConditionHistoryResponse> { Data = history });
     }

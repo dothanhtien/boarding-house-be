@@ -9,9 +9,8 @@ using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Application.Persistence;
-using BoardingHouse.Application.Services;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public class AuthService(
     IUserRepository userRepository,

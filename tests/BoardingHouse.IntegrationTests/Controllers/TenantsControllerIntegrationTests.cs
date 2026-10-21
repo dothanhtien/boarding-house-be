@@ -9,7 +9,6 @@ using Microsoft.Extensions.DependencyInjection;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Infrastructure.Persistence;
 using BoardingHouse.Infrastructure.Persistence.Seed;
-using BoardingHouse.Api.Services;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
@@ -21,6 +20,7 @@ using BoardingHouse.Application.DTOs.Rooms;
 using BoardingHouse.Application.DTOs.TenantProfiles;
 using BoardingHouse.Application.DTOs.Tenants;
 using BoardingHouse.Application.DTOs.Users;
+using BoardingHouse.Application.Services;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 

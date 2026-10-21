@@ -1,6 +1,6 @@
 using BoardingHouse.Application.DTOs.UtilityServices;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public interface IUtilityServiceService
 {

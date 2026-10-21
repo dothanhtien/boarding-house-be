@@ -1,14 +1,19 @@
 using BoardingHouse.Application.DTOs.RoomAssets;
 using BoardingHouse.Application.DTOs.Rooms;
-using BoardingHouse.Api.DTOs.RoomAssets;
+using BoardingHouse.Application.Services.Storage;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public interface IRoomAssetService
 {
     Task<RoomDetailsAssetResponse> CreateAsync(
         Guid roomId,
-        CreateRoomAssetRequest request,
+        string name,
+        int quantity,
+        DateOnly? purchaseDate,
+        decimal? purchaseUnitPrice,
+        string? note,
+        IReadOnlyList<IFileUpload> files,
         CancellationToken cancellationToken = default);
     Task<RoomAssetResponse> UpdateAsync(
         Guid roomId,

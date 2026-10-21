@@ -1,13 +1,13 @@
 using BoardingHouse.Api.Authorization;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.RoomAssets;
-using BoardingHouse.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.DTOs.RoomAssets;
 using BoardingHouse.Application.DTOs.Rooms;
 using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Application.Services;
 
 namespace BoardingHouse.Api.Controllers;
 
@@ -24,7 +24,15 @@ public class RoomAssetsController(IRoomAssetService roomAssetService) : Controll
     public async Task<ActionResult<ApiResponse<RoomDetailsAssetResponse>>> Create(
         Guid roomId, [FromForm] CreateRoomAssetRequest request, CancellationToken cancellationToken)
     {
-        var asset = await roomAssetService.CreateAsync(roomId, request, cancellationToken);
+        var asset = await roomAssetService.CreateAsync(
+            roomId,
+            request.Name,
+            request.Quantity,
+            request.PurchaseDate,
+            request.PurchaseUnitPrice,
+            request.Note,
+            request.Files.ToFileUploads(),
+            cancellationToken);
         return CreatedAtAction(
             nameof(RoomsController.GetById),
             "Rooms",

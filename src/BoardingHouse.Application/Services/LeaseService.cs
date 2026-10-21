@@ -10,11 +10,10 @@ using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Application.Mappings;
-using BoardingHouse.Application.Services;
 using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.Common.CurrentUser;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public class LeaseService(
     IUserRepository userRepository,

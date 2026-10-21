@@ -4,16 +4,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Npgsql;
-using BoardingHouse.Api.DTOs.Users;
+using BoardingHouse.Api.Common;
 using BoardingHouse.Infrastructure.Persistence;
 using BoardingHouse.Infrastructure.Persistence.Configurations;
-using BoardingHouse.Api.Services;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.DTOs.Users;
-using BoardingHouse.Api.Exceptions;
 using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Application.Persistence;
 using BoardingHouse.Application.Repositories;
@@ -505,7 +503,7 @@ public class UserServiceTests
         _userRepository.Setup(r => r.GetByIdWithRolesAndOrganizationsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((EntityWithMedia<User>?)null);
 
         await Assert.ThrowsAsync<AppNotFoundException>(() =>
-            _userService.UpdateAvatarAsync(Guid.NewGuid(), new UpdateUserAvatarRequest { File = NewAvatarFile() }));
+            _userService.UpdateAvatarAsync(Guid.NewGuid(), NewAvatarFile()));
 
         _mediaAttachmentService.VerifyNoOtherCalls();
     }
@@ -522,7 +520,7 @@ public class UserServiceTests
                 MediaAssetEntityType.UserAvatar, user.Id, It.Is<IFileUpload>(f => f.FileName == file.FileName), $"users/{user.Id}", null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(change);
 
-        var response = await _userService.UpdateAvatarAsync(user.Id, new UpdateUserAvatarRequest { File = file });
+        var response = await _userService.UpdateAvatarAsync(user.Id, file);
 
         Assert.Equal("https://storage.test/root/users/x/new", response.AvatarUrl);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
@@ -541,7 +539,7 @@ public class UserServiceTests
         _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ThrowsAsync(original);
 
         var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            _userService.UpdateAvatarAsync(user.Id, new UpdateUserAvatarRequest { File = NewAvatarFile() }));
+            _userService.UpdateAvatarAsync(user.Id, NewAvatarFile()));
 
         Assert.Same(original, thrown);
         _mediaAttachmentService.Verify(s => s.DiscardAsync(change), Times.Once);
@@ -560,7 +558,7 @@ public class UserServiceTests
             constraintName: MediaAssetConfiguration.EntityTypeEntityIdUniqueIndex));
 
         var ex = await Assert.ThrowsAsync<AppConflictException>(() =>
-            _userService.UpdateAvatarAsync(user.Id, new UpdateUserAvatarRequest { File = NewAvatarFile() }));
+            _userService.UpdateAvatarAsync(user.Id, NewAvatarFile()));
 
         Assert.Contains("Avatar", ex.Message);
         _mediaAttachmentService.Verify(s => s.DiscardAsync(change), Times.Once);
@@ -615,12 +613,12 @@ public class UserServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(change);
 
-    private static IFormFile NewAvatarFile() =>
+    private static IFileUpload NewAvatarFile() =>
         new FormFile(Stream.Null, 0, 12, "file", "me.png")
         {
             Headers = new HeaderDictionary(),
             ContentType = "image/png"
-        };
+        }.ToFileUpload();
 
     // Mirrors UnitOfWork: EF Core failures reach services already translated into PersistenceException.
     private void SetupSaveChangesThrows(Exception inner) =>

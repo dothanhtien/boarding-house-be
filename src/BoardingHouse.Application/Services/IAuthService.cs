@@ -1,7 +1,7 @@
 using BoardingHouse.Application.DTOs.Auth;
 using BoardingHouse.Application.DTOs.Users;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public interface IAuthService
 {

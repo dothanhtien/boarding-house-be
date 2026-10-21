@@ -8,11 +8,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Infrastructure.Persistence;
-using BoardingHouse.Api.Services;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Application.DTOs.Auth;
 using BoardingHouse.Application.DTOs.TenantProfiles;
 using BoardingHouse.Application.DTOs.Users;
+using BoardingHouse.Application.Services;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 

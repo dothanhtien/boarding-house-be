@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
-using BoardingHouse.Api.Services;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;

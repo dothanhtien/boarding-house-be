@@ -8,10 +8,9 @@ using BoardingHouse.Application.DTOs.Tenants;
 using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Application.DTOs.TenantProfiles;
 using BoardingHouse.Domain.Entities;
-using BoardingHouse.Application.Services;
 using BoardingHouse.Application.Common.CurrentUser;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public class TenantService(
     IUserRepository userRepository,

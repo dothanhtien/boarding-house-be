@@ -1,7 +1,7 @@
 using BoardingHouse.Application.DTOs.TenantProfiles;
 using BoardingHouse.Application.DTOs.Tenants;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public interface ITenantService
 {

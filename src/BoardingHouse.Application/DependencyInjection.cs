@@ -10,6 +10,21 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
+        services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IUserService, UserService>();
+        services.AddScoped<IRoleService, RoleService>();
+        services.AddScoped<IOrganizationService, OrganizationService>();
+        services.AddScoped<IOrganizationSettingsService, OrganizationSettingsService>();
+        services.AddScoped<IOrganizationMemberService, OrganizationMemberService>();
+        services.AddScoped<IPropertyService, PropertyService>();
+        services.AddScoped<IRoomService, RoomService>();
+        services.AddScoped<IRoomAssetService, RoomAssetService>();
+        services.AddScoped<IRoomAssetConditionHistoryService, RoomAssetConditionHistoryService>();
+        services.AddScoped<IUtilityServiceService, UtilityServiceService>();
+        services.AddScoped<ILeaseService, LeaseService>();
+        services.AddScoped<ITenantProfileService, TenantProfileService>();
+        services.AddScoped<ITenantService, TenantService>();
+
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IOrganizationScopeAccessor, OrganizationScopeAccessor>();
         services.AddScoped<IMediaAttachmentService, MediaAttachmentService>();

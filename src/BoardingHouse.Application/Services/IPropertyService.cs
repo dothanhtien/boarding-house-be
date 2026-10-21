@@ -1,7 +1,7 @@
 using BoardingHouse.Application.DTOs.Properties;
 using BoardingHouse.Application.Common.Listing;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public interface IPropertyService
 {

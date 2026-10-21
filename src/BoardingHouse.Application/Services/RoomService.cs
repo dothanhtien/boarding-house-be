@@ -10,13 +10,10 @@ using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Application.Mappings;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
-using BoardingHouse.Application.Services;
-using BoardingHouse.Api.DTOs.Media;
-using BoardingHouse.Api.Common;
 using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.Common.CurrentUser;
 
-namespace BoardingHouse.Api.Services;
+namespace BoardingHouse.Application.Services;
 
 public class RoomService(
     IRoomRepository roomRepository,
@@ -240,10 +237,8 @@ public class RoomService(
     }
 
     public async Task<List<RoomMediaResponse>> AddMediaAsync(
-        Guid roomId, AddImagesRequest request, CancellationToken cancellationToken = default)
+        Guid roomId, IReadOnlyList<IFileUpload> files, CancellationToken cancellationToken = default)
     {
-        var files = request.Files.ToFileUploads();
-
         var room = await roomRepository.GetByIdWithDetailsAsync(roomId, cancellationToken)
             ?? throw new AppNotFoundException(NotFoundMessages.Room(roomId));
 

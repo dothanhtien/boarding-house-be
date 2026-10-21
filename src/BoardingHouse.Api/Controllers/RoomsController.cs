@@ -1,13 +1,13 @@
 using BoardingHouse.Api.Authorization;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Media;
-using BoardingHouse.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.DTOs.Rooms;
 using BoardingHouse.Application.Services.Storage;
 using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.Services;
 
 namespace BoardingHouse.Api.Controllers;
 
@@ -70,7 +70,7 @@ public class RoomsController(IRoomService roomService) : ControllerBase
         [FromForm] AddImagesRequest request,
         CancellationToken cancellationToken)
     {
-        var media = await roomService.AddMediaAsync(id, request, cancellationToken);
+        var media = await roomService.AddMediaAsync(id, request.Files.ToFileUploads(), cancellationToken);
         return Ok(new ApiResponse<List<RoomMediaResponse>> { Data = media });
     }
 

@@ -25,9 +25,9 @@ try
     builder.Services
         .AddApiControllers()
         .AddApiDocumentation()
+        .AddRequestContext()
         .AddApplication()
         .AddInfrastructure(builder.Configuration)
-        .AddApplicationServices()
         .AddPermissionAuthorization()
         .AddJwtAuthentication(builder.Configuration)
         .AddFrontendCors(builder.Configuration);
