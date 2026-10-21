@@ -26,25 +26,30 @@ Backend API for boarding house / room rental management (property, room, lease, 
 
 ```text
 BoardingHouse.slnx
-docker-compose.yml            # Postgres + Redis + api (base, used for CI/production)
-docker-compose.override.yml   # auto-merged on `docker compose up` — hot reload for api + pgAdmin (local dev only)
+docker-compose.yml                # Postgres + Redis + api (base, used for CI/production)
+docker-compose.override.yml       # auto-merged on `docker compose up` — hot reload for api + pgAdmin (local dev only)
 docker/
-  pgadmin/                    # supporting config for the pgadmin service (servers.json, pgpass)
-src/
+  pgadmin/                        # supporting config for the pgadmin service (servers.json, pgpass)
+src/                              # dependencies point inward: Api → Application, Infrastructure → Application → Domain
+  BoardingHouse.Domain/           # entities, enums, auditing base classes — no packages
+  BoardingHouse.Application/      # use-case services, DTOs + validators, Mapster configs,
+                                  # repository/cache/storage/token interfaces — no EF Core / ASP.NET Core
+  BoardingHouse.Infrastructure/
+    Persistence/                  # AppDbContext, EF Core configurations, migrations, audit interceptor, UnitOfWork,
+                                  # DatabaseCommandHostExtensions (--migrate/--seed-* CLI + dev auto-migrate/seed)
+      Seed/                       # RbacSeeder (default roles/permissions), AdminSeeder
+    Repositories/                 # EF Core repositories
+    Services/                     # TokenService (JWT), Redis caches, Cloudinary storage
   BoardingHouse.Api/
-    Controllers/              # AuthController, UsersController
-    DTOs/                     # request/response models + FluentValidation validators
-    Entities/                 # User, Role, Permission, RolePermission, UserRole, RefreshToken
-    Exceptions/               # AppException + GlobalExceptionHandler (RFC 7807 problem details)
-    Extensions/               # DI registration grouped per area (*ServiceCollectionExtensions), JwtAuthenticationExtensions,
-                              # StartupCommandExtensions (--migrate/--seed-* CLI + dev auto-migrate/seed)
-    Middleware/               # CorrelationIdMiddleware
-    Persistence/              # AppDbContext, EF Core configurations, migrations, audit interceptor
-      Seed/                   # RbacSeeder (default roles/permissions)
-    Repositories/             # EF Core repositories
-    Services/                 # AuthService, UserService, TokenService, UserCache (Redis)
-    Program.cs
-    Dockerfile                # multi-stage: build → dev (hot reload) → final (runtime image)
+    Controllers/                  # thin controllers calling I<Area>Service, wrapped in ApiResponse<T>
+    Authorization/                # permission policy provider + handlers
+    DTOs/                         # multipart form requests (IFormFile) + their validators
+    Exceptions/                   # GlobalExceptionHandler (RFC 7807 problem details)
+    Extensions/                   # DI registration grouped per area (*ServiceCollectionExtensions), JwtAuthenticationExtensions
+    Middleware/                   # CorrelationIdMiddleware, CurrentOrganizationMiddleware
+    OpenApi/                      # OpenAPI document transformers
+    Program.cs                    # composition root — the only file that references Infrastructure
+    Dockerfile                    # multi-stage: build → dev (hot reload) → final (runtime image)
 tests/
   BoardingHouse.UnitTests/
   BoardingHouse.IntegrationTests/
@@ -172,7 +177,7 @@ Postgres from step 2 must be running. Generate a new migration with `dotnet ef m
 
 ```bash
 dotnet ef migrations add InitialCreate \
-  --project src/BoardingHouse.Api \
+  --project src/BoardingHouse.Infrastructure --startup-project src/BoardingHouse.Api \
   --output-dir Persistence/Migrations
 ```
 
@@ -188,7 +193,8 @@ dotnet ef migrations add InitialCreate \
 You can still apply migrations by hand any time with `dotnet ef database update`, e.g. right after generating one to sanity-check it:
 
 ```bash
-dotnet ef database update --project src/BoardingHouse.Api
+dotnet ef database update \
+  --project src/BoardingHouse.Infrastructure --startup-project src/BoardingHouse.Api
 ```
 
 ## Stop & clean up
@@ -197,7 +203,3 @@ dotnet ef database update --project src/BoardingHouse.Api
 docker compose down        # stop containers, keep data
 docker compose down -v     # stop containers + delete Postgres/Redis/pgAdmin data volumes
 ```
-
-## Contributing
-
-Branch naming: `<type>/<short-description>` (`feature`, `fix`, `chore`, `refactor`, `docs`, `test`), branched off `main`. Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/).
