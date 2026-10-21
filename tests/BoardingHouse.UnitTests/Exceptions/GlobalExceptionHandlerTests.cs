@@ -47,6 +47,29 @@ public class GlobalExceptionHandlerTests
         Assert.Equal("test-correlation-id", json.GetProperty("correlationId").GetString());
     }
 
+    public static TheoryData<AppException, int> AppExceptionStatusCodes => new()
+    {
+        { new AppNotFoundException("x"), StatusCodes.Status404NotFound },
+        { new AppConflictException("x"), StatusCodes.Status409Conflict },
+        { new AppValidationException("x"), StatusCodes.Status400BadRequest },
+        { new AppUnauthorizedException("x"), StatusCodes.Status401Unauthorized },
+        { new AppForbiddenException("x"), StatusCodes.Status403Forbidden },
+        { new AppInternalException("x"), StatusCodes.Status500InternalServerError },
+        { new AppTooManyRequestsException("x"), StatusCodes.Status429TooManyRequests }
+    };
+
+    [Theory]
+    [MemberData(nameof(AppExceptionStatusCodes))]
+    public async Task TryHandleAsync_AppException_MapsErrorKindToStatusCode(AppException exception, int expectedStatusCode)
+    {
+        var handler = CreateHandler(Environments.Production);
+        var (context, _) = CreateHttpContext();
+
+        await handler.TryHandleAsync(context, exception, CancellationToken.None);
+
+        Assert.Equal(expectedStatusCode, context.Response.StatusCode);
+    }
+
     [Fact]
     public async Task TryHandleAsync_UniqueConstraintViolationException_Returns409WithGenericTitle()
     {

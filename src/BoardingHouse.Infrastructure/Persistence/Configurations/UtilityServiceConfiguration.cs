@@ -8,8 +8,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Configurations;
 
 public class UtilityServiceConfiguration : IEntityTypeConfiguration<UtilityService>
 {
-    public const string PropertyIdNameUniqueIndex = UniqueIndexNames.UtilityServicePropertyIdName;
-
     public void Configure(EntityTypeBuilder<UtilityService> builder)
     {
         builder.HasIndex(s => s.PropertyId);
@@ -17,7 +15,7 @@ public class UtilityServiceConfiguration : IEntityTypeConfiguration<UtilityServi
         builder.HasIndex(s => new { s.PropertyId, s.Name })
             .IsUnique()
             .HasFilter("deleted_at IS NULL")
-            .HasDatabaseName(PropertyIdNameUniqueIndex);
+            .HasDatabaseName(UniqueIndexNames.UtilityServicePropertyIdName);
 
         builder.Property(s => s.Name).HasMaxLength(100);
 

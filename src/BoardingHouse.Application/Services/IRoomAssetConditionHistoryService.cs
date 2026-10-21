@@ -1,7 +1,4 @@
 using BoardingHouse.Application.DTOs.RoomAssetConditionHistories;
-using BoardingHouse.Domain.Entities.Enums;
-using BoardingHouse.Application.Common;
-using BoardingHouse.Application.Services.Storage;
 
 namespace BoardingHouse.Application.Services;
 
@@ -11,16 +8,12 @@ public interface IRoomAssetConditionHistoryService
     Task<RoomAssetConditionHistoryResponse> CreateAsync(
         Guid roomId,
         Guid assetId,
-        AssetCondition newCondition,
-        string? note,
-        IReadOnlyList<IFileUpload> files,
+        CreateRoomAssetConditionHistoryInput input,
         CancellationToken cancellationToken = default);
     Task<RoomAssetConditionHistoryResponse> UpdateAsync(
         Guid roomId,
         Guid assetId,
         Guid historyId,
-        Optional<string?> note,
-        IReadOnlyList<Guid>? removeMediaIds,
-        IReadOnlyList<IFileUpload> files,
+        UpdateRoomAssetConditionHistoryInput input,
         CancellationToken cancellationToken = default);
 }

@@ -8,20 +8,17 @@ namespace BoardingHouse.Infrastructure.Persistence.Configurations;
 
 public class TenantProfileConfiguration : IEntityTypeConfiguration<TenantProfile>
 {
-    public const string UserIdUniqueIndex = UniqueIndexNames.TenantProfileUserId;
-    public const string IdentityNumberUniqueIndex = UniqueIndexNames.TenantProfileIdentityNumber;
-
     public void Configure(EntityTypeBuilder<TenantProfile> builder)
     {
         builder.HasIndex(t => t.UserId)
             .IsUnique()
             .HasFilter("deleted_at IS NULL")
-            .HasDatabaseName(UserIdUniqueIndex);
+            .HasDatabaseName(UniqueIndexNames.TenantProfileUserId);
 
         builder.HasIndex(t => t.IdentityNumber)
             .IsUnique()
             .HasFilter("identity_number IS NOT NULL AND deleted_at IS NULL")
-            .HasDatabaseName(IdentityNumberUniqueIndex);
+            .HasDatabaseName(UniqueIndexNames.TenantProfileIdentityNumber);
 
         builder.Property(t => t.IdentityType)
             .HasConversion(IdentityTypeDbValueConverter.Instance)

@@ -9,21 +9,17 @@ namespace BoardingHouse.Infrastructure.Persistence.Configurations;
 
 public class LeaseConfiguration : IEntityTypeConfiguration<Lease>
 {
-    public const string OrganizationIdLeaseCodeUniqueIndex = UniqueIndexNames.LeaseOrganizationIdLeaseCode;
-    public const string RoomIdActiveUniqueIndex = UniqueIndexNames.LeaseRoomIdActive;
-    public const string PreviousLeaseIdUniqueIndex = UniqueIndexNames.LeasePreviousLeaseId;
-
     public void Configure(EntityTypeBuilder<Lease> builder)
     {
         builder.HasIndex(l => new { l.OrganizationId, l.LeaseCode })
             .IsUnique()
             .HasFilter("deleted_at IS NULL")
-            .HasDatabaseName(OrganizationIdLeaseCodeUniqueIndex);
+            .HasDatabaseName(UniqueIndexNames.LeaseOrganizationIdLeaseCode);
 
-        builder.HasIndex(l => l.RoomId, RoomIdActiveUniqueIndex)
+        builder.HasIndex(l => l.RoomId, UniqueIndexNames.LeaseRoomIdActive)
             .IsUnique()
             .HasFilter("status = 'ACTIVE' AND deleted_at IS NULL")
-            .HasDatabaseName(RoomIdActiveUniqueIndex);
+            .HasDatabaseName(UniqueIndexNames.LeaseRoomIdActive);
 
         builder.HasIndex(l => l.RoomId, "ix_leases_room_id")
             .HasDatabaseName("ix_leases_room_id");
@@ -31,7 +27,7 @@ public class LeaseConfiguration : IEntityTypeConfiguration<Lease>
         builder.HasIndex(l => l.PreviousLeaseId)
             .IsUnique()
             .HasFilter("deleted_at IS NULL")
-            .HasDatabaseName(PreviousLeaseIdUniqueIndex);
+            .HasDatabaseName(UniqueIndexNames.LeasePreviousLeaseId);
 
         builder.HasIndex(l => l.Status);
 

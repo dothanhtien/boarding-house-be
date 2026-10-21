@@ -26,21 +26,17 @@ public class RoomAssetService(
 {
     public async Task<RoomDetailsAssetResponse> CreateAsync(
         Guid roomId,
-        string name,
-        int quantity,
-        DateOnly? purchaseDate,
-        decimal? purchaseUnitPrice,
-        string? note,
-        IReadOnlyList<IFileUpload> files,
+        CreateRoomAssetInput input,
         CancellationToken cancellationToken = default)
     {
         var assetId = Guid.NewGuid();
+        var files = input.Files;
 
         (RoomAsset Asset, RoomAssetConditionHistory History) created;
         if (files.Count == 0)
         {
-            created = await unitOfWork.ExecuteInTransactionAsync(ct => AddAssetAsync(
-                roomId, assetId, name, quantity, purchaseDate, purchaseUnitPrice, note, [], ct), cancellationToken);
+            created = await unitOfWork.ExecuteInTransactionAsync(
+                ct => AddAssetAsync(roomId, assetId, input, [], ct), cancellationToken);
         }
         else
         {
@@ -56,7 +52,7 @@ public class RoomAssetService(
                 files,
                 RoomAssetConditionHistoryService.PhotoFolder(organizationId, roomId, assetId),
                 organizationId,
-                (uploaded, ct) => AddAssetAsync(roomId, assetId, name, quantity, purchaseDate, purchaseUnitPrice, note, uploaded, ct),
+                (uploaded, ct) => AddAssetAsync(roomId, assetId, input, uploaded, ct),
                 cancellationToken);
         }
 
@@ -75,11 +71,7 @@ public class RoomAssetService(
     private async Task<(RoomAsset Asset, RoomAssetConditionHistory History)> AddAssetAsync(
         Guid roomId,
         Guid assetId,
-        string name,
-        int quantity,
-        DateOnly? purchaseDate,
-        decimal? purchaseUnitPrice,
-        string? note,
+        CreateRoomAssetInput input,
         IReadOnlyList<MediaAsset> uploaded,
         CancellationToken cancellationToken)
     {
@@ -94,12 +86,12 @@ public class RoomAssetService(
         {
             Id = assetId,
             RoomId = roomId,
-            Name = name,
-            Quantity = quantity,
-            PurchaseDate = purchaseDate,
-            PurchaseUnitPrice = purchaseUnitPrice,
+            Name = input.Name,
+            Quantity = input.Quantity,
+            PurchaseDate = input.PurchaseDate,
+            PurchaseUnitPrice = input.PurchaseUnitPrice,
             Condition = AssetCondition.Good,
-            Note = note,
+            Note = input.Note,
             CreatedBy = actorId
         };
         await roomAssetRepository.AddAsync(asset, cancellationToken);

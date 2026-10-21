@@ -6,8 +6,8 @@ namespace BoardingHouse.Infrastructure.Persistence.Configurations;
 
 public class RoomAssetConditionHistoryMediaConfiguration : IEntityTypeConfiguration<RoomAssetConditionHistoryMedia>
 {
-    public const string ConditionHistoryIdIndex = "ix_room_asset_condition_history_media_condition_history_id";
-    public const string MediaAssetIdUniqueIndex = "ix_room_asset_condition_history_media_media_asset_id";
+    private const string ConditionHistoryIdIndex = "ix_room_asset_condition_history_media_condition_history_id";
+    private const string MediaAssetIdUniqueIndex = "ix_room_asset_condition_history_media_media_asset_id";
 
     public void Configure(EntityTypeBuilder<RoomAssetConditionHistoryMedia> builder)
     {

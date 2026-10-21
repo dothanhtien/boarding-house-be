@@ -38,8 +38,13 @@ public class RoomAssetConditionHistoriesController(
         [FromForm] CreateRoomAssetConditionHistoryRequest request,
         CancellationToken cancellationToken)
     {
-        var history = await roomAssetConditionHistoryService.CreateAsync(
-            roomId, assetId, request.NewCondition!.Value, request.Note, request.Files.ToFileUploads(), cancellationToken);
+        var input = new CreateRoomAssetConditionHistoryInput
+        {
+            NewCondition = request.NewCondition!.Value,
+            Note = request.Note,
+            Files = request.Files.ToFileUploads()
+        };
+        var history = await roomAssetConditionHistoryService.CreateAsync(roomId, assetId, input, cancellationToken);
         return CreatedAtAction(
             nameof(GetAll),
             new { roomId, assetId },
@@ -58,14 +63,13 @@ public class RoomAssetConditionHistoriesController(
         [FromForm] UpdateRoomAssetConditionHistoryRequest request,
         CancellationToken cancellationToken)
     {
-        var history = await roomAssetConditionHistoryService.UpdateAsync(
-            roomId,
-            assetId,
-            historyId,
-            request.Note,
-            request.RemoveMediaIds,
-            request.Files.ToFileUploads(),
-            cancellationToken);
+        var input = new UpdateRoomAssetConditionHistoryInput
+        {
+            Note = request.Note,
+            RemoveMediaIds = request.RemoveMediaIds ?? [],
+            Files = request.Files.ToFileUploads()
+        };
+        var history = await roomAssetConditionHistoryService.UpdateAsync(roomId, assetId, historyId, input, cancellationToken);
         return Ok(new ApiResponse<RoomAssetConditionHistoryResponse> { Data = history });
     }
 }

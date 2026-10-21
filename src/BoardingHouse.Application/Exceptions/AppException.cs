@@ -1,22 +1,31 @@
-using System.Net;
-
 namespace BoardingHouse.Application.Exceptions;
 
-public abstract class AppException(string message, HttpStatusCode statusCode) : Exception(message)
+public enum AppErrorKind
 {
-    public int StatusCode { get; } = (int)statusCode;
+    NotFound,
+    Conflict,
+    Validation,
+    Unauthorized,
+    Forbidden,
+    Internal,
+    TooManyRequests
 }
 
-public class AppNotFoundException(string message) : AppException(message, HttpStatusCode.NotFound);
+public abstract class AppException(string message, AppErrorKind kind) : Exception(message)
+{
+    public AppErrorKind Kind { get; } = kind;
+}
 
-public class AppConflictException(string message) : AppException(message, HttpStatusCode.Conflict);
+public class AppNotFoundException(string message) : AppException(message, AppErrorKind.NotFound);
 
-public class AppValidationException(string message) : AppException(message, HttpStatusCode.BadRequest);
+public class AppConflictException(string message) : AppException(message, AppErrorKind.Conflict);
 
-public class AppUnauthorizedException(string message) : AppException(message, HttpStatusCode.Unauthorized);
+public class AppValidationException(string message) : AppException(message, AppErrorKind.Validation);
 
-public class AppForbiddenException(string message) : AppException(message, HttpStatusCode.Forbidden);
+public class AppUnauthorizedException(string message) : AppException(message, AppErrorKind.Unauthorized);
 
-public class AppInternalException(string message) : AppException(message, HttpStatusCode.InternalServerError);
+public class AppForbiddenException(string message) : AppException(message, AppErrorKind.Forbidden);
 
-public class AppTooManyRequestsException(string message) : AppException(message, HttpStatusCode.TooManyRequests);
+public class AppInternalException(string message) : AppException(message, AppErrorKind.Internal);
+
+public class AppTooManyRequestsException(string message) : AppException(message, AppErrorKind.TooManyRequests);

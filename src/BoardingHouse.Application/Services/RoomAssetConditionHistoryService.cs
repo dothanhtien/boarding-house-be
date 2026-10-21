@@ -41,16 +41,15 @@ public class RoomAssetConditionHistoryService(
     public async Task<RoomAssetConditionHistoryResponse> CreateAsync(
         Guid roomId,
         Guid assetId,
-        AssetCondition newCondition,
-        string? note,
-        IReadOnlyList<IFileUpload> files,
+        CreateRoomAssetConditionHistoryInput input,
         CancellationToken cancellationToken = default)
     {
+        var files = input.Files;
         RoomAssetConditionHistory history;
         if (files.Count == 0)
         {
             history = await unitOfWork.ExecuteInTransactionAsync(
-                ct => AppendEntryAsync(roomId, assetId, newCondition, note, [], ct),
+                ct => AppendEntryAsync(roomId, assetId, input, [], ct),
                 cancellationToken);
 
             logger.LogInformation(
@@ -73,7 +72,7 @@ public class RoomAssetConditionHistoryService(
                 files,
                 PhotoFolder(organizationId, roomId, assetId),
                 organizationId,
-                (uploaded, ct) => AppendEntryAsync(roomId, assetId, newCondition, note, uploaded, ct),
+                (uploaded, ct) => AppendEntryAsync(roomId, assetId, input, uploaded, ct),
                 cancellationToken);
 
             logger.LogInformation(
@@ -88,12 +87,10 @@ public class RoomAssetConditionHistoryService(
         Guid roomId,
         Guid assetId,
         Guid historyId,
-        Optional<string?> note,
-        IReadOnlyList<Guid>? removeMediaIds,
-        IReadOnlyList<IFileUpload> files,
+        UpdateRoomAssetConditionHistoryInput input,
         CancellationToken cancellationToken = default)
     {
-        var removeIds = removeMediaIds ?? [];
+        var (note, removeIds, files) = (input.Note, input.RemoveMediaIds, input.Files);
         var historyNotFoundMessage = NotFoundMessages.RoomAssetConditionHistory(historyId);
 
         (RoomAssetConditionHistory History, List<MediaAsset> Removed) result;
@@ -141,8 +138,7 @@ public class RoomAssetConditionHistoryService(
     private async Task<RoomAssetConditionHistory> AppendEntryAsync(
         Guid roomId,
         Guid assetId,
-        AssetCondition newCondition,
-        string? note,
+        CreateRoomAssetConditionHistoryInput input,
         IReadOnlyList<MediaAsset> uploaded,
         CancellationToken cancellationToken)
     {
@@ -161,8 +157,8 @@ public class RoomAssetConditionHistoryService(
         {
             AssetId = assetId,
             OldCondition = asset.Condition,
-            NewCondition = newCondition,
-            Note = note,
+            NewCondition = input.NewCondition,
+            Note = input.Note,
             ChangedBy = userId
         };
 
@@ -178,7 +174,7 @@ public class RoomAssetConditionHistoryService(
             });
         }
 
-        asset.Condition = newCondition;
+        asset.Condition = input.NewCondition;
         roomAssetRepository.Update(asset);
         await roomAssetConditionHistoryRepository.AddAsync(created, cancellationToken);
 

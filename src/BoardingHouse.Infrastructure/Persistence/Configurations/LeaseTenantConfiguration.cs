@@ -6,8 +6,8 @@ namespace BoardingHouse.Infrastructure.Persistence.Configurations;
 
 public class LeaseTenantConfiguration : IEntityTypeConfiguration<LeaseTenant>
 {
-    public const string LeaseIdUserIdUniqueIndex = "ix_lease_tenants_lease_id_user_id";
-    public const string LeaseIdRepresentativeUniqueIndex = "ix_lease_tenants_lease_id_representative";
+    private const string LeaseIdUserIdUniqueIndex = "ix_lease_tenants_lease_id_user_id";
+    private const string LeaseIdRepresentativeUniqueIndex = "ix_lease_tenants_lease_id_representative";
 
     public void Configure(EntityTypeBuilder<LeaseTenant> builder)
     {

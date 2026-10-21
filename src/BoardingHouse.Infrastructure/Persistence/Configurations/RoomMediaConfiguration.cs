@@ -6,9 +6,9 @@ namespace BoardingHouse.Infrastructure.Persistence.Configurations;
 
 public class RoomMediaConfiguration : IEntityTypeConfiguration<RoomMedia>
 {
-    public const string RoomIdIndex = "ix_room_media_room_id";
-    public const string MediaAssetIdUniqueIndex = "ix_room_media_media_asset_id";
-    public const string RoomIdCoverUniqueIndex = "ix_room_media_room_id_cover";
+    private const string RoomIdIndex = "ix_room_media_room_id";
+    private const string MediaAssetIdUniqueIndex = "ix_room_media_media_asset_id";
+    private const string RoomIdCoverUniqueIndex = "ix_room_media_room_id_cover";
 
     public void Configure(EntityTypeBuilder<RoomMedia> builder)
     {

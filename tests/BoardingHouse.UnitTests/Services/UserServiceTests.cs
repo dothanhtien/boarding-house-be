@@ -1,12 +1,8 @@
 using BoardingHouse.UnitTests.Common;
 using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
-using Npgsql;
 using BoardingHouse.Api.Common;
-using BoardingHouse.Infrastructure.Persistence;
-using BoardingHouse.Infrastructure.Persistence.Configurations;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
@@ -222,7 +218,7 @@ public class UserServiceTests
             .Setup(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        SetupSaveChangesThrows(new PostgresException("duplicate key value violates unique constraint", "ERROR", "ERROR", "23505"));
+        SetupSaveChangesThrows(new UniqueConstraintViolationException(UniqueIndexNames.UserEmail, new Exception("duplicate key")));
 
         var request = new CreateUserRequest
         {
@@ -236,7 +232,7 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_NonUniqueViolationDbUpdateException_PropagatesException()
+    public async Task CreateAsync_NonUniqueViolationPersistenceException_PropagatesException()
     {
         _userRepository
             .Setup(r => r.ExistsByEmailOrPhoneAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
@@ -245,7 +241,7 @@ public class UserServiceTests
             .Setup(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        SetupSaveChangesThrows(new PostgresException("connection failure", "ERROR", "ERROR", "08006"));
+        SetupSaveChangesThrows(new PersistenceException("Saving changes to the database failed", new Exception("connection failure")));
 
         var request = new CreateUserRequest
         {
@@ -294,7 +290,7 @@ public class UserServiceTests
         var user = NewUser();
         _userRepository.Setup(r => r.GetByIdWithAvatarAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(new EntityWithMedia<User>(user, null));
         _userRepository.Setup(r => r.ExistsByEmailExcludingUserAsync("new@test.com", user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(false);
-        SetupSaveChangesThrows(new PostgresException("duplicate key value violates unique constraint", "ERROR", "ERROR", "23505"));
+        SetupSaveChangesThrows(new UniqueConstraintViolationException(UniqueIndexNames.UserEmail, new Exception("duplicate key")));
 
         var request = new UpdateUserRequest { Email = "new@test.com" };
 
@@ -553,9 +549,8 @@ public class UserServiceTests
         _userRepository.Setup(r => r.GetByIdWithRolesAndOrganizationsAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(new EntityWithMedia<User>(user, null));
         var change = new MediaAttachmentChange(NewAvatarAsset("root/users/x/new"), null);
         SetupStageReplaceReturns(change);
-        SetupSaveChangesThrows(new PostgresException(
-            "duplicate key value violates unique constraint", "ERROR", "ERROR", "23505",
-            constraintName: MediaAssetConfiguration.EntityTypeEntityIdUniqueIndex));
+        SetupSaveChangesThrows(new UniqueConstraintViolationException(
+            UniqueIndexNames.MediaAssetEntityTypeEntityId, new Exception("duplicate key")));
 
         var ex = await Assert.ThrowsAsync<AppConflictException>(() =>
             _userService.UpdateAvatarAsync(user.Id, NewAvatarFile()));
@@ -620,9 +615,10 @@ public class UserServiceTests
             ContentType = "image/png"
         }.ToFileUpload();
 
-    // Mirrors UnitOfWork: EF Core failures reach services already translated into PersistenceException.
-    private void SetupSaveChangesThrows(Exception inner) =>
+    // Services only see the Application exceptions; translating EF Core failures is UnitOfWork's job (see the
+    // UnitOfWork integration tests).
+    private void SetupSaveChangesThrows(PersistenceException exception) =>
         _unitOfWork
             .Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new DbUpdateException("Save failed", inner).ToPersistenceException());
+            .ThrowsAsync(exception);
 }

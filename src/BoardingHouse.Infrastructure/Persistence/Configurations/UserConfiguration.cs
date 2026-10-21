@@ -7,18 +7,15 @@ namespace BoardingHouse.Infrastructure.Persistence.Configurations;
 
 public class UserConfiguration : IEntityTypeConfiguration<User>
 {
-    public const string EmailUniqueIndex = UniqueIndexNames.UserEmail;
-    public const string PhoneUniqueIndex = UniqueIndexNames.UserPhone;
-
     public void Configure(EntityTypeBuilder<User> builder)
     {
         builder.HasIndex(u => u.Email).IsUnique()
             .HasFilter("email IS NOT NULL AND deleted_at IS NULL")
-            .HasDatabaseName(EmailUniqueIndex);
+            .HasDatabaseName(UniqueIndexNames.UserEmail);
 
         builder.HasIndex(u => u.Phone).IsUnique()
             .HasFilter("phone IS NOT NULL AND phone != '' AND deleted_at IS NULL")
-            .HasDatabaseName(PhoneUniqueIndex);
+            .HasDatabaseName(UniqueIndexNames.UserPhone);
 
         builder.HasIndex(u => u.IsActive);
 

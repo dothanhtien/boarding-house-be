@@ -162,6 +162,39 @@ public class MediaCollectionServiceTests
     }
 
     [Fact]
+    public async Task AddAsync_UploaderDisposesReadStream_BufferStaysReadableForTheRestOfTheUpload()
+    {
+        SetupTransaction();
+        string? reread = null;
+        long? length = null;
+        _mediaUploader
+            .Setup(u => u.UploadAsync(It.IsAny<IFileUpload>(), "folder", _organizationId, It.IsAny<CancellationToken>()))
+            .Returns(async (IFileUpload file, string _, Guid? _, CancellationToken _) =>
+            {
+                // MediaUploader disposes the stream it opens; that must not close the shared temp buffer
+                await using (var first = file.OpenReadStream())
+                {
+                    first.ReadExactly(new byte[file.Length]);
+                }
+
+                length = file.Length;
+                using var second = file.OpenReadStream();
+                reread = Encoding.ASCII.GetString(new BinaryReader(second).ReadBytes((int)file.Length));
+                return Asset(file.FileName);
+            });
+
+        await _service.AddAsync(
+            MediaAssetEntityType.RoomMedia,
+            [NewFile(new MemoryStream("abcd"u8.ToArray()), 0, 4, "a.png")],
+            "folder",
+            _organizationId,
+            (_, _) => Task.FromResult("attached"));
+
+        Assert.Equal(4, length);
+        Assert.Equal("abcd", reread);
+    }
+
+    [Fact]
     public async Task AddAsync_OneUploadFails_WaitsForOthersDeletesEverySuccessfulUploadAndRethrows()
     {
         SetupUpload("a.png", async () =>

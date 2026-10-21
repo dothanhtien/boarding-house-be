@@ -8,8 +8,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Configurations;
 
 public class MediaAssetConfiguration : IEntityTypeConfiguration<MediaAsset>
 {
-    public const string EntityTypeEntityIdUniqueIndex = UniqueIndexNames.MediaAssetEntityTypeEntityId;
-
     public void Configure(EntityTypeBuilder<MediaAsset> builder)
     {
         builder.HasIndex(m => m.OrganizationId);
@@ -17,7 +15,8 @@ public class MediaAssetConfiguration : IEntityTypeConfiguration<MediaAsset>
         builder
             .HasIndex(m => new { m.EntityType, m.EntityId })
             .IsUnique()
-            .HasFilter("deleted_at IS NULL");
+            .HasFilter("deleted_at IS NULL")
+            .HasDatabaseName(UniqueIndexNames.MediaAssetEntityTypeEntityId);
 
         builder.Property(m => m.FileName).HasMaxLength(255);
 
