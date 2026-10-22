@@ -1,5 +1,5 @@
-using BoardingHouse.Api.Services;
 using Microsoft.AspNetCore.Authorization;
+using BoardingHouse.Application.Services;
 
 namespace BoardingHouse.Api.Authorization;
 

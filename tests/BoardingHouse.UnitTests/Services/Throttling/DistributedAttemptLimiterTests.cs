@@ -1,4 +1,4 @@
-using BoardingHouse.Api.Services.Throttling;
+using BoardingHouse.Infrastructure.Services.Throttling;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;

@@ -1,8 +1,8 @@
 using System.IdentityModel.Tokens.Jwt;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Services;
 using Microsoft.Extensions.Configuration;
+using BoardingHouse.Infrastructure.Services;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.UnitTests.Services;
 

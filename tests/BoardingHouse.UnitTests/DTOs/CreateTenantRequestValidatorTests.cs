@@ -1,6 +1,6 @@
-using BoardingHouse.Api.DTOs.TenantProfiles;
-using BoardingHouse.Api.DTOs.Tenants;
-using BoardingHouse.Api.Entities.Enums;
+using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.DTOs.TenantProfiles;
+using BoardingHouse.Application.DTOs.Tenants;
 
 namespace BoardingHouse.UnitTests.DTOs;
 

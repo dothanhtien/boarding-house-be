@@ -1,0 +1,19 @@
+using BoardingHouse.Application.DTOs.Roles;
+
+namespace BoardingHouse.Application.DTOs.Users;
+
+public record UserResponse
+{
+    public required Guid Id { get; init; }
+    public string? Email { get; init; }
+    public DateTimeOffset? EmailVerifiedAt { get; init; }
+    public string? Phone { get; init; }
+    public required string FullName { get; init; }
+    public string? AvatarUrl { get; init; }
+    public DateTimeOffset? LastLoginAt { get; init; }
+    public required bool IsActive { get; init; }
+    public required DateTimeOffset CreatedAt { get; init; }
+    public DateTimeOffset? UpdatedAt { get; init; }
+    public RoleResponse? PlatformRole { get; init; }
+    public IReadOnlyList<UserOrganizationResponse> Organizations { get; init; } = [];
+}

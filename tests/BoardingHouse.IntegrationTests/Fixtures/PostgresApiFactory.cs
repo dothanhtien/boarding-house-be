@@ -1,8 +1,3 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Persistence.Seed;
-using BoardingHouse.Api.Services.Storage;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -13,6 +8,11 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using StackExchange.Redis;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
+using BoardingHouse.Infrastructure.Persistence;
+using BoardingHouse.Infrastructure.Persistence.Seed;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Application.Services.Storage;
 
 namespace BoardingHouse.IntegrationTests.Fixtures;
 

@@ -1,6 +1,6 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Persistence;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Infrastructure.Persistence;
+using BoardingHouse.Domain.Common;
 
 namespace BoardingHouse.UnitTests.Persistence;
 

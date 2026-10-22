@@ -1,13 +1,15 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Entities.Enums;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.Api.Services;
-using BoardingHouse.Api.Services.Storage;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.UnitTests.Services;
 
@@ -46,12 +48,12 @@ public class MediaAttachmentServiceTests
             NullLogger<MediaAttachmentService>.Instance);
     }
 
-    private static IFormFile NewFile(byte[] content, string contentType = "image/png") =>
-        new FormFile(new MemoryStream(content), 0, content.Length, "avatar", "me.png")
+    private static IFileUpload NewFile(byte[] content, string contentType = "image/png") =>
+        new FormFileUpload(new FormFile(new MemoryStream(content), 0, content.Length, "avatar", "me.png")
         {
             Headers = new HeaderDictionary(),
             ContentType = contentType
-        };
+        });
 
     private MediaAsset ExistingAvatar() => new()
     {

@@ -1,6 +1,6 @@
-using BoardingHouse.Api.DTOs.Leases;
-using BoardingHouse.Api.Entities;
 using FluentValidation.TestHelper;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Application.DTOs.Leases;
 
 namespace BoardingHouse.UnitTests.DTOs;
 

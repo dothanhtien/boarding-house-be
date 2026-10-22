@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
+using BoardingHouse.Application.Common;
 
 namespace BoardingHouse.Api.Common.ModelBinding;
 

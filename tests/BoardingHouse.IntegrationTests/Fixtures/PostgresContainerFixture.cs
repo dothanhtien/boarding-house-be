@@ -1,6 +1,6 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Persistence.Interceptors;
+using BoardingHouse.Api.Common.CurrentUser;
+using BoardingHouse.Infrastructure.Persistence;
+using BoardingHouse.Infrastructure.Persistence.Interceptors;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;

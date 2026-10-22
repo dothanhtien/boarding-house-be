@@ -1,0 +1,15 @@
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using BoardingHouse.Domain.Entities.Enums;
+
+namespace BoardingHouse.Infrastructure.Persistence.Converters;
+
+public static class IdentityTypeDbValueConverter
+{
+    public static readonly ValueConverter<IdentityType, string> Instance = EnumDbValueConverter.Create(
+        new Dictionary<IdentityType, string>
+        {
+            [IdentityType.CitizenIdentityCard] = "CITIZEN_IDENTITY_CARD",
+            [IdentityType.Passport] = "PASSPORT",
+            [IdentityType.Other] = "OTHER"
+        });
+}

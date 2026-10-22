@@ -1,11 +1,13 @@
 using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Auth;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Extensions;
-using BoardingHouse.Api.Services;
-using BoardingHouse.Api.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using BoardingHouse.Application.DTOs.Auth;
+using BoardingHouse.Application.DTOs.Users;
+using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Application.Common.CurrentUser;
+using BoardingHouse.Application.Services;
 
 namespace BoardingHouse.Api.Controllers;
 
@@ -95,7 +97,7 @@ public class AuthController(
     public async Task<ActionResult<ApiResponse<UserResponse>>> UpdateMyAvatar(
         [FromForm] UpdateUserAvatarRequest request, CancellationToken cancellationToken)
     {
-        var user = await userService.UpdateAvatarAsync(currentUserAccessor.RequiredUser.Id, request, cancellationToken);
+        var user = await userService.UpdateAvatarAsync(currentUserAccessor.RequiredUser.Id, request.File!.ToFileUpload(), cancellationToken);
         return Ok(new ApiResponse<UserResponse> { Data = user });
     }
 

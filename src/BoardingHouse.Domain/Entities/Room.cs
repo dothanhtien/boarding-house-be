@@ -1,0 +1,27 @@
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities.Enums;
+
+namespace BoardingHouse.Domain.Entities;
+
+public class Room : BaseEntity
+{
+    public const int MaxAmenities = 20;
+    public const int MaxMedia = 20;
+
+    public Guid PropertyId { get; set; }
+    public Property? Property { get; set; }
+
+    public required string RoomNumber { get; set; }
+    public RoomCategory RoomCategory { get; set; } = RoomCategory.Standard;
+    public RoomStatus RoomStatus { get; set; } = RoomStatus.Available;
+    public int? FloorNumber { get; set; }
+    public decimal? Area { get; set; }
+    public int? Capacity { get; set; }
+    public decimal? MonthlyRent { get; set; }
+    public decimal? DepositAmount { get; set; }
+    public string? Note { get; set; }
+
+    public ICollection<RoomAmenity> Amenities { get; set; } = [];
+    public ICollection<RoomAsset> Assets { get; set; } = [];
+    public ICollection<RoomMedia> Media { get; set; } = [];
+}

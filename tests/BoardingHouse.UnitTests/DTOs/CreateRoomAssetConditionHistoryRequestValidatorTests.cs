@@ -1,8 +1,8 @@
-using BoardingHouse.Api.DTOs.RoomAssetConditionHistories;
-using BoardingHouse.Api.Entities.Enums;
-using BoardingHouse.Api.Services.Storage;
 using FluentValidation.TestHelper;
 using Microsoft.AspNetCore.Http;
+using BoardingHouse.Api.DTOs.RoomAssetConditionHistories;
+using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Services.Storage;
 
 namespace BoardingHouse.UnitTests.DTOs;
 

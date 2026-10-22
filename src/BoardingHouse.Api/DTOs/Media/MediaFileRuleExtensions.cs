@@ -1,5 +1,5 @@
-using BoardingHouse.Api.Services.Storage;
 using FluentValidation;
+using BoardingHouse.Application.Services.Storage;
 
 namespace BoardingHouse.Api.DTOs.Media;
 

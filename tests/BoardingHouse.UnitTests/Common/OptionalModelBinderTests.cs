@@ -1,9 +1,9 @@
-using BoardingHouse.Api.Common;
 using BoardingHouse.Api.Common.ModelBinding;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.Extensions.Primitives;
 using Moq;
+using BoardingHouse.Application.Common;
 
 namespace BoardingHouse.UnitTests.Common;
 

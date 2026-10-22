@@ -1,20 +1,21 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Users;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Entities.Enums;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Persistence.Configurations;
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.Api.Services;
-using BoardingHouse.Api.Services.Caching;
-using BoardingHouse.Api.Services.Storage;
 using BoardingHouse.UnitTests.Common;
 using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
-using Npgsql;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.Users;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Services.Caching;
+using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.UnitTests.Services;
 
@@ -217,7 +218,7 @@ public class UserServiceTests
             .Setup(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        SetupSaveChangesThrows(new PostgresException("duplicate key value violates unique constraint", "ERROR", "ERROR", "23505"));
+        SetupSaveChangesThrows(new UniqueConstraintViolationException(UniqueIndexNames.UserEmail, new Exception("duplicate key")));
 
         var request = new CreateUserRequest
         {
@@ -231,7 +232,7 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_NonUniqueViolationDbUpdateException_PropagatesException()
+    public async Task CreateAsync_NonUniqueViolationPersistenceException_PropagatesException()
     {
         _userRepository
             .Setup(r => r.ExistsByEmailOrPhoneAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
@@ -240,7 +241,7 @@ public class UserServiceTests
             .Setup(r => r.AddAsync(It.IsAny<User>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        SetupSaveChangesThrows(new PostgresException("connection failure", "ERROR", "ERROR", "08006"));
+        SetupSaveChangesThrows(new PersistenceException("Saving changes to the database failed", new Exception("connection failure")));
 
         var request = new CreateUserRequest
         {
@@ -250,7 +251,7 @@ public class UserServiceTests
             PasswordConfirmation = "password"
         };
 
-        await Assert.ThrowsAsync<DbUpdateException>(() => _userService.CreateAsync(request));
+        await Assert.ThrowsAsync<PersistenceException>(() => _userService.CreateAsync(request));
     }
 
     [Fact]
@@ -289,7 +290,7 @@ public class UserServiceTests
         var user = NewUser();
         _userRepository.Setup(r => r.GetByIdWithAvatarAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(new EntityWithMedia<User>(user, null));
         _userRepository.Setup(r => r.ExistsByEmailExcludingUserAsync("new@test.com", user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(false);
-        SetupSaveChangesThrows(new PostgresException("duplicate key value violates unique constraint", "ERROR", "ERROR", "23505"));
+        SetupSaveChangesThrows(new UniqueConstraintViolationException(UniqueIndexNames.UserEmail, new Exception("duplicate key")));
 
         var request = new UpdateUserRequest { Email = "new@test.com" };
 
@@ -498,7 +499,7 @@ public class UserServiceTests
         _userRepository.Setup(r => r.GetByIdWithRolesAndOrganizationsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync((EntityWithMedia<User>?)null);
 
         await Assert.ThrowsAsync<AppNotFoundException>(() =>
-            _userService.UpdateAvatarAsync(Guid.NewGuid(), new UpdateUserAvatarRequest { File = NewAvatarFile() }));
+            _userService.UpdateAvatarAsync(Guid.NewGuid(), NewAvatarFile()));
 
         _mediaAttachmentService.VerifyNoOtherCalls();
     }
@@ -512,10 +513,10 @@ public class UserServiceTests
         var change = new MediaAttachmentChange(NewAvatarAsset("root/users/x/new"), NewAvatarAsset("root/users/x/old"));
         _mediaAttachmentService
             .Setup(s => s.StageReplaceAsync(
-                MediaAssetEntityType.UserAvatar, user.Id, file, $"users/{user.Id}", null, It.IsAny<CancellationToken>()))
+                MediaAssetEntityType.UserAvatar, user.Id, It.Is<IFileUpload>(f => f.FileName == file.FileName), $"users/{user.Id}", null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(change);
 
-        var response = await _userService.UpdateAvatarAsync(user.Id, new UpdateUserAvatarRequest { File = file });
+        var response = await _userService.UpdateAvatarAsync(user.Id, file);
 
         Assert.Equal("https://storage.test/root/users/x/new", response.AvatarUrl);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
@@ -534,7 +535,7 @@ public class UserServiceTests
         _unitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).ThrowsAsync(original);
 
         var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            _userService.UpdateAvatarAsync(user.Id, new UpdateUserAvatarRequest { File = NewAvatarFile() }));
+            _userService.UpdateAvatarAsync(user.Id, NewAvatarFile()));
 
         Assert.Same(original, thrown);
         _mediaAttachmentService.Verify(s => s.DiscardAsync(change), Times.Once);
@@ -548,12 +549,11 @@ public class UserServiceTests
         _userRepository.Setup(r => r.GetByIdWithRolesAndOrganizationsAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(new EntityWithMedia<User>(user, null));
         var change = new MediaAttachmentChange(NewAvatarAsset("root/users/x/new"), null);
         SetupStageReplaceReturns(change);
-        SetupSaveChangesThrows(new PostgresException(
-            "duplicate key value violates unique constraint", "ERROR", "ERROR", "23505",
-            constraintName: MediaAssetConfiguration.EntityTypeEntityIdUniqueIndex));
+        SetupSaveChangesThrows(new UniqueConstraintViolationException(
+            UniqueIndexNames.MediaAssetEntityTypeEntityId, new Exception("duplicate key")));
 
         var ex = await Assert.ThrowsAsync<AppConflictException>(() =>
-            _userService.UpdateAvatarAsync(user.Id, new UpdateUserAvatarRequest { File = NewAvatarFile() }));
+            _userService.UpdateAvatarAsync(user.Id, NewAvatarFile()));
 
         Assert.Contains("Avatar", ex.Message);
         _mediaAttachmentService.Verify(s => s.DiscardAsync(change), Times.Once);
@@ -604,19 +604,21 @@ public class UserServiceTests
     private void SetupStageReplaceReturns(MediaAttachmentChange change) =>
         _mediaAttachmentService
             .Setup(s => s.StageReplaceAsync(
-                It.IsAny<MediaAssetEntityType>(), It.IsAny<Guid>(), It.IsAny<IFormFile>(), It.IsAny<string>(), It.IsAny<Guid?>(),
+                It.IsAny<MediaAssetEntityType>(), It.IsAny<Guid>(), It.IsAny<IFileUpload>(), It.IsAny<string>(), It.IsAny<Guid?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(change);
 
-    private static IFormFile NewAvatarFile() =>
+    private static IFileUpload NewAvatarFile() =>
         new FormFile(Stream.Null, 0, 12, "file", "me.png")
         {
             Headers = new HeaderDictionary(),
             ContentType = "image/png"
-        };
+        }.ToFileUpload();
 
-    private void SetupSaveChangesThrows(Exception inner) =>
+    // Services only see the Application exceptions; translating EF Core failures is UnitOfWork's job (see the
+    // UnitOfWork integration tests).
+    private void SetupSaveChangesThrows(PersistenceException exception) =>
         _unitOfWork
             .Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new DbUpdateException("Save failed", inner));
+            .ThrowsAsync(exception);
 }

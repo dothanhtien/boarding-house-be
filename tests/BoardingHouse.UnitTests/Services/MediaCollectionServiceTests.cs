@@ -1,17 +1,18 @@
 using System.Collections.Concurrent;
 using System.Text;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Entities.Enums;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.Api.Services;
-using BoardingHouse.Api.Services.Storage;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Api.Common;
 
 namespace BoardingHouse.UnitTests.Services;
 
@@ -32,19 +33,19 @@ public class MediaCollectionServiceTests
             NullLogger<MediaCollectionService>.Instance);
     }
 
-    private static IFormFile NewFile(string fileName) => NewFile(new MemoryStream([1]), 0, 1, fileName);
+    private static IFileUpload NewFile(string fileName) => NewFile(new MemoryStream([1]), 0, 1, fileName);
 
-    private static IFormFile NewFile(Stream body, long offset, long length, string fileName) =>
-        new FormFile(body, offset, length, "files", fileName)
+    private static IFileUpload NewFile(Stream body, long offset, long length, string fileName) =>
+        new FormFileUpload(new FormFile(body, offset, length, "files", fileName)
         {
             Headers = new HeaderDictionary(),
             ContentType = "image/png"
-        };
+        });
 
     private void SetupUpload(string fileName, Func<Task<MediaAsset>> upload) =>
         _mediaUploader
             .Setup(u => u.UploadAsync(
-                It.Is<IFormFile>(f => f.FileName == fileName), "folder", _organizationId, It.IsAny<CancellationToken>()))
+                It.Is<IFileUpload>(f => f.FileName == fileName), "folder", _organizationId, It.IsAny<CancellationToken>()))
             .Returns(upload);
 
     private static MediaAsset Asset(string storageKey) => new()
@@ -138,8 +139,8 @@ public class MediaCollectionServiceTests
         var contents = new ConcurrentDictionary<string, string>();
         using var bothStarted = new Barrier(2);
         _mediaUploader
-            .Setup(u => u.UploadAsync(It.IsAny<IFormFile>(), "folder", _organizationId, It.IsAny<CancellationToken>()))
-            .Returns((IFormFile file, string _, Guid? _, CancellationToken _) => Task.Run(() =>
+            .Setup(u => u.UploadAsync(It.IsAny<IFileUpload>(), "folder", _organizationId, It.IsAny<CancellationToken>()))
+            .Returns((IFileUpload file, string _, Guid? _, CancellationToken _) => Task.Run(() =>
             {
                 bothStarted.SignalAndWait(TimeSpan.FromSeconds(5));   // both uploads read at the same moment
                 using var stream = file.OpenReadStream();
@@ -158,6 +159,39 @@ public class MediaCollectionServiceTests
 
         Assert.Equal("aaaa", contents["a.png"]);
         Assert.Equal("bbbb", contents["b.png"]);
+    }
+
+    [Fact]
+    public async Task AddAsync_UploaderDisposesReadStream_BufferStaysReadableForTheRestOfTheUpload()
+    {
+        SetupTransaction();
+        string? reread = null;
+        long? length = null;
+        _mediaUploader
+            .Setup(u => u.UploadAsync(It.IsAny<IFileUpload>(), "folder", _organizationId, It.IsAny<CancellationToken>()))
+            .Returns(async (IFileUpload file, string _, Guid? _, CancellationToken _) =>
+            {
+                // MediaUploader disposes the stream it opens; that must not close the shared temp buffer
+                await using (var first = file.OpenReadStream())
+                {
+                    first.ReadExactly(new byte[file.Length]);
+                }
+
+                length = file.Length;
+                using var second = file.OpenReadStream();
+                reread = Encoding.ASCII.GetString(new BinaryReader(second).ReadBytes((int)file.Length));
+                return Asset(file.FileName);
+            });
+
+        await _service.AddAsync(
+            MediaAssetEntityType.RoomMedia,
+            [NewFile(new MemoryStream("abcd"u8.ToArray()), 0, 4, "a.png")],
+            "folder",
+            _organizationId,
+            (_, _) => Task.FromResult("attached"));
+
+        Assert.Equal(4, length);
+        Assert.Equal("abcd", reread);
     }
 
     [Fact]
@@ -249,9 +283,9 @@ public class MediaCollectionServiceTests
     public async Task AddAsync_SaveFails_DiscardsUploadsWithoutCheckingDatabaseAndRethrows()
     {
         SetupUpload("a.png", () => Task.FromResult(Asset("a")));
-        SetupTransaction(new DbUpdateException("unique violation"));
+        SetupTransaction(new PersistenceException("unique violation", new Exception()));
 
-        await Assert.ThrowsAsync<DbUpdateException>(() => _service.AddAsync(
+        await Assert.ThrowsAsync<PersistenceException>(() => _service.AddAsync(
             MediaAssetEntityType.RoomMedia,
             [NewFile("a.png")],
             "folder",

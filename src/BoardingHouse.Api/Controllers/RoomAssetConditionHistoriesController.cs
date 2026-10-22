@@ -1,10 +1,12 @@
 using BoardingHouse.Api.Authorization;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.RoomAssetConditionHistories;
-using BoardingHouse.Api.Services;
-using BoardingHouse.Api.Services.Storage;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.RoomAssetConditionHistories;
+using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Application.Services;
 
 namespace BoardingHouse.Api.Controllers;
 
@@ -36,7 +38,13 @@ public class RoomAssetConditionHistoriesController(
         [FromForm] CreateRoomAssetConditionHistoryRequest request,
         CancellationToken cancellationToken)
     {
-        var history = await roomAssetConditionHistoryService.CreateAsync(roomId, assetId, request, cancellationToken);
+        var input = new CreateRoomAssetConditionHistoryInput
+        {
+            NewCondition = request.NewCondition!.Value,
+            Note = request.Note,
+            Files = request.Files.ToFileUploads()
+        };
+        var history = await roomAssetConditionHistoryService.CreateAsync(roomId, assetId, input, cancellationToken);
         return CreatedAtAction(
             nameof(GetAll),
             new { roomId, assetId },
@@ -55,12 +63,13 @@ public class RoomAssetConditionHistoriesController(
         [FromForm] UpdateRoomAssetConditionHistoryRequest request,
         CancellationToken cancellationToken)
     {
-        var history = await roomAssetConditionHistoryService.UpdateAsync(
-            roomId,
-            assetId,
-            historyId,
-            request,
-            cancellationToken);
+        var input = new UpdateRoomAssetConditionHistoryInput
+        {
+            Note = request.Note,
+            RemoveMediaIds = request.RemoveMediaIds ?? [],
+            Files = request.Files.ToFileUploads()
+        };
+        var history = await roomAssetConditionHistoryService.UpdateAsync(roomId, assetId, historyId, input, cancellationToken);
         return Ok(new ApiResponse<RoomAssetConditionHistoryResponse> { Data = history });
     }
 }

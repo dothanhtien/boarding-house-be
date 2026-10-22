@@ -3,6 +3,7 @@ using BoardingHouse.Api.Exceptions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
+using BoardingHouse.Application.Exceptions;
 
 namespace BoardingHouse.UnitTests.Exceptions;
 
@@ -44,6 +45,43 @@ public class GlobalExceptionHandlerTests
         var json = ReadBodyAsJson(body);
         Assert.Equal("User not found", json.GetProperty("title").GetString());
         Assert.Equal("test-correlation-id", json.GetProperty("correlationId").GetString());
+    }
+
+    public static TheoryData<AppException, int> AppExceptionStatusCodes => new()
+    {
+        { new AppNotFoundException("x"), StatusCodes.Status404NotFound },
+        { new AppConflictException("x"), StatusCodes.Status409Conflict },
+        { new AppValidationException("x"), StatusCodes.Status400BadRequest },
+        { new AppUnauthorizedException("x"), StatusCodes.Status401Unauthorized },
+        { new AppForbiddenException("x"), StatusCodes.Status403Forbidden },
+        { new AppInternalException("x"), StatusCodes.Status500InternalServerError },
+        { new AppTooManyRequestsException("x"), StatusCodes.Status429TooManyRequests }
+    };
+
+    [Theory]
+    [MemberData(nameof(AppExceptionStatusCodes))]
+    public async Task TryHandleAsync_AppException_MapsErrorKindToStatusCode(AppException exception, int expectedStatusCode)
+    {
+        var handler = CreateHandler(Environments.Production);
+        var (context, _) = CreateHttpContext();
+
+        await handler.TryHandleAsync(context, exception, CancellationToken.None);
+
+        Assert.Equal(expectedStatusCode, context.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task TryHandleAsync_UniqueConstraintViolationException_Returns409WithGenericTitle()
+    {
+        var handler = CreateHandler(Environments.Production);
+        var (context, body) = CreateHttpContext();
+
+        var handled = await handler.TryHandleAsync(
+            context, new UniqueConstraintViolationException("ix_users_email", new Exception()), CancellationToken.None);
+
+        Assert.True(handled);
+        Assert.Equal(StatusCodes.Status409Conflict, context.Response.StatusCode);
+        Assert.Equal("A record with the same value already exists", ReadBodyAsJson(body).GetProperty("title").GetString());
     }
 
     [Fact]

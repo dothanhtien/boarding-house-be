@@ -1,12 +1,12 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Entities.Enums;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using BoardingHouse.Api.Exceptions;
+using BoardingHouse.Infrastructure.Persistence;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.IntegrationTests.Fixtures;
 
 namespace BoardingHouse.IntegrationTests.Persistence;
 

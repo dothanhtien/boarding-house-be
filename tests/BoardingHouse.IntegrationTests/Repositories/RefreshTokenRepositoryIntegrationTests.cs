@@ -1,9 +1,9 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Entities.Enums;
-using BoardingHouse.Api.Repositories;
-using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Infrastructure.Repositories;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.IntegrationTests.Fixtures;
 
 namespace BoardingHouse.IntegrationTests.Repositories;
 

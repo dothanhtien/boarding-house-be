@@ -1,11 +1,13 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.Api.Persistence.Interceptors;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using BoardingHouse.Infrastructure.Persistence;
+using BoardingHouse.Infrastructure.Persistence.Interceptors;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Api.Common.CurrentUser;
 
 namespace BoardingHouse.UnitTests.Persistence;
 
@@ -75,7 +77,7 @@ public class AuditableEntitySaveChangesInterceptorTests
     {
         var actor = new User { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System };
         using var context = CreateContext(actor);
-        var history = new RoomAssetConditionHistory { AssetId = Guid.NewGuid(), NewCondition = Api.Entities.Enums.AssetCondition.Good };
+        var history = new RoomAssetConditionHistory { AssetId = Guid.NewGuid(), NewCondition = AssetCondition.Good };
         context.RoomAssetConditionHistories.Add(history);
         await context.SaveChangesAsync();
 

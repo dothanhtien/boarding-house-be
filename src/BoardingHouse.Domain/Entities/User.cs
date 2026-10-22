@@ -1,0 +1,18 @@
+using BoardingHouse.Domain.Common;
+
+namespace BoardingHouse.Domain.Entities;
+
+public class User : BaseEntity
+{
+    public string? Email { get; set; }
+    public DateTimeOffset? EmailVerifiedAt { get; set; }
+    public string? Phone { get; set; }
+    public required string PasswordHash { get; set; }
+    public required string FullName { get; set; }
+    public DateTimeOffset? LastLoginAt { get; set; }
+    public bool IsActive { get; set; } = true;
+
+    public ICollection<RefreshToken> RefreshTokens { get; set; } = [];
+    public ICollection<UserRole> UserRoles { get; set; } = [];
+    public ICollection<OrganizationMember> OrganizationMembers { get; set; } = [];
+}

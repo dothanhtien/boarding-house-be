@@ -1,6 +1,6 @@
 using System.Text;
 using System.Text.Json;
-using BoardingHouse.Api.Services.Caching;
+using BoardingHouse.Infrastructure.Services.Caching;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;

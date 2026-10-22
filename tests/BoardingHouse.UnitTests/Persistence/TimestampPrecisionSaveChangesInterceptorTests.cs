@@ -1,8 +1,8 @@
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Entities.Enums;
-using BoardingHouse.Api.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using BoardingHouse.Infrastructure.Persistence;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.UnitTests.Persistence;
 

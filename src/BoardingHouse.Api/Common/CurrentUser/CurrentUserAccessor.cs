@@ -1,6 +1,7 @@
-using BoardingHouse.Api.Entities;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Application.Common.CurrentUser;
 
-namespace BoardingHouse.Api.Common;
+namespace BoardingHouse.Api.Common.CurrentUser;
 
 public class CurrentUserAccessor : ICurrentUserAccessor
 {

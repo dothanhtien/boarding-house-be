@@ -1,6 +1,9 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/BoardingHouse.Api/BoardingHouse.Api.csproj" />
+    <Project Path="src/BoardingHouse.Application/BoardingHouse.Application.csproj" />
+    <Project Path="src/BoardingHouse.Domain/BoardingHouse.Domain.csproj" />
+    <Project Path="src/BoardingHouse.Infrastructure/BoardingHouse.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/BoardingHouse.IntegrationTests/BoardingHouse.IntegrationTests.csproj" />

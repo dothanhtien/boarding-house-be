@@ -1,10 +1,11 @@
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.Entities;
-using BoardingHouse.Api.Exceptions;
-using BoardingHouse.Api.Persistence;
 using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using BoardingHouse.Infrastructure.Persistence;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Persistence;
 
 namespace BoardingHouse.IntegrationTests.Persistence;
 
@@ -123,5 +124,72 @@ public class UnitOfWorkTests(PostgresApiFactory factory) : IClassFixture<Postgre
 
         Assert.Equal(1, written);
         Assert.Equal(1, await CountOrganizationsAsync("uow-save"));
+    }
+
+    private static User NewUser(string email) => new()
+    {
+        Email = email,
+        PasswordHash = "hash",
+        FullName = "UoW User",
+        CreatedBy = SentinelActors.System
+    };
+
+    // Every service catch matches on ConstraintName, so the real Postgres index name must come through untouched
+    [Fact]
+    public async Task SaveChangesAsync_UniqueIndexViolated_ThrowsUniqueConstraintViolationWithIndexName()
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+
+        await context.Users.AddAsync(NewUser("uow-dup@test.com"));
+        await unitOfWork.SaveChangesAsync();
+
+        await context.Users.AddAsync(NewUser("uow-dup@test.com"));
+        var exception = await Assert.ThrowsAsync<UniqueConstraintViolationException>(() => unitOfWork.SaveChangesAsync());
+
+        Assert.Equal(UniqueIndexNames.UserEmail, exception.ConstraintName);
+        Assert.IsAssignableFrom<DbUpdateException>(exception.InnerException);
+    }
+
+    [Fact]
+    public async Task ExecuteInTransactionAsync_UniqueIndexViolatedOnCommit_ThrowsUniqueConstraintViolationAndRollsBack()
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+
+        var exception = await Assert.ThrowsAsync<UniqueConstraintViolationException>(() =>
+            unitOfWork.ExecuteInTransactionAsync(async ct =>
+            {
+                await context.Organizations.AddAsync(NewOrganization("uow-unique-rollback"), ct);
+                await context.Users.AddAsync(NewUser("uow-tx-dup@test.com"), ct);
+                await context.Users.AddAsync(NewUser("uow-tx-dup@test.com"), ct);
+            }));
+
+        Assert.Equal(UniqueIndexNames.UserEmail, exception.ConstraintName);
+        Assert.Null(context.Database.CurrentTransaction);
+        Assert.Equal(0, await CountOrganizationsAsync("uow-unique-rollback"));
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_NonUniqueFailure_ThrowsPlainPersistenceException()
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+
+        // Foreign key violation: the organization does not exist
+        await context.Properties.AddAsync(new Property
+        {
+            OrganizationId = Guid.NewGuid(),
+            Name = "uow-orphan",
+            CreatedBy = SentinelActors.System
+        });
+
+        var exception = await Assert.ThrowsAsync<PersistenceException>(() => unitOfWork.SaveChangesAsync());
+
+        Assert.IsNotType<UniqueConstraintViolationException>(exception);
+        Assert.IsAssignableFrom<DbUpdateException>(exception.InnerException);
     }
 }

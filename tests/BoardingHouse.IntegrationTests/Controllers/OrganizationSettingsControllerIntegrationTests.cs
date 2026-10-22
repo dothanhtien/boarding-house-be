@@ -3,15 +3,15 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using BoardingHouse.Api.Common;
-using BoardingHouse.Api.DTOs.Auth;
-using BoardingHouse.Api.DTOs.Organizations;
-using BoardingHouse.Api.DTOs.Users;
-using BoardingHouse.Api.Entities.Enums;
-using BoardingHouse.Api.Persistence;
-using BoardingHouse.IntegrationTests.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Infrastructure.Persistence;
+using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.IntegrationTests.Fixtures;
+using BoardingHouse.Application.DTOs.Auth;
+using BoardingHouse.Application.DTOs.Organizations;
+using BoardingHouse.Application.DTOs.Users;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 
