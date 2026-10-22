@@ -25,6 +25,9 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.UseSetting("BackgroundJobs:Enabled", "false");
+        builder.UseSetting("BackgroundJobs:DashboardEnabled", "true");
+
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<IStorageProvider>();

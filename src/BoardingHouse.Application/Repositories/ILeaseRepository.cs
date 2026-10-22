@@ -30,6 +30,7 @@ public interface ILeaseRepository : IRepository<Lease>
     Task<bool> ExistsActiveByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default);
     Task<int> CountCurrentTenantsOfActiveLeaseByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default);
     Task<bool> ExistsOpenByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default);
+    Task<List<Guid>> ListIdsToExpireAsync(DateOnly today, CancellationToken cancellationToken = default);
     Task<bool> ExistsByPreviousLeaseIdAsync(
         Guid previousLeaseId,
         Guid? excludingLeaseId = null,

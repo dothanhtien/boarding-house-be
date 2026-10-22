@@ -41,4 +41,6 @@ public class UnitOfWork(AppDbContext context) : IUnitOfWork
             await operation(ct);
             return true;
         }, cancellationToken);
+
+    public void DiscardChanges() => context.ChangeTracker.Clear();
 }

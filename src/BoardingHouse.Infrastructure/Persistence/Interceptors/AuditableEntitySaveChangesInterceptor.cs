@@ -29,7 +29,8 @@ public class AuditableEntitySaveChangesInterceptor(
         if (context is null) return;
 
         var now = DateTimeOffset.UtcNow;
-        var userId = currentUserAccessor.User?.Id;
+        var userId = currentUserAccessor.User?.Id
+            ?? (currentUserAccessor.IsSystemActor ? SentinelActors.System : null);
         var warnedEntities = new HashSet<object>();
 
         ConvertDeletesToSoftDeletes(context, now, userId, warnedEntities);

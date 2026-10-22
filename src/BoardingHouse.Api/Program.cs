@@ -1,8 +1,12 @@
 using BoardingHouse.Api.Extensions;
 using BoardingHouse.Api.Middleware;
 using BoardingHouse.Application;
+using BoardingHouse.Application.Common;
 using BoardingHouse.Infrastructure;
+using BoardingHouse.Infrastructure.BackgroundJobs;
 using BoardingHouse.Infrastructure.Persistence;
+using Hangfire;
+using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 using Serilog;
 
@@ -70,6 +74,16 @@ try
     app.UseAuthorization();
 
     app.MapControllers();
+
+    if (app.Services.GetRequiredService<IOptions<BackgroundJobsOptions>>().Value.DashboardEnabled)
+    {
+        app.MapHangfireDashboard("/hangfire", new DashboardOptions
+        {
+            // Access is enforced by the permission policy below, not Hangfire's local-requests-only default.
+            Authorization = []
+        })
+        .RequireAuthorization($"{PermissionResources.BackgroundJob}:{PermissionActions.Manage}");
+    }
 
     app.Run();
 }

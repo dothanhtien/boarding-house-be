@@ -13,9 +13,12 @@ namespace BoardingHouse.UnitTests.Persistence;
 
 public class AuditableEntitySaveChangesInterceptorTests
 {
-    private static AppDbContext CreateContext(User? currentUser = null, ILogger<AuditableEntitySaveChangesInterceptor>? logger = null)
+    private static AppDbContext CreateContext(
+        User? currentUser = null,
+        ILogger<AuditableEntitySaveChangesInterceptor>? logger = null,
+        bool isSystemActor = false)
     {
-        var currentUserAccessor = new CurrentUserAccessor { User = currentUser };
+        var currentUserAccessor = new CurrentUserAccessor { User = currentUser, IsSystemActor = isSystemActor };
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .AddInterceptors(new AuditableEntitySaveChangesInterceptor(
@@ -70,6 +73,21 @@ public class AuditableEntitySaveChangesInterceptorTests
         await context.SaveChangesAsync();
 
         Assert.Equal(actor.Id, user.UpdatedBy);
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_ModifiedEntity_SystemActorWithoutUser_SetsUpdatedByToSystem()
+    {
+        using var context = CreateContext(isSystemActor: true);
+        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        user.FullName = "Updated Name";
+        context.Users.Update(user);
+        await context.SaveChangesAsync();
+
+        Assert.Equal(SentinelActors.System, user.UpdatedBy);
     }
 
     [Fact]

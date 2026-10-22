@@ -122,6 +122,14 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
             l => l.RoomId == roomId && (l.Status == LeaseStatus.Draft || l.Status == LeaseStatus.Active),
             cancellationToken);
 
+    public Task<List<Guid>> ListIdsToExpireAsync(DateOnly today, CancellationToken cancellationToken = default) =>
+        Context.Leases
+            .Where(l => l.Status == LeaseStatus.Active && l.EndDate != null && l.EndDate < today)
+            .OrderBy(l => l.EndDate)
+            .ThenBy(l => l.Id)
+            .Select(l => l.Id)
+            .ToListAsync(cancellationToken);
+
     public Task<bool> ExistsByPreviousLeaseIdAsync(
         Guid previousLeaseId, Guid? excludingLeaseId = null, CancellationToken cancellationToken = default) =>
         Context.Leases.AnyAsync(l => l.PreviousLeaseId == previousLeaseId && l.Id != excludingLeaseId, cancellationToken);

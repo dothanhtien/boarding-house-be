@@ -151,11 +151,13 @@ public class LeaseTests
         var lease = NewLease(LeaseStatus.Active, tenant);
         lease.Room!.RoomStatus = RoomStatus.Occupied;
 
-        var history = lease.Expire(Now, ActorId);
+        var history = lease.Expire(Now);
 
         Assert.Equal(LeaseStatus.Expired, lease.Status);
         Assert.Equal(EndDate, tenant.LeftDate);
         Assert.Equal(RoomStatus.Available, lease.Room.RoomStatus);
         Assert.Equal(((LeaseStatus?)LeaseStatus.Active, LeaseStatus.Expired), (history.OldStatus, history.NewStatus));
+        Assert.Null(history.ChangedBy);
+        Assert.Equal(Lease.ExpiredReason, history.Reason);
     }
 }

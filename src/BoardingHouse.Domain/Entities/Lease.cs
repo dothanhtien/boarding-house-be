@@ -6,6 +6,7 @@ namespace BoardingHouse.Domain.Entities;
 public class Lease : BaseEntity
 {
     public const int MaxTenants = 20;
+    public const string ExpiredReason = "End date reached";
 
     public Guid OrganizationId { get; set; }
     public Organization? Organization { get; set; }
@@ -61,16 +62,14 @@ public class Lease : BaseEntity
         var history = TransitionTo(LeaseStatus.Terminated, now, changedBy, reason);
         TerminatedAt = now;
         TerminationReason = reason;
-        MoveOutTenants(leftDate);
-        RequiredRoom.RoomStatus = RoomStatus.Available;
+        End(leftDate);
         return history;
     }
 
-    public LeaseStatusHistory Expire(DateTimeOffset now, Guid changedBy)
+    public LeaseStatusHistory Expire(DateTimeOffset now)
     {
-        var history = TransitionTo(LeaseStatus.Expired, now, changedBy, reason: null);
-        MoveOutTenants(EndDate!.Value);
-        RequiredRoom.RoomStatus = RoomStatus.Available;
+        var history = TransitionTo(LeaseStatus.Expired, now, changedBy: null, ExpiredReason);
+        End(EndDate!.Value);
         return history;
     }
 
@@ -85,7 +84,7 @@ public class Lease : BaseEntity
     private Room RequiredRoom =>
         Room ?? throw new InvalidOperationException("Lease.Room must be loaded to change the lease status");
 
-    private LeaseStatusHistory TransitionTo(LeaseStatus next, DateTimeOffset now, Guid changedBy, string? reason)
+    private LeaseStatusHistory TransitionTo(LeaseStatus next, DateTimeOffset now, Guid? changedBy, string? reason)
     {
         if (!CanTransitionTo(next))
         {
@@ -105,6 +104,12 @@ public class Lease : BaseEntity
         Status = next;
 
         return history;
+    }
+
+    private void End(DateOnly leftDate)
+    {
+        MoveOutTenants(leftDate);
+        RequiredRoom.RoomStatus = RoomStatus.Available;
     }
 
     private void MoveOutTenants(DateOnly leftDate)

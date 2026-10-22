@@ -49,6 +49,7 @@ public class RbacSeeder
         (PermissionResources.Tenant, PermissionActions.Read, "Look up tenants and view tenant profiles"),
         (PermissionResources.Tenant, PermissionActions.Create, "Create a tenant account"),
         (PermissionResources.Tenant, PermissionActions.Update, "Update a tenant profile"),
+        (PermissionResources.BackgroundJob, PermissionActions.Manage, "Open the background job dashboard (view, trigger, delete jobs)"),
     ];
 
     internal static readonly (string Slug, string Name, string Description, RoleScope Scope, string[] Permissions)[] RoleSeeds =

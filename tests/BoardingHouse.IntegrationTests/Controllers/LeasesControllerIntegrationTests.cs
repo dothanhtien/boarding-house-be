@@ -22,6 +22,7 @@ using BoardingHouse.Application.DTOs.Rooms;
 using BoardingHouse.Application.DTOs.Users;
 using BoardingHouse.Application.Services.Caching;
 using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.Jobs;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 
@@ -1405,5 +1406,97 @@ public class LeasesControllerIntegrationTests(PostgresApiFactory factory)
         }
 
         Assert.Equal(HttpStatusCode.Forbidden, (await ActivateAsync(draft.Id, memberClient)).StatusCode);
+    }
+
+    // Moves an active lease into the past so it ended on endDate (the API refuses such dates).
+    private Task MakeLeaseEndOnAsync(Guid leaseId, DateOnly endDate) =>
+        WithContextAsync(async context =>
+        {
+            var startDate = endDate.AddDays(-30);
+            await context.LeaseTenants.Where(t => t.LeaseId == leaseId)
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.JoinedDate, startDate));
+            await context.Leases.Where(l => l.Id == leaseId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(l => l.StartDate, startDate)
+                    .SetProperty(l => l.EndDate, (DateOnly?)endDate));
+        });
+
+    private async Task RunExpireLeasesJobAsync()
+    {
+        using var scope = factory.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<ExpireLeasesJob>().RunAsync();
+    }
+
+    private async Task<(Guid? UpdatedBy, DateTimeOffset? UpdatedAt)> GetLeaseUpdateAuditAsync(Guid leaseId)
+    {
+        (Guid?, DateTimeOffset?) audit = default;
+        await WithContextAsync(async context =>
+        {
+            var row = await context.Leases.Where(l => l.Id == leaseId)
+                .Select(l => new { l.UpdatedBy, l.UpdatedAt })
+                .SingleAsync();
+            audit = (row.UpdatedBy, row.UpdatedAt);
+        });
+        return audit;
+    }
+
+    [Fact]
+    public async Task ExpireLeasesJob_LeaseEndedYesterday_ExpiresFreesRoomAndMovesTenantsOut()
+    {
+        var lease = await CreateActiveLeaseAsync(tenantCount: 2);
+        var endDate = Today.AddDays(-1);
+        await MakeLeaseEndOnAsync(lease.Id, endDate);
+
+        await RunExpireLeasesJobAsync();
+
+        var expired = await ReadLeaseAsync(await _client.GetAsync($"/api/leases/{lease.Id}"));
+        Assert.Equal(LeaseStatus.Expired, expired.Status);
+        Assert.All(expired.Tenants, t => Assert.Equal(endDate, t.LeftDate));
+        Assert.Equal(RoomStatus.Available, await GetRoomStatusAsync(_roomId));
+
+        var history = (await GetStatusHistoriesAsync(lease.Id)).Last();
+        Assert.Equal(((LeaseStatus?)LeaseStatus.Active, LeaseStatus.Expired), (history.OldStatus, history.NewStatus));
+        Assert.Null(history.ChangedBy);
+        Assert.Equal(Lease.ExpiredReason, history.Reason);
+
+        Assert.Equal(SentinelActors.System, (await GetLeaseUpdateAuditAsync(lease.Id)).UpdatedBy);
+    }
+
+    [Fact]
+    public async Task ExpireLeasesJob_RunTwice_SecondRunChangesNothing()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        await MakeLeaseEndOnAsync(lease.Id, Today.AddDays(-1));
+
+        await RunExpireLeasesJobAsync();
+        var auditAfterFirstRun = await GetLeaseUpdateAuditAsync(lease.Id);
+        var historyCount = (await GetStatusHistoriesAsync(lease.Id)).Count;
+
+        await RunExpireLeasesJobAsync();
+
+        Assert.Equal(auditAfterFirstRun, await GetLeaseUpdateAuditAsync(lease.Id));
+        Assert.Equal(historyCount, (await GetStatusHistoriesAsync(lease.Id)).Count);
+    }
+
+    [Fact]
+    public async Task ExpireLeasesJob_LeaseEndingToday_StaysActive()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        await MakeLeaseEndOnAsync(lease.Id, Today);
+
+        await RunExpireLeasesJobAsync();
+
+        Assert.Equal(LeaseStatus.Active, (await ReadLeaseAsync(await _client.GetAsync($"/api/leases/{lease.Id}"))).Status);
+        Assert.Equal(RoomStatus.Occupied, await GetRoomStatusAsync(_roomId));
+    }
+
+    [Fact]
+    public async Task ExpireLeasesJob_OpenEndedLease_StaysActive()
+    {
+        var lease = await CreateActiveLeaseAsync();
+
+        await RunExpireLeasesJobAsync();
+
+        Assert.Equal(LeaseStatus.Active, (await ReadLeaseAsync(await _client.GetAsync($"/api/leases/{lease.Id}"))).Status);
     }
 }
