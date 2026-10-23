@@ -345,6 +345,20 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
     }
 
     [Fact]
+    public async Task GetAll_AttachedServiceSoftDeletedInProperty_IsStillListed()
+    {
+        var internet = await CreateUtilityServiceAsync("Internet", 100_000);
+        var lease = await CreateLeaseAsync();
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/utility-services/{internet.Id}")).StatusCode);
+
+        var services = await GetLeaseServicesAsync(lease.Id);
+
+        var attached = Assert.Single(services);
+        Assert.Equal(internet.Id, attached.ServiceId);
+        Assert.Equal(100_000, attached.EffectiveUnitPrice);
+    }
+
+    [Fact]
     public async Task Put_NegativeOverride_Returns400()
     {
         var internet = await CreateUtilityServiceAsync("Internet", 100_000);

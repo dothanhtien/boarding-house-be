@@ -154,7 +154,7 @@ public class LeaseService(
                 EnsureTenantsJoinWithinLeaseTerm(created);
 
                 var propertyServices = await utilityServiceRepository.ListByPropertyIdAsync(
-                    room.PropertyId, type: null, isActive: true, cancellationToken: ct);
+                    room.PropertyId, type: null, isActive: true, forUpdate: true, ct);
 
                 created.AttachDefaultUtilityServices(propertyServices, currentUserId);
 

@@ -10,6 +10,7 @@ public class LeaseUtilityServiceRepository(AppDbContext context) : ILeaseUtility
 {
     public Task<List<LeaseUtilityService>> ListByLeaseIdAsync(Guid leaseId, CancellationToken cancellationToken = default) =>
         context.LeaseUtilityServices
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .Include(s => s.Service)
             .Where(s => s.LeaseId == leaseId)
