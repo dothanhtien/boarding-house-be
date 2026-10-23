@@ -6,4 +6,5 @@ namespace BoardingHouse.Api.Common.CurrentUser;
 public class CurrentUserAccessor : ICurrentUserAccessor
 {
     public User? User { get; set; }
+    public bool IsSystemActor { get; set; }
 }

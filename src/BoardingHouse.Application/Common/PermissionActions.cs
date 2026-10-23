@@ -9,4 +9,5 @@ public static class PermissionActions
     public const string Assign = "assign";
     public const string Activate = "activate";
     public const string Terminate = "terminate";
+    public const string Manage = "manage";
 }

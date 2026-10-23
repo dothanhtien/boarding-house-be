@@ -3,6 +3,7 @@ using Mapster;
 using Microsoft.Extensions.DependencyInjection;
 using BoardingHouse.Application.Services.Storage;
 using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Jobs;
 
 namespace BoardingHouse.Application;
 
@@ -30,6 +31,8 @@ public static class DependencyInjection
         services.AddScoped<IMediaAttachmentService, MediaAttachmentService>();
         services.AddScoped<IMediaCollectionService, MediaCollectionService>();
         services.AddScoped<IMediaUploader, MediaUploader>();
+
+        services.AddScoped<ExpireLeasesJob>();
 
         TypeAdapterConfig.GlobalSettings.Scan(typeof(DependencyInjection).Assembly);
 

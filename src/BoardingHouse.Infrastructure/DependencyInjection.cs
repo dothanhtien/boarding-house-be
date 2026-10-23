@@ -5,6 +5,7 @@ using BoardingHouse.Application.Services;
 using BoardingHouse.Application.Services.Caching;
 using BoardingHouse.Application.Services.Storage;
 using BoardingHouse.Application.Services.Throttling;
+using BoardingHouse.Infrastructure.BackgroundJobs;
 using BoardingHouse.Infrastructure.Persistence;
 using BoardingHouse.Infrastructure.Persistence.Interceptors;
 using BoardingHouse.Infrastructure.Repositories;
@@ -12,6 +13,8 @@ using BoardingHouse.Infrastructure.Services;
 using BoardingHouse.Infrastructure.Services.Caching;
 using BoardingHouse.Infrastructure.Services.Storage;
 using BoardingHouse.Infrastructure.Services.Throttling;
+using Hangfire;
+using Hangfire.PostgreSql;
 using Microsoft.EntityFrameworkCore;
 
 namespace BoardingHouse.Infrastructure;
@@ -24,7 +27,8 @@ public static class DependencyInjection
             .AddRepositories()
             .AddCaching(configuration)
             .AddMediaStorage(configuration)
-            .AddSecurity();
+            .AddSecurity()
+            .AddBackgroundJobs(configuration);
 
     private static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration)
     {
@@ -93,6 +97,34 @@ public static class DependencyInjection
     private static IServiceCollection AddSecurity(this IServiceCollection services)
     {
         services.AddSingleton<ITokenService, TokenService>();
+
+        return services;
+    }
+
+    private static IServiceCollection AddBackgroundJobs(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<BackgroundJobsOptions>()
+            .Bind(configuration.GetSection(BackgroundJobsOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddHangfire(config => config
+            .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+            .UseSimpleAssemblyNameTypeSerializer()
+            .UseRecommendedSerializerSettings()
+            .UseFilter(new AutomaticRetryAttribute { Attempts = 0 })
+            .UsePostgreSqlStorage(
+                options => options.UseNpgsqlConnection(configuration.GetConnectionString("DefaultConnection")),
+                new PostgreSqlStorageOptions { SchemaName = BackgroundJobsOptions.SchemaName }));
+
+        var options = configuration.GetSection(BackgroundJobsOptions.SectionName).Get<BackgroundJobsOptions>()
+            ?? new BackgroundJobsOptions();
+
+        if (options.Enabled)
+        {
+            services.AddHangfireServer(server => server.WorkerCount = options.WorkerCount);
+            services.AddHostedService<RecurringJobRegistry>();
+        }
 
         return services;
     }

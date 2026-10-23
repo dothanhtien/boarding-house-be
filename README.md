@@ -197,6 +197,38 @@ dotnet ef database update \
   --project src/BoardingHouse.Infrastructure --startup-project src/BoardingHouse.Api
 ```
 
+## Background jobs
+
+Recurring jobs run on [Hangfire](https://www.hangfire.io/) inside the API process, with Postgres as storage. Hangfire
+creates and upgrades its own tables in a separate `hangfire` schema on startup (same database, not part of the EF Core
+migrations) — no `--migrate` step needed for it.
+
+| Setting (`appsettings.json`) | Env var (`docker-compose.yml`) | Default | Meaning |
+| --- | --- | --- | --- |
+| `BackgroundJobs:Enabled` | `BACKGROUND_JOBS_ENABLED` | `true` | Run the Hangfire server (workers + recurring schedule) in this process. |
+| `BackgroundJobs:DashboardEnabled` | `BACKGROUND_JOBS_DASHBOARD_ENABLED` | `false` (`true` in `Development`) | Map the dashboard at `/hangfire`. |
+| `BackgroundJobs:WorkerCount` | — | `2` | Number of Hangfire workers (1–50). |
+
+Jobs (all cron expressions are in **UTC**, the same "today" as the rest of the backend):
+
+| Job id | Schedule | What it does |
+| --- | --- | --- |
+| `expire-leases` | `5 0 * * *` (00:05 UTC daily) | Moves every `ACTIVE` lease whose `end_date` is before today to `EXPIRED`, moves its tenants out on `end_date` and frees the room. |
+
+- **Dashboard** (`/hangfire`) requires the `background-job:manage` permission — by default only `platform_admin` has
+  it. Log in first (e.g. `POST /api/auth/login` from Scalar on the same host) so the browser sends the `accessToken`
+  cookie; anonymous requests get 401, users without the permission 403. From there you can trigger a recurring job by
+  hand (*Recurring Jobs* → *Trigger now*).
+- **Turn jobs off while developing** (e.g. when debugging against a shared database):
+
+  ```bash
+  BackgroundJobs__Enabled=false dotnet run --project src/BoardingHouse.Api
+  ```
+
+- **Production**: run `--seed-rbac` after deploying this version, otherwise the `background-job:manage` permission
+  doesn't exist yet (see [Authentication & RBAC](#authentication--rbac)).
+- Failed runs are not retried automatically — jobs are idempotent and the next scheduled run picks up what was left.
+
 ## Stop & clean up
 
 ```bash
