@@ -9,6 +9,11 @@ namespace BoardingHouse.Infrastructure.Repositories;
 
 public class UtilityServiceRepository(AppDbContext context) : Repository<UtilityService>(context), IUtilityServiceRepository
 {
+    public Task<UtilityService?> GetByIdForShareAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Context.UtilityServices
+            .FromSql($"SELECT * FROM utility_services WHERE id = {id} FOR SHARE")
+            .FirstOrDefaultAsync(cancellationToken);
+
     public Task<UtilityService?> GetByIdWithPropertyAsync(Guid id, CancellationToken cancellationToken = default) =>
         Context.UtilityServices
             .Include(s => s.Property)

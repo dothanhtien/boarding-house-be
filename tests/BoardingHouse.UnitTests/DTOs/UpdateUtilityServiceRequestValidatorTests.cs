@@ -1,4 +1,5 @@
 using FluentValidation.TestHelper;
+using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Application.DTOs.UtilityServices;
 
 namespace BoardingHouse.UnitTests.DTOs;
@@ -13,6 +14,14 @@ public class UpdateUtilityServiceRequestValidatorTests
         var result = _validator.TestValidate(new UpdateUtilityServiceRequest());
 
         result.ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
+    public void Validate_InvalidBillingMethod_HasError()
+    {
+        var result = _validator.TestValidate(new UpdateUtilityServiceRequest { BillingMethod = (UtilityBillingMethod)99 });
+
+        result.ShouldHaveValidationErrorFor("BillingMethod");
     }
 
     [Theory]

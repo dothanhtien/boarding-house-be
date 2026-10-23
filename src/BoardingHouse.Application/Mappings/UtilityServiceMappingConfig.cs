@@ -11,12 +11,14 @@ public static class UtilityServiceMappingConfig
         .Ignore(
             dest => dest.Name,
             dest => dest.Unit,
+            dest => dest.BillingMethod,
             dest => dest.DefaultUnitPrice!,
             dest => dest.IsActive)
         .AfterMapping((src, dest) =>
         {
             src.Name.ApplyIfSet(v => dest.Name = v!);
             src.Unit.ApplyIfSet(v => dest.Unit = v!);
+            src.BillingMethod.ApplyIfSet(v => dest.BillingMethod = v);
             src.DefaultUnitPrice.ApplyIfSet(v => dest.DefaultUnitPrice = v);
             src.IsActive.ApplyIfSet(v => dest.IsActive = v);
         })

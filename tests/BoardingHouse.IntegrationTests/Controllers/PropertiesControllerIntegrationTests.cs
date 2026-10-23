@@ -414,6 +414,7 @@ public class PropertiesControllerIntegrationTests(PostgresApiFactory factory)
             PropertyId = propertyId,
             Name = name,
             Type = UtilityType.Other,
+            BillingMethod = UtilityBillingMethod.Fixed,
             Unit = "month"
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);

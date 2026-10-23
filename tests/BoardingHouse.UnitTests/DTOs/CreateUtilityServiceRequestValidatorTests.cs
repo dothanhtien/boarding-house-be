@@ -14,8 +14,17 @@ public class CreateUtilityServiceRequestValidatorTests
         PropertyId = Guid.NewGuid(),
         Name = "Electricity",
         Type = UtilityType.Electricity,
+        BillingMethod = UtilityBillingMethod.Metered,
         Unit = "kWh"
     };
+
+    [Fact]
+    public void Validate_InvalidBillingMethod_HasError()
+    {
+        var result = _validator.TestValidate(ValidRequest() with { BillingMethod = (UtilityBillingMethod)99 });
+
+        result.ShouldHaveValidationErrorFor(x => x.BillingMethod);
+    }
 
     [Fact]
     public void Validate_ValidRequest_HasNoErrors()

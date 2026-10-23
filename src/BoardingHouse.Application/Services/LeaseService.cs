@@ -19,6 +19,7 @@ public class LeaseService(
     IUserRepository userRepository,
     IRoomRepository roomRepository,
     ILeaseRepository leaseRepository,
+    IUtilityServiceRepository utilityServiceRepository,
     ILeaseStatusHistoryRepository leaseStatusHistoryRepository,
     IUnitOfWork unitOfWork,
     IOrganizationScopeAccessor organizationScopeAccessor,
@@ -151,6 +152,11 @@ public class LeaseService(
                 };
 
                 EnsureTenantsJoinWithinLeaseTerm(created);
+
+                var propertyServices = await utilityServiceRepository.ListByPropertyIdAsync(
+                    room.PropertyId, type: null, isActive: true, cancellationToken: ct);
+
+                created.AttachDefaultUtilityServices(propertyServices, currentUserId);
 
                 await leaseRepository.AddAsync(created, ct);
 

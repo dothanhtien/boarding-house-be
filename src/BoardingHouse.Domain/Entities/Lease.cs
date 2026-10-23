@@ -35,6 +35,7 @@ public class Lease : BaseEntity
     public string? TerminationReason { get; set; }
 
     public ICollection<LeaseTenant> Tenants { get; set; } = [];
+    public ICollection<LeaseUtilityService> UtilityServices { get; set; } = [];
 
     public bool IsEditable => Status == LeaseStatus.Draft;
 
@@ -71,6 +72,19 @@ public class Lease : BaseEntity
         var history = TransitionTo(LeaseStatus.Expired, now, changedBy: null, ExpiredReason);
         End(EndDate!.Value);
         return history;
+    }
+
+    public void AttachDefaultUtilityServices(IEnumerable<UtilityService> propertyServices, Guid createdBy)
+    {
+        foreach (var service in propertyServices.Where(s => s is { IsActive: true, DefaultUnitPrice: not null }))
+        {
+            UtilityServices.Add(new LeaseUtilityService
+            {
+                LeaseId = Id,
+                ServiceId = service.Id,
+                CreatedBy = createdBy
+            });
+        }
     }
 
     private static readonly Dictionary<LeaseStatus, LeaseStatus[]> AllowedTransitions = new()

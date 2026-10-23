@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Application.DTOs.UtilityServices;
 
@@ -10,6 +11,9 @@ public record UpdateUtilityServiceRequest
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public Optional<string> Unit { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<UtilityBillingMethod> BillingMethod { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public Optional<decimal?> DefaultUnitPrice { get; init; }

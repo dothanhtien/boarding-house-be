@@ -14,6 +14,8 @@ public class CreateUtilityServiceRequestValidator : AbstractValidator<CreateUtil
 
         RuleFor(x => x.Type).IsInEnum().WithMessage("Type is invalid");
 
+        RuleFor(x => x.BillingMethod).IsInEnum().WithMessage("BillingMethod is invalid");
+
         RuleFor(x => x.Unit)
             .NotEmpty().WithMessage("Unit is required")
             .MaximumLength(30).WithMessage("Unit must not exceed 30 characters");
