@@ -36,7 +36,7 @@ public static class AdminSeeder
         var user = new User
         {
             Email = normalizedEmail,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12),
+            PasswordHash = PasswordHasher.Hash(password),
             FullName = fullName,
             CreatedBy = SentinelActors.System
         };
