@@ -17,4 +17,6 @@ public interface IPropertyRepository : IRepository<Property>
         Expression<Func<Property, object>> sortField,
         SortOrder sortOrder,
         CancellationToken cancellationToken = default);
+    Task<List<(Guid Id, string Name)>> ListActiveByOrganizationIdAsync(
+        Guid organizationId, CancellationToken cancellationToken = default);
 }

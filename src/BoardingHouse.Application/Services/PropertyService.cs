@@ -57,6 +57,18 @@ public class PropertyService(
         };
     }
 
+    public async Task<List<PropertyLookupResponse>> LookupAsync(PropertyLookupQuery query, CancellationToken cancellationToken = default)
+    {
+        var organizationId = query.OrganizationId ?? currentOrganizationAccessor.OrganizationId
+            ?? throw new AppValidationException("OrganizationId is required — pass it explicitly or set the X-Organization-Id header");
+
+        await organizationScopeAccessor.EnsureScopeAsync(
+            organizationId, PermissionResources.Property, PermissionActions.Read, cancellationToken: cancellationToken);
+
+        var properties = await propertyRepository.ListActiveByOrganizationIdAsync(organizationId, cancellationToken);
+        return properties.Select(p => new PropertyLookupResponse { Id = p.Id, Name = p.Name }).ToList();
+    }
+
     public async Task<PropertyResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var property = await propertyRepository.GetByIdAsync(id, cancellationToken)

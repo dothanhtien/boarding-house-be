@@ -50,4 +50,13 @@ public class PropertyRepository(AppDbContext context) : Repository<Property>(con
 
         return await properties.ToPagedResultAsync(pageRequest, sortField, sortOrder, cancellationToken);
     }
+
+    public Task<List<(Guid Id, string Name)>> ListActiveByOrganizationIdAsync(
+        Guid organizationId, CancellationToken cancellationToken = default) =>
+        Context.Properties
+            .AsNoTracking()
+            .Where(p => p.OrganizationId == organizationId && p.IsActive)
+            .OrderBy(p => p.Name)
+            .Select(p => new ValueTuple<Guid, string>(p.Id, p.Name))
+            .ToListAsync(cancellationToken);
 }
