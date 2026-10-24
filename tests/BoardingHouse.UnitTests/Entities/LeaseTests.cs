@@ -29,6 +29,17 @@ public class LeaseTests
         LeftDate = leftDate
     };
 
+    private static UtilityService NewService(decimal? defaultUnitPrice, bool isActive = true) => new()
+    {
+        Name = "Service",
+        Type = UtilityType.Other,
+        BillingMethod = UtilityBillingMethod.Fixed,
+        Unit = "month",
+        DefaultUnitPrice = defaultUnitPrice,
+        IsActive = isActive,
+        CreatedBy = SentinelActors.System
+    };
+
     public static TheoryData<LeaseStatus, LeaseStatus, bool> AllTransitions()
     {
         var allowed = new HashSet<(LeaseStatus, LeaseStatus)>
@@ -159,5 +170,23 @@ public class LeaseTests
         Assert.Equal(((LeaseStatus?)LeaseStatus.Active, LeaseStatus.Expired), (history.OldStatus, history.NewStatus));
         Assert.Null(history.ChangedBy);
         Assert.Equal(Lease.ExpiredReason, history.Reason);
+    }
+
+    [Fact]
+    public void AttachDefaultUtilityServices_AttachesOnlyActiveServicesWithDefaultPrice()
+    {
+        var lease = NewLease(LeaseStatus.Draft);
+        var priced = NewService(defaultUnitPrice: 100_000);
+        var unpriced = NewService(defaultUnitPrice: null);
+        var inactive = NewService(defaultUnitPrice: 50_000, isActive: false);
+
+        lease.AttachDefaultUtilityServices([priced, unpriced, inactive], ActorId);
+
+        var attached = Assert.Single(lease.UtilityServices);
+        Assert.Equal(lease.Id, attached.LeaseId);
+        Assert.Equal(priced.Id, attached.ServiceId);
+        Assert.Null(attached.UnitPriceOverride);
+        Assert.True(attached.IsActive);
+        Assert.Equal(ActorId, attached.CreatedBy);
     }
 }

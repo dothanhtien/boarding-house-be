@@ -100,6 +100,7 @@ public class UtilityServicesControllerIntegrationTests(PostgresApiFactory factor
         PropertyId = _propertyId,
         Name = "Electricity",
         Type = UtilityType.Electricity,
+        BillingMethod = UtilityBillingMethod.Metered,
         Unit = "kWh",
         DefaultUnitPrice = 3500
     };
@@ -183,9 +184,24 @@ public class UtilityServicesControllerIntegrationTests(PostgresApiFactory factor
         Assert.Equal(created.Id, fetched.Id);
         Assert.Equal("Electricity", fetched.Name);
         Assert.Equal(UtilityType.Electricity, fetched.Type);
+        Assert.Equal(UtilityBillingMethod.Metered, fetched.BillingMethod);
         Assert.Equal("kWh", fetched.Unit);
         Assert.Equal(3500, fetched.DefaultUnitPrice);
         Assert.True(fetched.IsActive);
+    }
+
+    [Fact]
+    public async Task Create_MissingBillingMethod_Returns400()
+    {
+        var response = await _client.PostAsJsonAsync("/api/utility-services", new
+        {
+            propertyId = _propertyId,
+            name = "Electricity",
+            type = "electricity",
+            unit = "kWh"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -265,7 +281,7 @@ public class UtilityServicesControllerIntegrationTests(PostgresApiFactory factor
     [Fact]
     public async Task Update_OnlyIsActive_KeepsOtherFieldsUnchanged()
     {
-        var created = await CreateUtilityServiceAsync(_client, ValidCreateRequest());
+        var created = await CreateUtilityServiceAsync(_client, ValidCreateRequest() with { BillingMethod = UtilityBillingMethod.PerTenant });
 
         var response = await _client.PatchAsJsonAsync(
             $"/api/utility-services/{created.Id}", new UpdateUtilityServiceRequest { IsActive = false });
@@ -275,6 +291,7 @@ public class UtilityServicesControllerIntegrationTests(PostgresApiFactory factor
         Assert.False(updated.IsActive);
         Assert.Equal("Electricity", updated.Name);
         Assert.Equal(UtilityType.Electricity, updated.Type);
+        Assert.Equal(UtilityBillingMethod.PerTenant, updated.BillingMethod);
         Assert.Equal("kWh", updated.Unit);
         Assert.Equal(3500, updated.DefaultUnitPrice);
         Assert.Equal(_propertyId, updated.PropertyId);
@@ -291,6 +308,20 @@ public class UtilityServicesControllerIntegrationTests(PostgresApiFactory factor
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Null((await GetUtilityServiceAsync(created.Id)).DefaultUnitPrice);
+    }
+
+    [Fact]
+    public async Task Update_BillingMethodOfUnusedService_Returns200()
+    {
+        var created = await CreateUtilityServiceAsync(_client, ValidCreateRequest() with { Name = "Water", Type = UtilityType.Water });
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/utility-services/{created.Id}",
+            new UpdateUtilityServiceRequest { BillingMethod = UtilityBillingMethod.PerTenant },
+            JsonOptions);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(UtilityBillingMethod.PerTenant, (await GetUtilityServiceAsync(created.Id)).BillingMethod);
     }
 
     [Fact]

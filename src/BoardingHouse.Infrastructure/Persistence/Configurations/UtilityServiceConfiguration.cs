@@ -23,6 +23,10 @@ public class UtilityServiceConfiguration : IEntityTypeConfiguration<UtilityServi
             .HasConversion(UtilityTypeDbValueConverter.Instance)
             .HasMaxLength(20);
 
+        builder.Property(s => s.BillingMethod)
+            .HasConversion(UtilityBillingMethodDbValueConverter.Instance)
+            .HasMaxLength(20);
+
         builder.Property(s => s.Unit).HasMaxLength(30);
 
         builder.Property(s => s.DefaultUnitPrice).HasColumnType("decimal(18,2)");

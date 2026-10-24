@@ -4,6 +4,7 @@ public static class NotFoundMessages
 {
     public static string Lease(Guid id) => $"Lease '{id}' not found";
     public static string LeaseTenant(Guid id) => $"Lease tenant '{id}' not found";
+    public static string LeaseUtilityService(Guid serviceId) => $"Utility service '{serviceId}' is not attached to the lease";
     public static string Organization(Guid id) => $"Organization '{id}' not found";
     public static string OrganizationMember(Guid id) => $"Organization member '{id}' not found";
     public static string Property(Guid id) => $"Property '{id}' not found";

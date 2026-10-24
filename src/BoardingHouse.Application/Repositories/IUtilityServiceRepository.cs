@@ -6,6 +6,7 @@ namespace BoardingHouse.Application.Repositories;
 
 public interface IUtilityServiceRepository : IRepository<UtilityService>
 {
+    Task<UtilityService?> GetByIdForShareAsync(Guid id, CancellationToken cancellationToken = default);
     Task<UtilityService?> GetByIdWithPropertyAsync(Guid id, CancellationToken cancellationToken = default);
     Task<EntityWithOrganizationId<UtilityService>?> GetByIdWithOrganizationIdForUpdateAsync(
         Guid id, CancellationToken cancellationToken = default);

@@ -23,6 +23,7 @@ public static class DependencyInjection
         services.AddScoped<IRoomAssetConditionHistoryService, RoomAssetConditionHistoryService>();
         services.AddScoped<IUtilityServiceService, UtilityServiceService>();
         services.AddScoped<ILeaseService, LeaseService>();
+        services.AddScoped<ILeaseUtilityServiceService, LeaseUtilityServiceService>();
         services.AddScoped<ITenantProfileService, TenantProfileService>();
         services.AddScoped<ITenantService, TenantService>();
 

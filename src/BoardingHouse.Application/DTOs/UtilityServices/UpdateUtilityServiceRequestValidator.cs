@@ -18,6 +18,11 @@ public class UpdateUtilityServiceRequestValidator : AbstractValidator<UpdateUtil
             .When(x => x.Unit.IsSet)
             .OverridePropertyName("Unit");
 
+        RuleFor(x => x.BillingMethod.Value)
+            .IsInEnum().WithMessage("BillingMethod is invalid")
+            .When(x => x.BillingMethod.IsSet)
+            .OverridePropertyName("BillingMethod");
+
         RuleFor(x => x.DefaultUnitPrice.Value)
             .GreaterThanOrEqualTo(0).WithMessage("DefaultUnitPrice must not be negative")
             .PrecisionScale(18, 2, ignoreTrailingZeros: true)

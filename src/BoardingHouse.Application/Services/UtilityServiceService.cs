@@ -13,6 +13,7 @@ namespace BoardingHouse.Application.Services;
 public class UtilityServiceService(
     IUtilityServiceRepository utilityServiceRepository,
     IPropertyRepository propertyRepository,
+    ILeaseUtilityServiceRepository leaseUtilityServiceRepository,
     IUnitOfWork unitOfWork,
     IOrganizationScopeAccessor organizationScopeAccessor,
     ICurrentUserAccessor currentUserAccessor,
@@ -67,6 +68,7 @@ public class UtilityServiceService(
                     PropertyId = request.PropertyId,
                     Name = request.Name,
                     Type = request.Type,
+                    BillingMethod = request.BillingMethod,
                     Unit = request.Unit,
                     DefaultUnitPrice = request.DefaultUnitPrice,
                     IsActive = request.IsActive,
@@ -103,6 +105,8 @@ public class UtilityServiceService(
                 await organizationScopeAccessor.EnsureScopeAsync(
                     organizationId, PermissionResources.UtilityService, PermissionActions.Update, NotFoundMessages.UtilityService(id), ct);
 
+                await EnsureLeaseUsageAllowsChangeAsync(existing, request, ct);
+
                 request.Adapt(existing, UtilityServiceMappingConfig.UpdateConfig);
 
                 utilityServiceRepository.Update(existing);
@@ -133,5 +137,25 @@ public class UtilityServiceService(
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("Utility service soft-deleted ({UtilityServiceId})", service.Id);
+    }
+
+    private async Task EnsureLeaseUsageAllowsChangeAsync(
+        UtilityService service, UpdateUtilityServiceRequest request, CancellationToken cancellationToken)
+    {
+        if (request.BillingMethod.IsSet
+            && request.BillingMethod.Value != service.BillingMethod
+            && await leaseUtilityServiceRepository.ExistsByServiceIdAsync(service.Id, cancellationToken))
+        {
+            throw new AppConflictException(
+                "BillingMethod cannot be changed once the service is used by a lease — create a new service instead");
+        }
+
+        if (request.DefaultUnitPrice is { IsSet: true, Value: null }
+            && service.DefaultUnitPrice is not null
+            && await leaseUtilityServiceRepository.ExistsOpenWithoutPriceOverrideByServiceIdAsync(service.Id, cancellationToken))
+        {
+            throw new AppConflictException(
+                "DefaultUnitPrice cannot be cleared while a draft or active lease uses this service without a price override");
+        }
     }
 }
