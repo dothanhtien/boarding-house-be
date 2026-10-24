@@ -81,7 +81,7 @@ public class UserService(
         {
             Email = email,
             Phone = phone,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password, workFactor: 12),
+            PasswordHash = PasswordHasher.Hash(request.Password),
             FullName = request.FullName,
             CreatedBy = currentUserAccessor.User?.Id ?? SentinelActors.System
         };

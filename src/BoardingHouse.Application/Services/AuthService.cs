@@ -37,7 +37,7 @@ public class AuthService(
         {
             Email = email,
             Phone = phone,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password, workFactor: 12),
+            PasswordHash = PasswordHasher.Hash(request.Password),
             FullName = request.FullName,
             CreatedBy = SentinelActors.SelfRegistration
         };
@@ -61,7 +61,7 @@ public class AuthService(
         };
     }
 
-    public async Task<(UserResponse User, string AccessToken, DateTimeOffset AccessTokenExpiresAt, string RefreshToken, DateTimeOffset RefreshTokenExpiresAt)> LoginAsync(
+    public async Task<(UserResponse User, AuthTokens Tokens)> LoginAsync(
         LoginRequest request,
         string? ipAddress,
         string? userAgent,
@@ -75,7 +75,7 @@ public class AuthService(
         var user = userWithAvatar?.Entity;
 
         if (user is null
-            || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash)
+            || !PasswordHasher.Verify(request.Password, user.PasswordHash)
             || !user.IsActive)
         {
             logger.LogWarning("Login failed for {Identifier} from {IpAddress}", isEmail ? EmailAddress.Mask(identifier) : PhoneNumber.Mask(identifier), ipAddress);
@@ -85,7 +85,7 @@ public class AuthService(
         user.LastLoginAt = DateTimeOffset.UtcNow;
         userRepository.Update(user);
 
-        var (accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt) = await IssueTokensAsync(user, ipAddress, userAgent, cancellationToken);
+        var tokens = await IssueTokensAsync(user, ipAddress, userAgent, cancellationToken);
 
         logger.LogInformation("User {UserId} logged in from {IpAddress}", user.Id, ipAddress);
 
@@ -94,10 +94,10 @@ public class AuthService(
             AvatarUrl = userWithAvatar!.Media is { } avatar ? storageProvider.GetUrl(avatar.StorageKey, avatar.MimeType) : null
         };
 
-        return (response, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt);
+        return (response, tokens);
     }
 
-    public async Task<(string AccessToken, DateTimeOffset AccessTokenExpiresAt, string RefreshToken, DateTimeOffset RefreshTokenExpiresAt)> RefreshTokenAsync(
+    public async Task<AuthTokens> RefreshTokenAsync(
         string refreshToken,
         string? ipAddress,
         string? userAgent,
@@ -167,7 +167,7 @@ public class AuthService(
 
         var (accessToken, accessTokenExpiresAt) = tokenService.GenerateAccessToken(user);
 
-        return (accessToken, accessTokenExpiresAt, newRefreshToken, newExpiresAt);
+        return new AuthTokens(accessToken, accessTokenExpiresAt, newRefreshToken, newExpiresAt);
     }
 
     public async Task LogoutAsync(string refreshToken, CancellationToken cancellationToken = default)
@@ -188,7 +188,7 @@ public class AuthService(
         logger.LogInformation("User {UserId} logged out", existingToken.UserId);
     }
 
-    private async Task<(string AccessToken, DateTimeOffset AccessTokenExpiresAt, string RefreshToken, DateTimeOffset RefreshTokenExpiresAt)> IssueTokensAsync(
+    private async Task<AuthTokens> IssueTokensAsync(
         User user,
         string? ipAddress,
         string? userAgent,
@@ -210,6 +210,6 @@ public class AuthService(
         await refreshTokenRepository.AddAsync(refreshTokenEntity, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return (accessToken, accessTokenExpiresAt, refreshToken, expiresAt);
+        return new AuthTokens(accessToken, accessTokenExpiresAt, refreshToken, expiresAt);
     }
 }

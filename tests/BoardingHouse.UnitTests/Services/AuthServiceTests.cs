@@ -172,10 +172,10 @@ public class AuthServiceTests
         var response = await _authService.LoginAsync(request, "127.0.0.1", "test-agent");
 
         Assert.Equal("user@test.com", response.User.Email);
-        Assert.Equal("access-token", response.AccessToken);
-        Assert.Equal(accessTokenExpiresAt, response.AccessTokenExpiresAt);
-        Assert.Equal("refresh-token", response.RefreshToken);
-        Assert.InRange(response.RefreshTokenExpiresAt, beforeCall.AddDays(7).AddSeconds(-5), beforeCall.AddDays(7).AddSeconds(5));
+        Assert.Equal("access-token", response.Tokens.AccessToken);
+        Assert.Equal(accessTokenExpiresAt, response.Tokens.AccessTokenExpiresAt);
+        Assert.Equal("refresh-token", response.Tokens.RefreshToken);
+        Assert.InRange(response.Tokens.RefreshTokenExpiresAt, beforeCall.AddDays(7).AddSeconds(-5), beforeCall.AddDays(7).AddSeconds(5));
         Assert.NotNull(user.LastLoginAt);
     }
 

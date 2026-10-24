@@ -2,8 +2,8 @@ namespace BoardingHouse.Application.DTOs.Auth;
 
 public record LoginRequest
 {
-    public required string Identifier { get; init; }
-    public required string Password { get; init; }
+    public string Identifier { get; init; } = string.Empty;
+    public string Password { get; init; } = string.Empty;
 
     public static bool IsEmail(string identifier) => identifier.Contains('@');
 }

@@ -1,8 +1,8 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Api.DTOs.Users;
 using BoardingHouse.Api.Extensions;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
 using BoardingHouse.Application.DTOs.Auth;
 using BoardingHouse.Application.DTOs.Users;
 using BoardingHouse.Application.Services.Storage;
@@ -28,11 +28,9 @@ public class AuthController(
     [HttpPost("login")]
     public async Task<ActionResult<ApiResponse<UserResponse>>> Login(LoginRequest request, CancellationToken cancellationToken)
     {
-        var (user, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt) =
-            await authService.LoginAsync(request, GetIpAddress(), GetUserAgent(), cancellationToken);
+        var (user, tokens) = await authService.LoginAsync(request, GetIpAddress(), GetUserAgent(), cancellationToken);
 
-        Response.AppendAccessTokenCookie(accessToken, accessTokenExpiresAt);
-        Response.AppendRefreshTokenCookie(refreshToken, refreshTokenExpiresAt);
+        Response.AppendAuthTokenCookies(tokens);
 
         return Ok(new ApiResponse<UserResponse> { Data = user });
     }
@@ -46,6 +44,7 @@ public class AuthController(
         }
 
         var refreshSucceeded = false;
+
         Response.OnStarting(() =>
         {
             if (!refreshSucceeded)
@@ -57,12 +56,11 @@ public class AuthController(
             return Task.CompletedTask;
         });
 
-        var (accessToken, accessTokenExpiresAt, newRefreshToken, refreshTokenExpiresAt) =
-            await authService.RefreshTokenAsync(refreshToken, GetIpAddress(), GetUserAgent(), cancellationToken);
+        var tokens = await authService.RefreshTokenAsync(refreshToken, GetIpAddress(), GetUserAgent(), cancellationToken);
 
         refreshSucceeded = true;
-        Response.AppendAccessTokenCookie(accessToken, accessTokenExpiresAt);
-        Response.AppendRefreshTokenCookie(newRefreshToken, refreshTokenExpiresAt);
+
+        Response.AppendAuthTokenCookies(tokens);
 
         return NoContent();
     }

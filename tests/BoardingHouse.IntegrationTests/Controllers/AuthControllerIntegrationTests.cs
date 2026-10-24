@@ -703,6 +703,17 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
     }
 
     [Fact]
+    public async Task Login_MissingIdentifier_Returns400WithIdentifierRequired()
+    {
+        var response = await _client.PostAsJsonAsync("/api/auth/login", new { password = Password });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Email or phone is required", json);
+        Assert.DoesNotContain("missing required properties", json);
+    }
+
+    [Fact]
     public async Task Register_SamePhoneInInternationalFormat_Returns409()
     {
         await _client.PostAsJsonAsync("/api/auth/register", ValidRegisterRequest() with { Phone = "0912345678" });
