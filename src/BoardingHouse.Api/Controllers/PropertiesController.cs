@@ -23,6 +23,15 @@ public class PropertiesController(IPropertyService propertyService) : Controller
         return Ok(new ApiResponse<PagedResult<PropertyResponse>> { Data = properties });
     }
 
+    [HttpGet("lookup")]
+    [RequireOrganizationScopedPermission(PermissionResources.Property, PermissionActions.Read)]
+    public async Task<ActionResult<ApiResponse<List<PropertyLookupResponse>>>> Lookup(
+        [FromQuery] PropertyLookupQuery query, CancellationToken cancellationToken)
+    {
+        var properties = await propertyService.LookupAsync(query, cancellationToken);
+        return Ok(new ApiResponse<List<PropertyLookupResponse>> { Data = properties });
+    }
+
     [HttpGet("{id:guid}")]
     [RequireOrganizationScopedPermission(PermissionResources.Property, PermissionActions.Read)]
     public async Task<ActionResult<ApiResponse<PropertyResponse>>> GetById(Guid id, CancellationToken cancellationToken)

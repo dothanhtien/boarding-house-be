@@ -407,6 +407,76 @@ public class PropertiesControllerIntegrationTests(PostgresApiFactory factory)
         Assert.All(result!.Items, p => Assert.Equal(_organizationId, p.OrganizationId));
     }
 
+    [Fact]
+    public async Task Lookup_MoreThanMaxPageSize_ReturnsAllOrganizationPropertiesSortedByName()
+    {
+        var otherOrganizationId = await CreateOrganizationAsync("Lookup Other Org");
+        for (var i = 0; i < 105; i++)
+        {
+            await _client.PostAsJsonAsync("/api/properties", ValidCreateRequest() with { Name = $"Lookup {i:D3}" });
+        }
+        await _client.PostAsJsonAsync(
+            "/api/properties", ValidCreateRequest() with { OrganizationId = otherOrganizationId, Name = "Other Lookup" });
+
+        var response = await _client.GetAsync($"/api/properties/lookup?organizationId={_organizationId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = (await response.Content.ReadFromJsonAsync<ApiResponse<List<PropertyLookupResponse>>>())?.Data;
+        Assert.Equal(105, result!.Count);
+        Assert.DoesNotContain(result, p => p.Name == "Other Lookup");
+        var names = result.Select(p => p.Name).ToList();
+        Assert.Equal(names.Order(StringComparer.Ordinal), names);
+    }
+
+    [Fact]
+    public async Task Lookup_InactiveProperty_IsExcluded()
+    {
+        var activeResponse = await _client.PostAsJsonAsync("/api/properties", ValidCreateRequest() with { Name = "Active Lookup" });
+        var active = (await activeResponse.Content.ReadFromJsonAsync<ApiResponse<PropertyResponse>>())?.Data;
+        var inactiveResponse = await _client.PostAsJsonAsync("/api/properties", ValidCreateRequest() with { Name = "Inactive Lookup" });
+        var inactive = (await inactiveResponse.Content.ReadFromJsonAsync<ApiResponse<PropertyResponse>>())?.Data;
+        await _client.PatchAsJsonAsync($"/api/properties/{inactive!.Id}", new UpdatePropertyRequest { IsActive = false });
+
+        var response = await _client.GetAsync($"/api/properties/lookup?organizationId={_organizationId}");
+        var result = (await response.Content.ReadFromJsonAsync<ApiResponse<List<PropertyLookupResponse>>>())?.Data;
+
+        Assert.Contains(result!, p => p.Id == active!.Id);
+        Assert.DoesNotContain(result!, p => p.Id == inactive.Id);
+    }
+
+    [Fact]
+    public async Task Lookup_NoOrganizationIdInQueryButHeaderPresent_UsesHeaderOrganization()
+    {
+        var createResponse = await _client.PostAsJsonAsync("/api/properties", ValidCreateRequest());
+        var created = (await createResponse.Content.ReadFromJsonAsync<ApiResponse<PropertyResponse>>())?.Data;
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/properties/lookup");
+        request.Headers.Add("X-Organization-Id", _organizationId.ToString());
+
+        var response = await _client.SendAsync(request);
+        var result = (await response.Content.ReadFromJsonAsync<ApiResponse<List<PropertyLookupResponse>>>())?.Data;
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(result!, p => p.Id == created!.Id);
+    }
+
+    [Fact]
+    public async Task Lookup_NoOrganizationIdInQueryAndNoHeader_Returns400()
+    {
+        var response = await _client.GetAsync("/api/properties/lookup");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Lookup_MemberOfAnotherOrganization_Returns404()
+    {
+        var (memberClient, organizationAId) = await CreateOrganizationScopedMemberAsync("organization_staff");
+
+        Assert.Equal(HttpStatusCode.OK, (await memberClient.GetAsync($"/api/properties/lookup?organizationId={organizationAId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await memberClient.GetAsync($"/api/properties/lookup?organizationId={_organizationId}")).StatusCode);
+    }
+
     private async Task<Guid> CreateUtilityServiceAsync(Guid propertyId, string name)
     {
         var response = await _client.PostAsJsonAsync("/api/utility-services", new CreateUtilityServiceRequest
