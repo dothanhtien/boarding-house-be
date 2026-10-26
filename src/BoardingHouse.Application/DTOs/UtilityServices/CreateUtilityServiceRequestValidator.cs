@@ -23,7 +23,6 @@ public class CreateUtilityServiceRequestValidator : AbstractValidator<CreateUtil
         RuleFor(x => x.DefaultUnitPrice)
             .GreaterThanOrEqualTo(0).WithMessage("DefaultUnitPrice must not be negative")
             .PrecisionScale(18, 2, ignoreTrailingZeros: true)
-            .WithMessage("DefaultUnitPrice must not exceed 18 digits in total, with at most 2 decimal places")
-            .When(x => x.DefaultUnitPrice is not null);
+            .WithMessage("DefaultUnitPrice must not exceed 18 digits in total, with at most 2 decimal places");
     }
 }

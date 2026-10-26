@@ -16,7 +16,7 @@ public record UpdateUtilityServiceRequest
     public Optional<UtilityBillingMethod> BillingMethod { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public Optional<decimal?> DefaultUnitPrice { get; init; }
+    public Optional<decimal> DefaultUnitPrice { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public Optional<bool> IsActive { get; init; }

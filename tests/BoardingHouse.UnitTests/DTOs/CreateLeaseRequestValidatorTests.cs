@@ -169,4 +169,62 @@ public class CreateLeaseRequestValidatorTests
 
         result.ShouldNotHaveAnyValidationErrors();
     }
+
+    [Fact]
+    public void Validate_DuplicateUtilityService_HasError()
+    {
+        var service = UtilityService();
+
+        var result = _validator.TestValidate(ValidRequest() with { UtilityServices = [service, service with { UnitPriceOverride = 1 }] });
+
+        result.ShouldHaveValidationErrorFor(x => x.UtilityServices);
+    }
+
+    [Fact]
+    public void Validate_UtilityServiceWithEmptyId_HasError()
+    {
+        var result = _validator.TestValidate(ValidRequest() with { UtilityServices = [UtilityService() with { ServiceId = Guid.Empty }] });
+
+        result.ShouldHaveValidationErrorFor("UtilityServices[0].ServiceId");
+    }
+
+    [Fact]
+    public void Validate_NegativeUtilityServiceOverride_HasError()
+    {
+        var result = _validator.TestValidate(ValidRequest() with { UtilityServices = [UtilityService(-1m)] });
+
+        result.ShouldHaveValidationErrorFor("UtilityServices[0].UnitPriceOverride");
+    }
+
+    [Fact]
+    public void Validate_UtilityServiceOverrideTooPrecise_HasError()
+    {
+        var result = _validator.TestValidate(ValidRequest() with { UtilityServices = [UtilityService(0.001m)] });
+
+        result.ShouldHaveValidationErrorFor("UtilityServices[0].UnitPriceOverride");
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Validate_NonPositiveUtilityServiceQuantity_HasError(int quantity)
+    {
+        var result = _validator.TestValidate(ValidRequest() with { UtilityServices = [UtilityService() with { Quantity = quantity }] });
+
+        result.ShouldHaveValidationErrorFor("UtilityServices[0].Quantity");
+    }
+
+    [Fact]
+    public void Validate_UtilityServices_IsValid()
+    {
+        var result = _validator.TestValidate(ValidRequest() with { UtilityServices = [UtilityService(), UtilityService(0m)] });
+
+        result.ShouldNotHaveAnyValidationErrors();
+    }
+
+    private static CreateLeaseUtilityServiceRequest UtilityService(decimal? unitPriceOverride = null) => new()
+    {
+        ServiceId = Guid.NewGuid(),
+        UnitPriceOverride = unitPriceOverride
+    };
 }

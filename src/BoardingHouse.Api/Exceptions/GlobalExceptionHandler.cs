@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Domain.Common;
 
 namespace BoardingHouse.Api.Exceptions;
 
@@ -14,6 +15,7 @@ public class GlobalExceptionHandler(IHostEnvironment env, ILogger<GlobalExceptio
         var (statusCode, title) = exception switch
         {
             AppException appEx => (ToStatusCode(appEx.Kind), appEx.Message),
+            DomainException domainEx => (StatusCodes.Status400BadRequest, domainEx.Message),
             UniqueConstraintViolationException =>
                 (StatusCodes.Status409Conflict, "A record with the same value already exists"),
             _ => (StatusCodes.Status500InternalServerError, "Internal server error")

@@ -15,7 +15,8 @@ public class CreateUtilityServiceRequestValidatorTests
         Name = "Electricity",
         Type = UtilityType.Electricity,
         BillingMethod = UtilityBillingMethod.Metered,
-        Unit = "kWh"
+        Unit = "kWh",
+        DefaultUnitPrice = 3500
     };
 
     [Fact]
@@ -98,14 +99,6 @@ public class CreateUtilityServiceRequestValidatorTests
         var result = _validator.TestValidate(ValidRequest() with { Unit = new string('a', 30) });
 
         result.ShouldNotHaveValidationErrorFor(x => x.Unit);
-    }
-
-    [Fact]
-    public void Validate_DefaultUnitPriceNull_HasNoError()
-    {
-        var result = _validator.TestValidate(ValidRequest() with { DefaultUnitPrice = null });
-
-        result.ShouldNotHaveValidationErrorFor(x => x.DefaultUnitPrice);
     }
 
     [Fact]

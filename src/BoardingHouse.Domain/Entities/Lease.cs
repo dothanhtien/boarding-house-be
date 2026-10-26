@@ -74,17 +74,28 @@ public class Lease : BaseEntity
         return history;
     }
 
-    public void AttachDefaultUtilityServices(IEnumerable<UtilityService> propertyServices, Guid createdBy)
+    public LeaseUtilityService AttachUtilityService(
+        UtilityService service, decimal? unitPriceOverride, int quantity, Guid createdBy)
     {
-        foreach (var service in propertyServices.Where(s => s is { IsActive: true, DefaultUnitPrice: not null }))
+        if (!service.IsActive)
         {
-            UtilityServices.Add(new LeaseUtilityService
-            {
-                LeaseId = Id,
-                ServiceId = service.Id,
-                CreatedBy = createdBy
-            });
+            throw new DomainException(
+                $"Utility service '{service.Name}' is inactive and cannot be attached to a lease");
         }
+
+        var attached = new LeaseUtilityService
+        {
+            LeaseId = Id,
+            ServiceId = service.Id,
+            Service = service,
+            UnitPriceOverride = unitPriceOverride,
+            CreatedBy = createdBy
+        };
+        attached.SetQuantity(quantity);
+
+        UtilityServices.Add(attached);
+
+        return attached;
     }
 
     private static readonly Dictionary<LeaseStatus, LeaseStatus[]> AllowedTransitions = new()

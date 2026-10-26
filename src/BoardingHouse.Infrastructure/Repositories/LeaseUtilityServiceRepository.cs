@@ -33,10 +33,10 @@ public class LeaseUtilityServiceRepository(AppDbContext context) : ILeaseUtility
             s => s.ServiceId == serviceId && s.Lease!.DeletedAt == null,
             cancellationToken);
 
-    public Task<bool> ExistsOpenWithoutPriceOverrideByServiceIdAsync(Guid serviceId, CancellationToken cancellationToken = default) =>
+    public Task<bool> ExistsActiveInOpenLeaseByServiceIdAsync(Guid serviceId, CancellationToken cancellationToken = default) =>
         context.LeaseUtilityServices.AnyAsync(
             s => s.ServiceId == serviceId
-                && s.UnitPriceOverride == null
+                && s.IsActive
                 && s.Lease!.DeletedAt == null
                 && (s.Lease.Status == LeaseStatus.Draft || s.Lease.Status == LeaseStatus.Active),
             cancellationToken);

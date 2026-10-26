@@ -46,4 +46,22 @@ public class UpsertLeaseUtilityServiceRequestValidatorTests
 
         result.ShouldHaveValidationErrorFor("UnitPriceOverride");
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Validate_NonPositiveQuantity_HasError(int quantity)
+    {
+        var result = _validator.TestValidate(new UpsertLeaseUtilityServiceRequest { Quantity = quantity });
+
+        result.ShouldHaveValidationErrorFor("Quantity");
+    }
+
+    [Fact]
+    public void Validate_PositiveQuantity_HasNoErrors()
+    {
+        var result = _validator.TestValidate(new UpsertLeaseUtilityServiceRequest { Quantity = 3 });
+
+        result.ShouldNotHaveAnyValidationErrors();
+    }
 }

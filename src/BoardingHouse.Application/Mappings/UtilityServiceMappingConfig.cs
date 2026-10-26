@@ -12,7 +12,7 @@ public static class UtilityServiceMappingConfig
             dest => dest.Name,
             dest => dest.Unit,
             dest => dest.BillingMethod,
-            dest => dest.DefaultUnitPrice!,
+            dest => dest.DefaultUnitPrice,
             dest => dest.IsActive)
         .AfterMapping((src, dest) =>
         {

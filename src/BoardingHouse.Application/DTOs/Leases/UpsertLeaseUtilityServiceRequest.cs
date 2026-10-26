@@ -9,5 +9,8 @@ public record UpsertLeaseUtilityServiceRequest
     public Optional<decimal?> UnitPriceOverride { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<int> Quantity { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public Optional<bool> IsActive { get; init; }
 }
