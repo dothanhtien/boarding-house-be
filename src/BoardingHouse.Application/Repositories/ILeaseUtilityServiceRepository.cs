@@ -9,5 +9,5 @@ public interface ILeaseUtilityServiceRepository
     Task AddAsync(LeaseUtilityService leaseUtilityService, CancellationToken cancellationToken = default);
     void Remove(LeaseUtilityService leaseUtilityService);
     Task<bool> ExistsByServiceIdAsync(Guid serviceId, CancellationToken cancellationToken = default);
-    Task<bool> ExistsOpenWithoutPriceOverrideByServiceIdAsync(Guid serviceId, CancellationToken cancellationToken = default);
+    Task<bool> ExistsActiveInOpenLeaseByServiceIdAsync(Guid serviceId, CancellationToken cancellationToken = default);
 }

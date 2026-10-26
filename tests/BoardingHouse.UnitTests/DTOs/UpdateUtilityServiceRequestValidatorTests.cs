@@ -78,14 +78,6 @@ public class UpdateUtilityServiceRequestValidatorTests
     }
 
     [Fact]
-    public void Validate_DefaultUnitPriceSetToNull_HasNoError()
-    {
-        var result = _validator.TestValidate(new UpdateUtilityServiceRequest { DefaultUnitPrice = null });
-
-        result.ShouldNotHaveAnyValidationErrors();
-    }
-
-    [Fact]
     public void Validate_DefaultUnitPriceZero_HasNoError()
     {
         var result = _validator.TestValidate(new UpdateUtilityServiceRequest { DefaultUnitPrice = 0m });

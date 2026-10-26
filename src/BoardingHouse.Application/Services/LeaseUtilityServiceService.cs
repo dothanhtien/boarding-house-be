@@ -66,16 +66,11 @@ public class LeaseUtilityServiceService(
             }
 
             var leaseUtilityService = await leaseUtilityServiceRepository.GetAsync(leaseId, serviceId, ct)
-                ?? await AttachAsync(leaseId, service, ct);
+                ?? await AttachAsync(lease, service, ct);
 
             request.UnitPriceOverride.ApplyIfSet(v => leaseUtilityService.UnitPriceOverride = v);
+            request.Quantity.ApplyIfSet(leaseUtilityService.SetQuantity);
             request.IsActive.ApplyIfSet(v => leaseUtilityService.IsActive = v);
-
-            if (leaseUtilityService.EffectiveUnitPrice is null)
-            {
-                throw new AppValidationException(
-                    "UnitPriceOverride is required because the utility service has no default unit price");
-            }
 
             return leaseUtilityService;
         }, cancellationToken);
@@ -116,20 +111,10 @@ public class LeaseUtilityServiceService(
             "Lease utility service removed (lease {LeaseId}, service {UtilityServiceId})", leaseId, serviceId);
     }
 
-    private async Task<LeaseUtilityService> AttachAsync(Guid leaseId, UtilityService service, CancellationToken cancellationToken)
+    private async Task<LeaseUtilityService> AttachAsync(Lease lease, UtilityService service, CancellationToken cancellationToken)
     {
-        if (!service.IsActive)
-        {
-            throw new AppValidationException("An inactive utility service cannot be attached to a lease");
-        }
-
-        var attached = new LeaseUtilityService
-        {
-            LeaseId = leaseId,
-            ServiceId = service.Id,
-            Service = service,
-            CreatedBy = currentUserAccessor.RequiredUser.Id
-        };
+        var attached = lease.AttachUtilityService(
+            service, unitPriceOverride: null, quantity: 1, currentUserAccessor.RequiredUser.Id);
 
         await leaseUtilityServiceRepository.AddAsync(attached, cancellationToken);
 

@@ -153,10 +153,7 @@ public class LeaseService(
 
                 EnsureTenantsJoinWithinLeaseTerm(created);
 
-                var propertyServices = await utilityServiceRepository.ListByPropertyIdAsync(
-                    room.PropertyId, type: null, isActive: true, forUpdate: true, ct);
-
-                created.AttachDefaultUtilityServices(propertyServices, currentUserId);
+                await AttachUtilityServicesAsync(created, room.PropertyId, request.UtilityServices ?? [], currentUserId, ct);
 
                 await leaseRepository.AddAsync(created, ct);
 
@@ -665,6 +662,34 @@ public class LeaseService(
         }
 
         return users.ToDictionary(u => u.Id);
+    }
+
+    private async Task AttachUtilityServicesAsync(
+        Lease lease,
+        Guid propertyId,
+        List<CreateLeaseUtilityServiceRequest> requested,
+        Guid createdBy,
+        CancellationToken cancellationToken)
+    {
+        if (requested.Count == 0)
+        {
+            return;
+        }
+
+        var services = (await utilityServiceRepository.ListByIdsForShareAsync(
+                requested.Select(s => s.ServiceId).ToList(), cancellationToken))
+            .ToDictionary(s => s.Id);
+
+        foreach (var item in requested)
+        {
+            if (!services.TryGetValue(item.ServiceId, out var service) || service.PropertyId != propertyId)
+            {
+                throw new AppValidationException(
+                    $"Utility service '{item.ServiceId}' must belong to the property of the lease's room");
+            }
+
+            lease.AttachUtilityService(service, item.UnitPriceOverride, item.Quantity, createdBy);
+        }
     }
 
     private async Task EnsureCanBePreviousLeaseAsync(

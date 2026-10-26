@@ -12,5 +12,10 @@ public class UpsertLeaseUtilityServiceRequestValidator : AbstractValidator<Upser
             .WithMessage("UnitPriceOverride must not exceed 18 digits in total, with at most 2 decimal places")
             .When(x => x.UnitPriceOverride is { IsSet: true, Value: not null })
             .OverridePropertyName("UnitPriceOverride");
+
+        RuleFor(x => x.Quantity.Value)
+            .GreaterThan(0).WithMessage("Quantity must be greater than 0")
+            .When(x => x.Quantity.IsSet)
+            .OverridePropertyName("Quantity");
     }
 }

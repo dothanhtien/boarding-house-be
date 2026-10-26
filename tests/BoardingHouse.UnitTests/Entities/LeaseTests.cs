@@ -29,7 +29,7 @@ public class LeaseTests
         LeftDate = leftDate
     };
 
-    private static UtilityService NewService(decimal? defaultUnitPrice, bool isActive = true) => new()
+    private static UtilityService NewService(decimal defaultUnitPrice, bool isActive = true) => new()
     {
         Name = "Service",
         Type = UtilityType.Other,
@@ -173,20 +173,57 @@ public class LeaseTests
     }
 
     [Fact]
-    public void AttachDefaultUtilityServices_AttachesOnlyActiveServicesWithDefaultPrice()
+    public void AttachUtilityService_AttachesWithOverrideAndQuantity()
     {
         var lease = NewLease(LeaseStatus.Draft);
-        var priced = NewService(defaultUnitPrice: 100_000);
-        var unpriced = NewService(defaultUnitPrice: null);
-        var inactive = NewService(defaultUnitPrice: 50_000, isActive: false);
+        var airConditioner = NewService(defaultUnitPrice: 150_000);
 
-        lease.AttachDefaultUtilityServices([priced, unpriced, inactive], ActorId);
+        lease.AttachUtilityService(airConditioner, unitPriceOverride: 120_000, quantity: 2, ActorId);
 
         var attached = Assert.Single(lease.UtilityServices);
         Assert.Equal(lease.Id, attached.LeaseId);
-        Assert.Equal(priced.Id, attached.ServiceId);
-        Assert.Null(attached.UnitPriceOverride);
+        Assert.Equal(airConditioner.Id, attached.ServiceId);
+        Assert.Equal(120_000, attached.UnitPriceOverride);
+        Assert.Equal(120_000, attached.EffectiveUnitPrice);
+        Assert.Equal(2, attached.Quantity);
         Assert.True(attached.IsActive);
         Assert.Equal(ActorId, attached.CreatedBy);
+    }
+
+    [Fact]
+    public void AttachUtilityService_InactiveService_Throws()
+    {
+        var lease = NewLease(LeaseStatus.Draft);
+        var inactive = NewService(defaultUnitPrice: 50_000, isActive: false);
+
+        Assert.Throws<DomainException>(() => lease.AttachUtilityService(inactive, unitPriceOverride: null, quantity: 1, ActorId));
+        Assert.Empty(lease.UtilityServices);
+    }
+
+    [Theory]
+    [InlineData(UtilityBillingMethod.Metered)]
+    [InlineData(UtilityBillingMethod.PerTenant)]
+    public void AttachUtilityService_QuantityOnNonFixedService_Throws(UtilityBillingMethod billingMethod)
+    {
+        var lease = NewLease(LeaseStatus.Draft);
+        var service = NewService(defaultUnitPrice: 15_000);
+        service.BillingMethod = billingMethod;
+
+        Assert.Throws<DomainException>(() => lease.AttachUtilityService(service, unitPriceOverride: null, quantity: 2, ActorId));
+        Assert.Empty(lease.UtilityServices);
+    }
+
+    [Theory]
+    [InlineData(UtilityBillingMethod.Metered)]
+    [InlineData(UtilityBillingMethod.PerTenant)]
+    public void AttachUtilityService_DefaultQuantityOnNonFixedService_Attaches(UtilityBillingMethod billingMethod)
+    {
+        var lease = NewLease(LeaseStatus.Draft);
+        var service = NewService(defaultUnitPrice: 15_000);
+        service.BillingMethod = billingMethod;
+
+        lease.AttachUtilityService(service, unitPriceOverride: null, quantity: 1, ActorId);
+
+        Assert.Equal(1, Assert.Single(lease.UtilityServices).Quantity);
     }
 }

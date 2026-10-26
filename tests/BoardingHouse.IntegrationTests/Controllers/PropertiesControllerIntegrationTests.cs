@@ -485,7 +485,8 @@ public class PropertiesControllerIntegrationTests(PostgresApiFactory factory)
             Name = name,
             Type = UtilityType.Other,
             BillingMethod = UtilityBillingMethod.Fixed,
-            Unit = "month"
+            Unit = "month",
+            DefaultUnitPrice = 100_000
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var json = await response.Content.ReadFromJsonAsync<JsonObject>();

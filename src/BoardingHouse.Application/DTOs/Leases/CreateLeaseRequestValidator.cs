@@ -47,5 +47,14 @@ public class CreateLeaseRequestValidator : AbstractValidator<CreateLeaseRequest>
         RuleForEach(x => x.Tenants)
             .NotNull().WithMessage("Tenant must not be null")
             .SetValidator(new CreateLeaseTenantRequestValidator());
+
+        RuleFor(x => x.UtilityServices!)
+            .Must(s => s.Where(x => x is not null).Select(x => x.ServiceId).AllUnique())
+            .WithMessage("Each utility service can only appear once in a lease")
+            .When(x => x.UtilityServices is not null);
+
+        RuleForEach(x => x.UtilityServices)
+            .NotNull().WithMessage("Utility service must not be null")
+            .SetValidator(new CreateLeaseUtilityServiceRequestValidator());
     }
 }

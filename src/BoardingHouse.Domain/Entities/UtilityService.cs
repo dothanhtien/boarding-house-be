@@ -12,6 +12,8 @@ public class UtilityService : BaseEntity
     public UtilityType Type { get; set; }
     public UtilityBillingMethod BillingMethod { get; set; }
     public required string Unit { get; set; }
-    public decimal? DefaultUnitPrice { get; set; }
+    public decimal DefaultUnitPrice { get; set; }
     public bool IsActive { get; set; } = true;
+
+    public bool SupportsQuantity => BillingMethod == UtilityBillingMethod.Fixed;
 }

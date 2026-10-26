@@ -41,11 +41,11 @@ public class UtilityServiceService(
 
     public async Task<UtilityServiceResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var service = await utilityServiceRepository.GetByIdWithPropertyAsync(id, cancellationToken)
+        var (service, organizationId) = await utilityServiceRepository.GetByIdWithOrganizationIdAsync(id, cancellationToken)
             ?? throw new AppNotFoundException(NotFoundMessages.UtilityService(id));
 
         await organizationScopeAccessor.EnsureScopeAsync(
-            service.Property!.OrganizationId, PermissionResources.UtilityService, PermissionActions.Read, NotFoundMessages.UtilityService(id), cancellationToken);
+            organizationId, PermissionResources.UtilityService, PermissionActions.Read, NotFoundMessages.UtilityService(id), cancellationToken);
 
         return service.Adapt<UtilityServiceResponse>();
     }
@@ -127,16 +127,25 @@ public class UtilityServiceService(
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var service = await utilityServiceRepository.GetByIdWithPropertyAsync(id, cancellationToken)
-            ?? throw new AppNotFoundException(NotFoundMessages.UtilityService(id));
+        await unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var (service, organizationId) = await utilityServiceRepository.GetByIdWithOrganizationIdForUpdateAsync(id, ct)
+                ?? throw new AppNotFoundException(NotFoundMessages.UtilityService(id));
 
-        await organizationScopeAccessor.EnsureScopeAsync(
-            service.Property!.OrganizationId, PermissionResources.UtilityService, PermissionActions.Delete, NotFoundMessages.UtilityService(id), cancellationToken);
+            await organizationScopeAccessor.EnsureScopeAsync(
+                organizationId, PermissionResources.UtilityService, PermissionActions.Delete, NotFoundMessages.UtilityService(id), ct);
 
-        utilityServiceRepository.SoftDelete(service);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+            if (await leaseUtilityServiceRepository.ExistsActiveInOpenLeaseByServiceIdAsync(service.Id, ct))
+            {
+                logger.LogWarning("Delete utility service failed: still used by an open lease ({UtilityServiceId})", id);
+                throw new AppConflictException(
+                    "Cannot delete a utility service used by a draft or active lease — set IsActive to false to stop offering it, or deactivate it on those leases first");
+            }
 
-        logger.LogInformation("Utility service soft-deleted ({UtilityServiceId})", service.Id);
+            utilityServiceRepository.SoftDelete(service);
+        }, cancellationToken);
+
+        logger.LogInformation("Utility service soft-deleted ({UtilityServiceId})", id);
     }
 
     private async Task EnsureLeaseUsageAllowsChangeAsync(
@@ -148,14 +157,6 @@ public class UtilityServiceService(
         {
             throw new AppConflictException(
                 "BillingMethod cannot be changed once the service is used by a lease — create a new service instead");
-        }
-
-        if (request.DefaultUnitPrice is { IsSet: true, Value: null }
-            && service.DefaultUnitPrice is not null
-            && await leaseUtilityServiceRepository.ExistsOpenWithoutPriceOverrideByServiceIdAsync(service.Id, cancellationToken))
-        {
-            throw new AppConflictException(
-                "DefaultUnitPrice cannot be cleared while a draft or active lease uses this service without a price override");
         }
     }
 }

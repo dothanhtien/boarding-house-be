@@ -295,6 +295,12 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
+                    b.Property<int>("Quantity")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("quantity");
+
                     b.Property<decimal?>("UnitPriceOverride")
                         .HasColumnType("decimal(18,2)")
                         .HasColumnName("unit_price_override");
@@ -315,6 +321,8 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
 
                     b.ToTable("lease_utility_services", null, t =>
                         {
+                            t.HasCheckConstraint("ck_lease_utility_services_quantity", "quantity > 0");
+
                             t.HasCheckConstraint("ck_lease_utility_services_unit_price_override", "unit_price_override IS NULL OR unit_price_override >= 0");
                         });
                 });
@@ -1644,7 +1652,7 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
-                    b.Property<decimal?>("DefaultUnitPrice")
+                    b.Property<decimal>("DefaultUnitPrice")
                         .HasColumnType("decimal(18,2)")
                         .HasColumnName("default_unit_price");
 

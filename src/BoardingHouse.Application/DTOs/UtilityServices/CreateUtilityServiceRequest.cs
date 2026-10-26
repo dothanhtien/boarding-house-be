@@ -9,6 +9,6 @@ public record CreateUtilityServiceRequest
     public required UtilityType Type { get; init; }
     public required UtilityBillingMethod BillingMethod { get; init; }
     public required string Unit { get; init; }
-    public decimal? DefaultUnitPrice { get; init; }
+    public required decimal DefaultUnitPrice { get; init; }
     public bool IsActive { get; init; } = true;
 }

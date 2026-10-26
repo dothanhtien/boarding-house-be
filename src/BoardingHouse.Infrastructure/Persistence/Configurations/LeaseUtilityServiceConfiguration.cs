@@ -14,6 +14,8 @@ public class LeaseUtilityServiceConfiguration : IEntityTypeConfiguration<LeaseUt
 
         builder.Property(s => s.UnitPriceOverride).HasColumnType("decimal(18,2)");
 
+        builder.Property(s => s.Quantity).HasDefaultValue(1);
+
         builder.Property(s => s.IsActive).HasDefaultValue(true);
 
         builder.HasOne(s => s.Lease)
@@ -27,8 +29,11 @@ public class LeaseUtilityServiceConfiguration : IEntityTypeConfiguration<LeaseUt
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.ToTable(t =>
+        {
             t.HasCheckConstraint(
                 "ck_lease_utility_services_unit_price_override",
-                "unit_price_override IS NULL OR unit_price_override >= 0"));
+                "unit_price_override IS NULL OR unit_price_override >= 0");
+            t.HasCheckConstraint("ck_lease_utility_services_quantity", "quantity > 0");
+        });
     }
 }

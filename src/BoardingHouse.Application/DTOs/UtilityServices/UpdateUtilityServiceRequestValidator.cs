@@ -27,7 +27,7 @@ public class UpdateUtilityServiceRequestValidator : AbstractValidator<UpdateUtil
             .GreaterThanOrEqualTo(0).WithMessage("DefaultUnitPrice must not be negative")
             .PrecisionScale(18, 2, ignoreTrailingZeros: true)
             .WithMessage("DefaultUnitPrice must not exceed 18 digits in total, with at most 2 decimal places")
-            .When(x => x.DefaultUnitPrice is { IsSet: true, Value: not null })
+            .When(x => x.DefaultUnitPrice.IsSet)
             .OverridePropertyName("DefaultUnitPrice");
     }
 }

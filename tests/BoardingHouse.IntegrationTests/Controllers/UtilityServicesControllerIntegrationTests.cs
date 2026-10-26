@@ -215,11 +215,18 @@ public class UtilityServicesControllerIntegrationTests(PostgresApiFactory factor
     }
 
     [Fact]
-    public async Task Create_WithoutDefaultUnitPrice_StoresNull()
+    public async Task Create_MissingDefaultUnitPrice_Returns400()
     {
-        var created = await CreateUtilityServiceAsync(_client, ValidCreateRequest() with { DefaultUnitPrice = null });
+        var response = await _client.PostAsJsonAsync("/api/utility-services", new
+        {
+            propertyId = _propertyId,
+            name = "Electricity",
+            type = "electricity",
+            billingMethod = "metered",
+            unit = "kWh"
+        });
 
-        Assert.Null((await GetUtilityServiceAsync(created.Id)).DefaultUnitPrice);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -299,15 +306,27 @@ public class UtilityServicesControllerIntegrationTests(PostgresApiFactory factor
     }
 
     [Fact]
-    public async Task Update_DefaultUnitPriceSetToNull_ClearsPrice()
+    public async Task Update_DefaultUnitPriceSetToNull_Returns400()
     {
         var created = await CreateUtilityServiceAsync(_client, ValidCreateRequest());
 
         var response = await _client.PatchAsJsonAsync(
-            $"/api/utility-services/{created.Id}", new UpdateUtilityServiceRequest { DefaultUnitPrice = null });
+            $"/api/utility-services/{created.Id}", new { defaultUnitPrice = (decimal?)null });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(3500, (await GetUtilityServiceAsync(created.Id)).DefaultUnitPrice);
+    }
+
+    [Fact]
+    public async Task Update_DefaultUnitPrice_ChangesPrice()
+    {
+        var created = await CreateUtilityServiceAsync(_client, ValidCreateRequest());
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/utility-services/{created.Id}", new UpdateUtilityServiceRequest { DefaultUnitPrice = 4000m });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Null((await GetUtilityServiceAsync(created.Id)).DefaultUnitPrice);
+        Assert.Equal(4000, (await GetUtilityServiceAsync(created.Id)).DefaultUnitPrice);
     }
 
     [Fact]

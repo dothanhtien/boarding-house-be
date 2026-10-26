@@ -14,10 +14,19 @@ public class UtilityServiceRepository(AppDbContext context) : Repository<Utility
             .FromSql($"SELECT * FROM utility_services WHERE id = {id} FOR SHARE")
             .FirstOrDefaultAsync(cancellationToken);
 
-    public Task<UtilityService?> GetByIdWithPropertyAsync(Guid id, CancellationToken cancellationToken = default) =>
+    public Task<List<UtilityService>> ListByIdsForShareAsync(
+        IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default) =>
         Context.UtilityServices
-            .Include(s => s.Property)
-            .FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
+            .FromSql($"SELECT * FROM utility_services WHERE id = ANY({ids.ToArray()}) FOR SHARE")
+            .ToListAsync(cancellationToken);
+
+    public Task<EntityWithOrganizationId<UtilityService>?> GetByIdWithOrganizationIdAsync(
+        Guid id, CancellationToken cancellationToken = default) =>
+        Context.UtilityServices
+            .AsNoTracking()
+            .Where(s => s.Id == id)
+            .Select(s => new EntityWithOrganizationId<UtilityService>(s, s.Property!.OrganizationId))
+            .FirstOrDefaultAsync(cancellationToken);
 
     public Task<EntityWithOrganizationId<UtilityService>?> GetByIdWithOrganizationIdForUpdateAsync(
         Guid id, CancellationToken cancellationToken = default) =>

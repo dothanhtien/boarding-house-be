@@ -110,7 +110,7 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
 
     private async Task<UtilityServiceResponse> CreateUtilityServiceAsync(
         string name,
-        decimal? defaultUnitPrice = 100_000,
+        decimal defaultUnitPrice = 100_000,
         UtilityBillingMethod billingMethod = UtilityBillingMethod.Fixed,
         bool isActive = true,
         Guid? propertyId = null)
@@ -143,17 +143,30 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
         return (await response.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())!.Data!.Id;
     }
 
-    private async Task<LeaseResponse> CreateLeaseAsync(List<CreateLeaseTenantRequest>? tenants = null)
+    private Task<HttpResponseMessage> PostLeaseAsync(
+        List<CreateLeaseUtilityServiceRequest>? utilityServices, List<CreateLeaseTenantRequest>? tenants = null) =>
+        _client.PostAsJsonAsync("/api/leases", new CreateLeaseRequest
+        {
+            RoomId = _roomId,
+            StartDate = Today,
+            Tenants = tenants,
+            UtilityServices = utilityServices
+        }, JsonOptions);
+
+    private async Task<LeaseResponse> CreateLeaseAsync(
+        List<UtilityServiceResponse>? utilityServices = null, List<CreateLeaseTenantRequest>? tenants = null)
     {
-        var response = await _client.PostAsJsonAsync(
-            "/api/leases", new CreateLeaseRequest { RoomId = _roomId, StartDate = Today, Tenants = tenants }, JsonOptions);
+        var response = await PostLeaseAsync(
+            utilityServices?.Select(s => new CreateLeaseUtilityServiceRequest { ServiceId = s.Id }).ToList(), tenants);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<ApiResponse<LeaseResponse>>(JsonOptions))!.Data!;
     }
 
-    private async Task<LeaseResponse> CreateActiveLeaseAsync()
+    private async Task<LeaseResponse> CreateActiveLeaseAsync(List<UtilityServiceResponse>? utilityServices = null)
     {
-        var lease = await CreateLeaseAsync([new CreateLeaseTenantRequest { UserId = await CreateTenantUserAsync(), IsRepresentative = true }]);
+        var lease = await CreateLeaseAsync(
+            utilityServices,
+            [new CreateLeaseTenantRequest { UserId = await CreateTenantUserAsync(), IsRepresentative = true }]);
         var response = await _client.PostAsync($"/api/leases/{lease.Id}/activate", null);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return lease;
@@ -223,16 +236,19 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
     }
 
     [Fact]
-    public async Task CreateLease_AttachesActivePropertyServicesThatHaveADefaultPrice()
+    public async Task CreateLease_AttachesOnlySelectedServices()
     {
         var electricity = await CreateUtilityServiceAsync("Electricity", 3_500, UtilityBillingMethod.Metered);
         var internet = await CreateUtilityServiceAsync("Internet", 100_000);
-        await CreateUtilityServiceAsync("Parking", defaultUnitPrice: null);
-        await CreateUtilityServiceAsync("Garbage", 20_000, isActive: false);
-        var otherPropertyId = await CreatePropertyAsync(_organizationId, "Other Property");
-        await CreateUtilityServiceAsync("Water", 15_000, propertyId: otherPropertyId);
+        await CreateUtilityServiceAsync("Parking", 150_000);
 
-        var lease = await CreateLeaseAsync();
+        var response = await PostLeaseAsync(
+        [
+            new CreateLeaseUtilityServiceRequest { ServiceId = electricity.Id },
+            new CreateLeaseUtilityServiceRequest { ServiceId = internet.Id, UnitPriceOverride = 80_000 }
+        ]);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var lease = (await response.Content.ReadFromJsonAsync<ApiResponse<LeaseResponse>>(JsonOptions))!.Data!;
 
         var services = await GetLeaseServicesAsync(lease.Id);
         Assert.Equal([electricity.Id, internet.Id], services.Select(s => s.ServiceId));
@@ -243,15 +259,83 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
         Assert.Equal(3_500, attachedElectricity.DefaultUnitPrice);
         Assert.Null(attachedElectricity.UnitPriceOverride);
         Assert.Equal(3_500, attachedElectricity.EffectiveUnitPrice);
+        Assert.Equal(1, attachedElectricity.Quantity);
         Assert.True(attachedElectricity.IsActive);
         Assert.True(attachedElectricity.ServiceIsActive);
+
+        var attachedInternet = services[1];
+        Assert.Equal(80_000, attachedInternet.UnitPriceOverride);
+        Assert.Equal(80_000, attachedInternet.EffectiveUnitPrice);
+    }
+
+    [Fact]
+    public async Task CreateLease_QuantityOnFixedService_IsStored()
+    {
+        var airConditioner = await CreateUtilityServiceAsync("Air conditioner", 150_000);
+
+        var response = await PostLeaseAsync([new CreateLeaseUtilityServiceRequest { ServiceId = airConditioner.Id, Quantity = 2 }]);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var lease = (await response.Content.ReadFromJsonAsync<ApiResponse<LeaseResponse>>(JsonOptions))!.Data!;
+
+        Assert.Equal(2, Assert.Single(await GetLeaseServicesAsync(lease.Id)).Quantity);
+    }
+
+    [Theory]
+    [InlineData(UtilityBillingMethod.Metered)]
+    [InlineData(UtilityBillingMethod.PerTenant)]
+    public async Task CreateLease_QuantityOnNonFixedService_Returns400(UtilityBillingMethod billingMethod)
+    {
+        var water = await CreateUtilityServiceAsync("Water", 15_000, billingMethod);
+
+        var response = await PostLeaseAsync([new CreateLeaseUtilityServiceRequest { ServiceId = water.Id, Quantity = 2 }]);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateLease_NoServicesSelected_AttachesNone()
+    {
+        await CreateUtilityServiceAsync("Internet", 100_000);
+
+        var lease = await CreateLeaseAsync();
+
+        Assert.Empty(await GetLeaseServicesAsync(lease.Id));
+    }
+
+    [Fact]
+    public async Task CreateLease_InactiveService_Returns400()
+    {
+        var garbage = await CreateUtilityServiceAsync("Garbage", 20_000, isActive: false);
+
+        var response = await PostLeaseAsync([new CreateLeaseUtilityServiceRequest { ServiceId = garbage.Id }]);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateLease_ServiceOfAnotherProperty_Returns400()
+    {
+        var otherPropertyId = await CreatePropertyAsync(_organizationId, "Other Property");
+        var water = await CreateUtilityServiceAsync("Water", 15_000, propertyId: otherPropertyId);
+
+        var response = await PostLeaseAsync([new CreateLeaseUtilityServiceRequest { ServiceId = water.Id }]);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateLease_UnknownService_Returns400()
+    {
+        var response = await PostLeaseAsync([new CreateLeaseUtilityServiceRequest { ServiceId = Guid.NewGuid() }]);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
     public async Task Put_OverridePrice_ChangesEffectiveUnitPrice()
     {
         var internet = await CreateUtilityServiceAsync("Internet", 100_000);
-        var lease = await CreateLeaseAsync();
+        var lease = await CreateLeaseAsync([internet]);
 
         var response = await PutAsync(lease.Id, internet.Id, new UpsertLeaseUtilityServiceRequest { UnitPriceOverride = 80_000m });
 
@@ -281,31 +365,17 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
     }
 
     [Fact]
-    public async Task Put_ServiceWithoutDefaultPrice_RequiresOverride()
+    public async Task Put_ServiceAddedAfterLease_AttachesWithDefaultPrice()
     {
-        var parking = await CreateUtilityServiceAsync("Parking", defaultUnitPrice: null);
         var lease = await CreateLeaseAsync();
+        var parking = await CreateUtilityServiceAsync("Parking", 150_000);
 
-        var withoutPrice = await PutAsync(lease.Id, parking.Id, new UpsertLeaseUtilityServiceRequest());
-        Assert.Equal(HttpStatusCode.BadRequest, withoutPrice.StatusCode);
-        Assert.Empty(await GetLeaseServicesAsync(lease.Id));
+        var response = await PutAsync(lease.Id, parking.Id, new UpsertLeaseUtilityServiceRequest());
 
-        var withPrice = await PutAsync(lease.Id, parking.Id, new UpsertLeaseUtilityServiceRequest { UnitPriceOverride = 150_000m });
-        Assert.Equal(HttpStatusCode.OK, withPrice.StatusCode);
-        Assert.Equal(150_000, (await ReadAsync(withPrice)).EffectiveUnitPrice);
-    }
-
-    [Fact]
-    public async Task Put_ClearOverrideOfServiceWithoutDefaultPrice_Returns400()
-    {
-        var parking = await CreateUtilityServiceAsync("Parking", defaultUnitPrice: null);
-        var lease = await CreateLeaseAsync();
-        await PutAsync(lease.Id, parking.Id, new UpsertLeaseUtilityServiceRequest { UnitPriceOverride = 150_000m });
-
-        var response = await PutAsync(lease.Id, parking.Id, new UpsertLeaseUtilityServiceRequest { UnitPriceOverride = null });
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(150_000, Assert.Single(await GetLeaseServicesAsync(lease.Id)).UnitPriceOverride);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var attached = await ReadAsync(response);
+        Assert.Null(attached.UnitPriceOverride);
+        Assert.Equal(150_000, attached.EffectiveUnitPrice);
     }
 
     [Fact]
@@ -335,7 +405,7 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
     public async Task Put_AttachedServiceDeactivatedInProperty_CanStillBeUpdated()
     {
         var internet = await CreateUtilityServiceAsync("Internet", 100_000);
-        var lease = await CreateLeaseAsync();
+        var lease = await CreateLeaseAsync([internet]);
         await PatchUtilityServiceAsync(internet.Id, new UpdateUtilityServiceRequest { IsActive = false });
 
         var response = await PutAsync(lease.Id, internet.Id, new UpsertLeaseUtilityServiceRequest { UnitPriceOverride = 90_000m });
@@ -348,7 +418,9 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
     public async Task GetAll_AttachedServiceSoftDeletedInProperty_IsStillListed()
     {
         var internet = await CreateUtilityServiceAsync("Internet", 100_000);
-        var lease = await CreateLeaseAsync();
+        var lease = await CreateLeaseAsync([internet]);
+        Assert.Equal(HttpStatusCode.OK,
+            (await PutAsync(lease.Id, internet.Id, new UpsertLeaseUtilityServiceRequest { IsActive = false })).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/utility-services/{internet.Id}")).StatusCode);
 
         var services = await GetLeaseServicesAsync(lease.Id);
@@ -356,6 +428,107 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
         var attached = Assert.Single(services);
         Assert.Equal(internet.Id, attached.ServiceId);
         Assert.Equal(100_000, attached.EffectiveUnitPrice);
+    }
+
+    [Fact]
+    public async Task DeleteService_UsedByDraftLease_Returns409()
+    {
+        var internet = await CreateUtilityServiceAsync("Internet", 100_000);
+        await CreateLeaseAsync([internet]);
+
+        var response = await _client.DeleteAsync($"/api/utility-services/{internet.Id}");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/utility-services/{internet.Id}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteService_UsedByActiveLease_Returns409()
+    {
+        var internet = await CreateUtilityServiceAsync("Internet", 100_000);
+        await CreateActiveLeaseAsync([internet]);
+
+        var response = await _client.DeleteAsync($"/api/utility-services/{internet.Id}");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteService_DeactivatedOnActiveLease_Returns204()
+    {
+        var internet = await CreateUtilityServiceAsync("Internet", 100_000);
+        var lease = await CreateActiveLeaseAsync([internet]);
+        Assert.Equal(HttpStatusCode.OK,
+            (await PutAsync(lease.Id, internet.Id, new UpsertLeaseUtilityServiceRequest { IsActive = false })).StatusCode);
+
+        var response = await _client.DeleteAsync($"/api/utility-services/{internet.Id}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(LeaseStatus.Terminated)]
+    [InlineData(LeaseStatus.Expired)]
+    public async Task DeleteService_UsedOnlyByClosedLease_Returns204(LeaseStatus status)
+    {
+        var internet = await CreateUtilityServiceAsync("Internet", 100_000);
+        var lease = await CreateLeaseAsync([internet]);
+        await SetLeaseStatusAsync(lease.Id, status);
+
+        var response = await _client.DeleteAsync($"/api/utility-services/{internet.Id}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Single(await GetLeaseServicesAsync(lease.Id));
+    }
+
+    [Fact]
+    public async Task DeleteService_UsedOnlyBySoftDeletedLease_Returns204()
+    {
+        var internet = await CreateUtilityServiceAsync("Internet", 100_000);
+        var lease = await CreateLeaseAsync([internet]);
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/leases/{lease.Id}")).StatusCode);
+
+        var response = await _client.DeleteAsync($"/api/utility-services/{internet.Id}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Put_Quantity_UpdatesQuantityAndKeepsOverride()
+    {
+        var airConditioner = await CreateUtilityServiceAsync("Air conditioner", 150_000);
+        var lease = await CreateLeaseAsync([airConditioner]);
+        await PutAsync(lease.Id, airConditioner.Id, new UpsertLeaseUtilityServiceRequest { UnitPriceOverride = 120_000m });
+
+        var response = await PutAsync(lease.Id, airConditioner.Id, new UpsertLeaseUtilityServiceRequest { Quantity = 3 });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var updated = await ReadAsync(response);
+        Assert.Equal(3, updated.Quantity);
+        Assert.Equal(120_000, updated.UnitPriceOverride);
+    }
+
+    [Fact]
+    public async Task Put_QuantityOnMeteredService_Returns400()
+    {
+        var electricity = await CreateUtilityServiceAsync("Electricity", 3_500, UtilityBillingMethod.Metered);
+        var lease = await CreateLeaseAsync([electricity]);
+
+        var response = await PutAsync(lease.Id, electricity.Id, new UpsertLeaseUtilityServiceRequest { Quantity = 2 });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(1, Assert.Single(await GetLeaseServicesAsync(lease.Id)).Quantity);
+    }
+
+    [Fact]
+    public async Task Put_ZeroQuantity_Returns400()
+    {
+        var airConditioner = await CreateUtilityServiceAsync("Air conditioner", 150_000);
+        var lease = await CreateLeaseAsync([airConditioner]);
+
+        var response = await PutAsync(lease.Id, airConditioner.Id, new UpsertLeaseUtilityServiceRequest { Quantity = 0 });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -383,7 +556,7 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
     public async Task ActiveLease_DeactivateService_Returns200()
     {
         var internet = await CreateUtilityServiceAsync("Internet", 100_000);
-        var lease = await CreateActiveLeaseAsync();
+        var lease = await CreateActiveLeaseAsync([internet]);
 
         var response = await PutAsync(lease.Id, internet.Id, new UpsertLeaseUtilityServiceRequest { IsActive = false });
 
@@ -395,7 +568,7 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
     public async Task ActiveLease_Delete_Returns409()
     {
         var internet = await CreateUtilityServiceAsync("Internet", 100_000);
-        var lease = await CreateActiveLeaseAsync();
+        var lease = await CreateActiveLeaseAsync([internet]);
 
         var response = await _client.DeleteAsync($"/api/leases/{lease.Id}/utility-services/{internet.Id}");
 
@@ -407,7 +580,7 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
     public async Task DraftLease_Delete_RemovesTheService()
     {
         var internet = await CreateUtilityServiceAsync("Internet", 100_000);
-        var lease = await CreateLeaseAsync();
+        var lease = await CreateLeaseAsync([internet]);
 
         var response = await _client.DeleteAsync($"/api/leases/{lease.Id}/utility-services/{internet.Id}");
 
@@ -431,7 +604,7 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
     public async Task ClosedLease_Put_Returns409(LeaseStatus status)
     {
         var internet = await CreateUtilityServiceAsync("Internet", 100_000);
-        var lease = await CreateLeaseAsync();
+        var lease = await CreateLeaseAsync([internet]);
         await SetLeaseStatusAsync(lease.Id, status);
 
         var response = await PutAsync(lease.Id, internet.Id, new UpsertLeaseUtilityServiceRequest { IsActive = false });
@@ -443,7 +616,7 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
     public async Task UpdateBillingMethod_ServiceUsedByLease_Returns409()
     {
         var water = await CreateUtilityServiceAsync("Water", 15_000, UtilityBillingMethod.Metered);
-        await CreateLeaseAsync();
+        await CreateLeaseAsync([water]);
 
         var response = await PatchUtilityServiceAsync(water.Id, new UpdateUtilityServiceRequest { BillingMethod = UtilityBillingMethod.PerTenant });
 
@@ -454,7 +627,7 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
     public async Task UpdateBillingMethod_SameValueOnUsedService_Returns200()
     {
         var water = await CreateUtilityServiceAsync("Water", 15_000, UtilityBillingMethod.Metered);
-        await CreateLeaseAsync();
+        await CreateLeaseAsync([water]);
 
         var response = await PatchUtilityServiceAsync(water.Id, new UpdateUtilityServiceRequest { BillingMethod = UtilityBillingMethod.Metered });
 
@@ -465,33 +638,10 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
     public async Task UpdateBillingMethod_OnlyUsedBySoftDeletedLease_Returns200()
     {
         var water = await CreateUtilityServiceAsync("Water", 15_000, UtilityBillingMethod.Metered);
-        var lease = await CreateLeaseAsync();
+        var lease = await CreateLeaseAsync([water]);
         Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/leases/{lease.Id}")).StatusCode);
 
         var response = await PatchUtilityServiceAsync(water.Id, new UpdateUtilityServiceRequest { BillingMethod = UtilityBillingMethod.PerTenant });
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task ClearDefaultUnitPrice_UsedByLeaseWithoutOverride_Returns409()
-    {
-        var internet = await CreateUtilityServiceAsync("Internet", 100_000);
-        await CreateLeaseAsync();
-
-        var response = await PatchUtilityServiceAsync(internet.Id, new UpdateUtilityServiceRequest { DefaultUnitPrice = null });
-
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task ClearDefaultUnitPrice_EveryLeaseHasOverride_Returns200()
-    {
-        var internet = await CreateUtilityServiceAsync("Internet", 100_000);
-        var lease = await CreateLeaseAsync();
-        await PutAsync(lease.Id, internet.Id, new UpsertLeaseUtilityServiceRequest { UnitPriceOverride = 80_000m });
-
-        var response = await PatchUtilityServiceAsync(internet.Id, new UpdateUtilityServiceRequest { DefaultUnitPrice = null });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
