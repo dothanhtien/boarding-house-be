@@ -30,6 +30,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<LeaseTenant> LeaseTenants => Set<LeaseTenant>();
     public DbSet<LeaseStatusHistory> LeaseStatusHistories => Set<LeaseStatusHistory>();
     public DbSet<LeaseUtilityService> LeaseUtilityServices => Set<LeaseUtilityService>();
+    public DbSet<UtilityReading> UtilityReadings => Set<UtilityReading>();
     public DbSet<TenantProfile> TenantProfiles => Set<TenantProfile>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>

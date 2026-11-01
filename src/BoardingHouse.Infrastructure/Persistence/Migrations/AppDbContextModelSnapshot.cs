@@ -1630,6 +1630,82 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                     b.ToTable("user_roles", (string)null);
                 });
 
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.UtilityReading", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid?>("BilledLeaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("billed_lease_id");
+
+                    b.Property<decimal?>("Consumption")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("consumption")
+                        .HasComputedColumnSql("current_value - previous_value", true);
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<decimal>("CurrentValue")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("current_value");
+
+                    b.Property<decimal?>("PreviousValue")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("previous_value");
+
+                    b.Property<DateOnly>("ReadOn")
+                        .HasColumnType("date")
+                        .HasColumnName("read_on");
+
+                    b.Property<DateOnly>("ReadingMonth")
+                        .HasColumnType("date")
+                        .HasColumnName("reading_month");
+
+                    b.Property<Guid>("RoomId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("room_id");
+
+                    b.Property<Guid>("ServiceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("service_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_utility_readings");
+
+                    b.HasIndex("BilledLeaseId")
+                        .HasDatabaseName("ix_utility_readings_billed_lease_id");
+
+                    b.HasIndex("ServiceId")
+                        .HasDatabaseName("ix_utility_readings_service_id");
+
+                    b.HasIndex("RoomId", "ServiceId", "ReadOn")
+                        .HasDatabaseName("ix_utility_readings_room_id_service_id_read_on");
+
+                    b.HasIndex("RoomId", "ServiceId", "ReadingMonth")
+                        .IsUnique()
+                        .HasDatabaseName("ix_utility_readings_room_id_service_id_reading_month");
+
+                    b.ToTable("utility_readings", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_utility_readings_current_value", "current_value >= 0");
+
+                            t.HasCheckConstraint("ck_utility_readings_previous_value", "previous_value IS NULL OR (previous_value >= 0 AND previous_value <= current_value)");
+
+                            t.HasCheckConstraint("ck_utility_readings_reading_month", "EXTRACT(DAY FROM reading_month) = 1");
+                        });
+                });
+
             modelBuilder.Entity("BoardingHouse.Domain.Entities.UtilityService", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2036,6 +2112,35 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                     b.Navigation("Role");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.UtilityReading", b =>
+                {
+                    b.HasOne("BoardingHouse.Domain.Entities.Lease", "BilledLease")
+                        .WithMany()
+                        .HasForeignKey("BilledLeaseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_utility_readings_leases_billed_lease_id");
+
+                    b.HasOne("BoardingHouse.Domain.Entities.Room", "Room")
+                        .WithMany()
+                        .HasForeignKey("RoomId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_utility_readings_rooms_room_id");
+
+                    b.HasOne("BoardingHouse.Domain.Entities.UtilityService", "Service")
+                        .WithMany()
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_utility_readings_utility_services_service_id");
+
+                    b.Navigation("BilledLease");
+
+                    b.Navigation("Room");
+
+                    b.Navigation("Service");
                 });
 
             modelBuilder.Entity("BoardingHouse.Domain.Entities.UtilityService", b =>

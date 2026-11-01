@@ -18,4 +18,5 @@ public static class NotFoundMessages
     public static string Tenant(Guid id) => $"Tenant '{id}' not found";
     public static string User(Guid id) => $"User '{id}' not found";
     public static string UtilityService(Guid id) => $"Utility service '{id}' not found";
+    public static string UtilityReading(Guid id) => $"Utility reading '{id}' not found";
 }

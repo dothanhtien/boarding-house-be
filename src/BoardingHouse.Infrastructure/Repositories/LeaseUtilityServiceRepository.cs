@@ -18,6 +18,14 @@ public class LeaseUtilityServiceRepository(AppDbContext context) : ILeaseUtility
             .ThenBy(s => s.ServiceId)
             .ToListAsync(cancellationToken);
 
+    public Task<List<LeaseUtilityService>> ListActiveByLeaseIdsAsync(IReadOnlyCollection<Guid> leaseIds, CancellationToken cancellationToken = default) =>
+        context.LeaseUtilityServices
+            .AsNoTracking()
+            .Include(l => l.Service)
+            .Where(l => leaseIds.Contains(l.LeaseId) && l.IsActive)
+            .OrderBy(s => s.Service!.Name)
+            .ToListAsync(cancellationToken);
+
     public Task<LeaseUtilityService?> GetAsync(Guid leaseId, Guid serviceId, CancellationToken cancellationToken = default) =>
         context.LeaseUtilityServices
             .FirstOrDefaultAsync(s => s.LeaseId == leaseId && s.ServiceId == serviceId, cancellationToken);

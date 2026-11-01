@@ -19,4 +19,6 @@ public interface IUtilityServiceRepository : IRepository<UtilityService>
         bool? isActive,
         bool forUpdate = false,
         CancellationToken cancellationToken = default);
+    Task<List<UtilityService>> ListMeteredServicesByPropertyIdAsync(
+        Guid propertyId, CancellationToken cancellationToken);
 }

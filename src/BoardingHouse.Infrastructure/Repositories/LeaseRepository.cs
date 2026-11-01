@@ -69,6 +69,11 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
         return await leases.ToPagedResultAsync(pageRequest, sortField, sortOrder, cancellationToken);
     }
 
+    public Task<Lease?> GetActiveByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default) =>
+        Context.Leases
+            .AsNoTracking()
+            .FirstOrDefaultAsync(l => l.RoomId == roomId && l.Status == LeaseStatus.Active, cancellationToken);
+
     public Task<Lease?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default) =>
         Context.Leases
             .AsNoTracking()
