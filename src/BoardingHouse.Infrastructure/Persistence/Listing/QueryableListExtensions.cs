@@ -16,27 +16,37 @@ public static class QueryableListExtensions
         where TEntity : Entity =>
         query.ToPagedResultAsync(pageRequest, sortField, sortOrder, page => page, cancellationToken);
 
-    public static async Task<PagedResult<TResult>> ToPagedResultAsync<TEntity, TResult>(
+    public static Task<PagedResult<TResult>> ToPagedResultAsync<TEntity, TResult>(
         this IQueryable<TEntity> query,
         PageRequest pageRequest,
         Expression<Func<TEntity, object>> sortField,
         SortOrder sortOrder,
         Func<IQueryable<TEntity>, IQueryable<TResult>> project,
         CancellationToken cancellationToken = default)
-        where TEntity : Entity
+        where TEntity : Entity =>
+        query.ToPagedResultAsync(pageRequest, sortField, sortOrder, e => e.Id, project, cancellationToken);
+
+    public static async Task<PagedResult<TResult>> ToPagedResultAsync<TSource, TKey, TResult>(
+        this IQueryable<TSource> query,
+        PageRequest pageRequest,
+        Expression<Func<TSource, object>> sortField,
+        SortOrder sortOrder,
+        Expression<Func<TSource, TKey>> tiebreak,
+        Func<IQueryable<TSource>, IQueryable<TResult>> project,
+        CancellationToken cancellationToken = default)
+        where TSource : class
     {
-        query = sortOrder == SortOrder.Desc
-            ? query.OrderByDescending(sortField).ThenBy(e => e.Id)
-            : query.OrderBy(sortField).ThenBy(e => e.Id);
+        var ordered = sortOrder == SortOrder.Desc
+            ? query.OrderByDescending(sortField)
+            : query.OrderBy(sortField);
+        var sorted = ordered.ThenBy(tiebreak).AsNoTracking();
 
-        query = query.AsNoTracking();
-
-        var totalItems = await query.CountAsync(cancellationToken);
+        var totalItems = await sorted.CountAsync(cancellationToken);
 
         var skip = (long)(pageRequest.Page - 1) * pageRequest.PageSize;
         var skipCount = skip > int.MaxValue ? int.MaxValue : (int)skip;
 
-        var items = await project(query
+        var items = await project(sorted
                 .Skip(skipCount)
                 .Take(pageRequest.PageSize))
             .ToListAsync(cancellationToken);

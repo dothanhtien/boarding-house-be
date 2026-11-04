@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Application.Repositories;
@@ -69,10 +70,24 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
         return await leases.ToPagedResultAsync(pageRequest, sortField, sortOrder, cancellationToken);
     }
 
-    public Task<Lease?> GetActiveByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default) =>
-        Context.Leases
+    public Task<Lease?> GetActiveOfMonthByRoomIdAsync(
+        Guid roomId, DateOnly month, CancellationToken cancellationToken = default) =>
+        ActiveOfMonth(month).FirstOrDefaultAsync(l => l.RoomId == roomId, cancellationToken);
+
+    public Task<List<Lease>> ListActiveOfMonthByRoomIdsAsync(
+        IReadOnlyCollection<Guid> roomIds, DateOnly month, CancellationToken cancellationToken = default) =>
+        ActiveOfMonth(month).Where(l => roomIds.Contains(l.RoomId)).ToListAsync(cancellationToken);
+
+    // An ACTIVE lease whose EndDate passed (ExpireLeasesJob hasn't run yet) doesn't cover the months after it
+    private IQueryable<Lease> ActiveOfMonth(DateOnly month)
+    {
+        var lastDay = BillingMonth.LastDay(month);
+        return Context.Leases
             .AsNoTracking()
-            .FirstOrDefaultAsync(l => l.RoomId == roomId && l.Status == LeaseStatus.Active, cancellationToken);
+            .Where(l => l.Status == LeaseStatus.Active
+                && l.StartDate <= lastDay
+                && (l.EndDate == null || l.EndDate >= month));
+    }
 
     public Task<Lease?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default) =>
         Context.Leases
@@ -121,6 +136,17 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
         Context.LeaseTenants.CountAsync(
             t => t.Lease!.RoomId == roomId && t.Lease.Status == LeaseStatus.Active && t.LeftDate == null,
             cancellationToken);
+
+    public Task<int> CountTenantsInMonthAsync(Guid leaseId, DateOnly month, CancellationToken cancellationToken = default)
+    {
+        var lastDay = BillingMonth.LastDay(month);
+
+        return Context.LeaseTenants.CountAsync(
+            t => t.LeaseId == leaseId
+                && (t.JoinedDate ?? t.Lease!.StartDate) <= lastDay
+                && (t.LeftDate == null || t.LeftDate >= month),
+            cancellationToken);
+    }
 
     public Task<bool> ExistsOpenByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default) =>
         Context.Leases.AnyAsync(

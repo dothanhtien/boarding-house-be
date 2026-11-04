@@ -19,17 +19,20 @@ public interface ILeaseRepository : IRepository<Lease>
         Expression<Func<Lease, object>> sortField,
         SortOrder sortOrder,
         CancellationToken cancellationToken = default);
+    Task<List<Lease>> ListActiveOfMonthByRoomIdsAsync(
+        IReadOnlyCollection<Guid> roomIds, DateOnly month, CancellationToken cancellationToken = default);
     Task<Lease?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Lease?> GetByIdWithRoomForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Lease?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Lease?> GetByIdForShareAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<Lease?> GetActiveByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default);
+    Task<Lease?> GetActiveOfMonthByRoomIdAsync(Guid roomId, DateOnly month, CancellationToken cancellationToken = default);
     Task LoadTenantsAsync(Lease lease, CancellationToken cancellationToken = default);
     Task LoadTenantsWithUsersAsync(Lease lease, CancellationToken cancellationToken = default);
     Task<Guid?> GetRoomIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Guid?> GetOrganizationIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<bool> ExistsActiveByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default);
     Task<int> CountCurrentTenantsOfActiveLeaseByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default);
+    Task<int> CountTenantsInMonthAsync(Guid leaseId, DateOnly month, CancellationToken cancellationToken = default);
     Task<bool> ExistsOpenByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default);
     Task<List<Guid>> ListIdsToExpireAsync(DateOnly today, CancellationToken cancellationToken = default);
     Task<bool> ExistsByPreviousLeaseIdAsync(

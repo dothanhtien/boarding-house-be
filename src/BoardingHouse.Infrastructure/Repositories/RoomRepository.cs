@@ -70,6 +70,60 @@ public class RoomRepository(AppDbContext context) : Repository<Room>(context), I
             cancellationToken);
     }
 
+    public async Task<PagedResult<RoomWithRecordedMeterCount>> SearchForUtilityReadingAsync(
+        Guid propertyId,
+        DateOnly readingMonth,
+        bool? recorded,
+        string? search,
+        PageRequest pageRequest,
+        Expression<Func<RoomWithRecordedMeterCount, object>> sortField,
+        SortOrder sortOrder,
+        CancellationToken cancellationToken = default)
+    {
+        var rooms = Context.Rooms.Where(r => r.PropertyId == propertyId);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = LikePattern.Contains(search.Trim());
+            rooms = rooms.Where(r => EF.Functions.ILike(r.RoomNumber, pattern, LikePattern.EscapeCharacter));
+        }
+
+        var meteredServices = Context.UtilityServices.Where(s => s.PropertyId == propertyId
+            && s.IsActive
+            && s.BillingMethod == UtilityBillingMethod.Metered);
+        var meterCount = await meteredServices.CountAsync(cancellationToken);
+
+        var recordedCounts = Context.UtilityReadings
+            .Where(u => u.ReadingMonth == readingMonth && u.Room!.PropertyId == propertyId)
+            .LeftJoin(meteredServices, u => u.ServiceId, s => s.Id, (u, s) => new { u.RoomId, IsMetered = s != null })
+            .GroupBy(u => u.RoomId)
+            .Select(g => new
+            {
+                RoomId = g.Key,
+                Count = g.Count(),
+                MeteredCount = g.Count(u => u.IsMetered)
+            });
+
+        var counted = rooms.LeftJoin(
+            recordedCounts,
+            r => r.Id,
+            c => c.RoomId,
+            (r, c) => new RoomWithRecordedMeterCount
+            {
+                Room = r,
+                MeterCount = meterCount + ((int?)c!.Count ?? 0) - ((int?)c.MeteredCount ?? 0),
+                RecordedCount = (int?)c.Count ?? 0
+            });
+
+        if (recorded is bool isRecorded)
+        {
+            counted = counted.Where(r => (r.RecordedCount == r.MeterCount) == isRecorded);
+        }
+
+        return await counted.ToPagedResultAsync(
+            pageRequest, sortField, sortOrder, x => x.Room.Id, page => page, cancellationToken);
+    }
+
     public Task<Room?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default) =>
         Context.Rooms
             .AsNoTracking()
@@ -85,6 +139,14 @@ public class RoomRepository(AppDbContext context) : Repository<Room>(context), I
             .AsNoTracking()
             .Include(r => r.Property)
             .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
+
+    public Task<EntityWithOrganizationId<Room>?> GetByIdWithOrganizationIdAsync(
+        Guid id, CancellationToken cancellationToken = default) =>
+        Context.Rooms
+            .AsNoTracking()
+            .Where(r => r.Id == id)
+            .Select(r => new EntityWithOrganizationId<Room>(r, r.Property!.OrganizationId))
+            .FirstOrDefaultAsync(cancellationToken);
 
     public Task<EntityWithOrganizationId<Room>?> GetByIdWithOrganizationIdForUpdateAsync(
         Guid id, CancellationToken cancellationToken = default) =>

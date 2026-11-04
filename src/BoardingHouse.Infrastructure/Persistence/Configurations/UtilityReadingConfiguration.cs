@@ -9,9 +9,10 @@ public class UtilityReadingConfiguration : IEntityTypeConfiguration<UtilityReadi
 {
     public void Configure(EntityTypeBuilder<UtilityReading> builder)
     {
-        builder.HasIndex(r => new { r.RoomId, r.ServiceId, r.ReadingMonth })
+        builder.HasIndex(r => new { r.RoomId, r.ReadingMonth, r.ServiceId })
             .IsUnique()
-            .HasDatabaseName(UniqueIndexNames.UtilityReadingRoomIdServiceIdReadingMonth);
+            .HasFilter("deleted_at IS NULL")
+            .HasDatabaseName(UniqueIndexNames.UtilityReadingRoomIdReadingMonthServiceId);
 
         builder.HasIndex(r => new { r.RoomId, r.ServiceId, r.ReadOn });
 
@@ -43,6 +44,9 @@ public class UtilityReadingConfiguration : IEntityTypeConfiguration<UtilityReadi
         builder.ToTable(t =>
         {
             t.HasCheckConstraint("ck_utility_readings_reading_month", "EXTRACT(DAY FROM reading_month) = 1");
+            t.HasCheckConstraint(
+                "ck_utility_readings_read_on",
+                "read_on >= reading_month - INTERVAL '1 month' AND read_on < reading_month + INTERVAL '1 month'");
             t.HasCheckConstraint("ck_utility_readings_current_value", "current_value >= 0");
             t.HasCheckConstraint(
                 "ck_utility_readings_previous_value",

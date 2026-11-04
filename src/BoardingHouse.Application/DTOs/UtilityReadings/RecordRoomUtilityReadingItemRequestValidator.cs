@@ -17,7 +17,6 @@ public class RecordRoomUtilityReadingItemRequestValidator : AbstractValidator<Re
             .GreaterThanOrEqualTo(0).WithMessage("PreviousValue must not be negative")
             .PrecisionScale(18, 2, ignoreTrailingZeros: true)
             .WithMessage("PreviousValue must not exceed 18 digits in total, with at most 2 decimal places")
-            .LessThanOrEqualTo(x => x.CurrentValue).WithMessage("PreviousValue must not be greater than CurrentValue")
             .When(x => x.PreviousValue is not null);
     }
 }

@@ -8,18 +8,20 @@ public class RecordRoomUtilityReadingsRequestValidator : AbstractValidator<Recor
 {
     public RecordRoomUtilityReadingsRequestValidator()
     {
-        RuleFor(x => x.ReadOn).NotInTheFuture();
+        RuleFor(x => x.ReadOn)
+            .LessThanOrEqualTo(_ => DateOnly.FromDateTime(DateTime.UtcNow))
+            .WithMessage("ReadOn must not be in the future");
 
-        RuleFor(x => x.ReadingMonth).NotNull().WithMessage("ReadingMonth is required");
-        RuleFor(x => x.ReadingMonth!.Value)
-            .ValidReadingMonth()
-            .OverridePropertyName(nameof(RecordRoomUtilityReadingsRequest.ReadingMonth))
-            .When(x => x.ReadingMonth is not null);
+        RuleFor(x => x.ReadingMonth)
+            .NotNull().WithMessage("ReadingMonth is required")
+            .Must(month => BillingMonth.IsFirstDay(month!.Value)).WithMessage("ReadingMonth must be the first day of a month")
+            .LessThanOrEqualTo(_ => BillingMonth.Of(DateOnly.FromDateTime(DateTime.UtcNow)).AddMonths(1))
+            .WithMessage("ReadingMonth must not be later than next month");
 
-        RuleFor(x => x.ReadOn ?? DateOnly.FromDateTime(DateTime.UtcNow))
-            .Must((x, readOn) => readOn >= x.ReadingMonth!.Value.AddMonths(-1) && readOn < x.ReadingMonth.Value.AddMonths(1))
+        RuleFor(x => x.ReadOn)
+            .Must((x, readOn) => BillingMonth.MonthsBetween(
+                readOn ?? DateOnly.FromDateTime(DateTime.UtcNow), x.ReadingMonth!.Value) is 0 or 1)
             .WithMessage("ReadOn must fall within ReadingMonth or the month before it")
-            .OverridePropertyName(nameof(RecordRoomUtilityReadingsRequest.ReadOn))
             .When(x => x.ReadingMonth is { } month && BillingMonth.IsFirstDay(month));
 
         RuleFor(x => x.Items)

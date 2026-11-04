@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.AddScoped<IUtilityServiceService, UtilityServiceService>();
         services.AddScoped<ILeaseService, LeaseService>();
         services.AddScoped<ILeaseUtilityServiceService, LeaseUtilityServiceService>();
+        services.AddScoped<IUtilityReadingService, UtilityReadingService>();
         services.AddScoped<ITenantProfileService, TenantProfileService>();
         services.AddScoped<ITenantService, TenantService>();
 

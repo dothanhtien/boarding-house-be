@@ -1660,6 +1660,14 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                         .HasColumnType("decimal(18,2)")
                         .HasColumnName("current_value");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by");
+
                     b.Property<decimal?>("PreviousValue")
                         .HasColumnType("decimal(18,2)")
                         .HasColumnName("previous_value");
@@ -1689,18 +1697,21 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                     b.HasIndex("ServiceId")
                         .HasDatabaseName("ix_utility_readings_service_id");
 
+                    b.HasIndex("RoomId", "ReadingMonth", "ServiceId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_utility_readings_room_id_reading_month_service_id")
+                        .HasFilter("deleted_at IS NULL");
+
                     b.HasIndex("RoomId", "ServiceId", "ReadOn")
                         .HasDatabaseName("ix_utility_readings_room_id_service_id_read_on");
-
-                    b.HasIndex("RoomId", "ServiceId", "ReadingMonth")
-                        .IsUnique()
-                        .HasDatabaseName("ix_utility_readings_room_id_service_id_reading_month");
 
                     b.ToTable("utility_readings", null, t =>
                         {
                             t.HasCheckConstraint("ck_utility_readings_current_value", "current_value >= 0");
 
                             t.HasCheckConstraint("ck_utility_readings_previous_value", "previous_value IS NULL OR (previous_value >= 0 AND previous_value <= current_value)");
+
+                            t.HasCheckConstraint("ck_utility_readings_read_on", "read_on >= reading_month - INTERVAL '1 month' AND read_on < reading_month + INTERVAL '1 month'");
 
                             t.HasCheckConstraint("ck_utility_readings_reading_month", "EXTRACT(DAY FROM reading_month) = 1");
                         });
