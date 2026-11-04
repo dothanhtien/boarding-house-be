@@ -16,5 +16,6 @@ public static class UniqueIndexNames
     public const string TenantProfileUserId = "ix_tenant_profiles_user_id";
     public const string UserEmail = "ix_users_email";
     public const string UserPhone = "ix_users_phone";
+    public const string UtilityReadingRoomIdReadingMonthServiceId = "ix_utility_readings_room_id_reading_month_service_id";
     public const string UtilityServicePropertyIdName = "ix_utility_services_property_id_name";
 }

@@ -42,6 +42,11 @@ public class GlobalExceptionHandler(IHostEnvironment env, ILogger<GlobalExceptio
 
         problemDetails.Extensions["correlationId"] = correlationId;
 
+        if (exception is AppValidationException { Errors: { } errors })
+        {
+            problemDetails.Extensions["errors"] = errors;
+        }
+
         if (env.IsDevelopment() && statusCode >= 500)
         {
             problemDetails.Extensions["exception"] = exception.ToString();

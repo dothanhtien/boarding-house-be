@@ -20,7 +20,11 @@ public class AppNotFoundException(string message) : AppException(message, AppErr
 
 public class AppConflictException(string message) : AppException(message, AppErrorKind.Conflict);
 
-public class AppValidationException(string message) : AppException(message, AppErrorKind.Validation);
+public class AppValidationException(string message, IReadOnlyDictionary<string, string[]>? errors = null)
+    : AppException(message, AppErrorKind.Validation)
+{
+    public IReadOnlyDictionary<string, string[]>? Errors { get; } = errors;
+}
 
 public class AppUnauthorizedException(string message) : AppException(message, AppErrorKind.Unauthorized);
 

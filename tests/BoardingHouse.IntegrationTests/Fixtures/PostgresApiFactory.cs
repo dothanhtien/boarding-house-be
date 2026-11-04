@@ -76,7 +76,7 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
                 organizations, organization_settings,
                 properties, rooms, room_amenities, room_assets, room_asset_condition_histories,
                 room_asset_condition_history_media,
-                utility_services,
+                utility_services, utility_readings,
                 leases, lease_tenants, lease_status_histories, lease_utility_services,
                 media_assets,
                 tenant_profiles

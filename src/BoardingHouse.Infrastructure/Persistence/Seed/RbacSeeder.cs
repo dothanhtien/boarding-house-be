@@ -40,6 +40,9 @@ public class RbacSeeder
         (PermissionResources.UtilityService, PermissionActions.Create, "Create a new utility service"),
         (PermissionResources.UtilityService, PermissionActions.Update, "Update utility service information"),
         (PermissionResources.UtilityService, PermissionActions.Delete, "Delete a utility service"),
+        (PermissionResources.UtilityReading, PermissionActions.Read, "View utility meter readings"),
+        (PermissionResources.UtilityReading, PermissionActions.Create, "Record utility meter readings"),
+        (PermissionResources.UtilityReading, PermissionActions.Delete, "Delete the latest reading of a meter"),
         (PermissionResources.Lease, PermissionActions.Read, "View lease list/details"),
         (PermissionResources.Lease, PermissionActions.Create, "Create a new lease"),
         (PermissionResources.Lease, PermissionActions.Update, "Update a lease (draft: all fields; active: tenants only)"),
@@ -58,7 +61,7 @@ public class RbacSeeder
         (RoleSlugs.PlatformStaff, "Platform Staff", "Platform staff — limited permissions", RoleScope.Platform,
             [
                 "user:read", "role:read", "organization:read", "organization-setting:read",
-                "organization-member:read", "property:read", "room:read", "utility-service:read", "lease:read", "tenant:read"]),
+                "organization-member:read", "property:read", "room:read", "utility-service:read", "utility-reading:read", "lease:read", "tenant:read"]),
         (RoleSlugs.OrganizationAdmin, "Organization Admin", "Full rights within the organization", RoleScope.Organization,
             [
                 "organization:read", "organization:update", "organization-setting:read", "organization-setting:update",
@@ -66,6 +69,7 @@ public class RbacSeeder
                 "property:read", "property:create", "property:update", "property:delete",
                 "room:read", "room:create", "room:update", "room:delete",
                 "utility-service:read", "utility-service:create", "utility-service:update", "utility-service:delete",
+                "utility-reading:read", "utility-reading:create", "utility-reading:delete",
                 "lease:read", "lease:create", "lease:update", "lease:delete", "lease:activate", "lease:terminate",
                 "tenant:read", "tenant:create", "tenant:update"]),
         (RoleSlugs.OrganizationStaff, "Organization staff", "Manage day-to-day operations within the organization", RoleScope.Organization,
@@ -75,6 +79,7 @@ public class RbacSeeder
                 "property:read", "property:create", "property:update", "property:delete",
                 "room:read", "room:create", "room:update", "room:delete",
                 "utility-service:read", "utility-service:create", "utility-service:update", "utility-service:delete",
+                "utility-reading:read", "utility-reading:create", "utility-reading:delete",
                 "lease:read", "lease:create", "lease:update", "lease:delete", "lease:activate", "lease:terminate",
                 "tenant:read", "tenant:create", "tenant:update"]),
     ];

@@ -100,6 +100,34 @@ public class GlobalExceptionHandlerTests
     }
 
     [Fact]
+    public async Task TryHandleAsync_AppValidationExceptionWithErrors_IncludesErrors()
+    {
+        var handler = CreateHandler(Environments.Production);
+        var (context, body) = CreateHttpContext();
+        var errors = new Dictionary<string, string[]> { ["items[1].CurrentValue"] = ["CurrentValue is too low"] };
+
+        await handler.TryHandleAsync(context, new AppValidationException("Invalid readings", errors), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, context.Response.StatusCode);
+        var json = ReadBodyAsJson(body);
+        Assert.Equal("Invalid readings", json.GetProperty("title").GetString());
+        Assert.Equal(
+            "CurrentValue is too low",
+            json.GetProperty("errors").GetProperty("items[1].CurrentValue")[0].GetString());
+    }
+
+    [Fact]
+    public async Task TryHandleAsync_AppValidationExceptionWithoutErrors_HasNoErrorsField()
+    {
+        var handler = CreateHandler(Environments.Production);
+        var (context, body) = CreateHttpContext();
+
+        await handler.TryHandleAsync(context, new AppValidationException("Invalid"), CancellationToken.None);
+
+        Assert.False(ReadBodyAsJson(body).TryGetProperty("errors", out _));
+    }
+
+    [Fact]
     public async Task TryHandleAsync_UnknownException_Returns500WithGenericMessage()
     {
         var handler = CreateHandler(Environments.Production);

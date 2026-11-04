@@ -14,6 +14,7 @@ public class UtilityServiceService(
     IUtilityServiceRepository utilityServiceRepository,
     IPropertyRepository propertyRepository,
     ILeaseUtilityServiceRepository leaseUtilityServiceRepository,
+    IUtilityReadingRepository utilityReadingRepository,
     IUnitOfWork unitOfWork,
     IOrganizationScopeAccessor organizationScopeAccessor,
     ICurrentUserAccessor currentUserAccessor,
@@ -105,7 +106,20 @@ public class UtilityServiceService(
                 await organizationScopeAccessor.EnsureScopeAsync(
                     organizationId, PermissionResources.UtilityService, PermissionActions.Update, NotFoundMessages.UtilityService(id), ct);
 
-                await EnsureLeaseUsageAllowsChangeAsync(existing, request, ct);
+                if (request.BillingMethod.IsSet && request.BillingMethod.Value != existing.BillingMethod)
+                {
+                    if (await leaseUtilityServiceRepository.ExistsByServiceIdAsync(existing.Id, ct))
+                    {
+                        throw new AppConflictException(
+                            "BillingMethod cannot be changed once the service is used by a lease — create a new service instead");
+                    }
+
+                    if (await utilityReadingRepository.ExistsByServiceIdAsync(existing.Id, ct))
+                    {
+                        throw new AppConflictException(
+                            "BillingMethod cannot be changed once the service has utility readings — create a new service instead");
+                    }
+                }
 
                 request.Adapt(existing, UtilityServiceMappingConfig.UpdateConfig);
 
@@ -146,17 +160,5 @@ public class UtilityServiceService(
         }, cancellationToken);
 
         logger.LogInformation("Utility service soft-deleted ({UtilityServiceId})", id);
-    }
-
-    private async Task EnsureLeaseUsageAllowsChangeAsync(
-        UtilityService service, UpdateUtilityServiceRequest request, CancellationToken cancellationToken)
-    {
-        if (request.BillingMethod.IsSet
-            && request.BillingMethod.Value != service.BillingMethod
-            && await leaseUtilityServiceRepository.ExistsByServiceIdAsync(service.Id, cancellationToken))
-        {
-            throw new AppConflictException(
-                "BillingMethod cannot be changed once the service is used by a lease — create a new service instead");
-        }
     }
 }

@@ -59,4 +59,14 @@ public class UtilityServiceRepository(AppDbContext context) : Repository<Utility
 
         return services.OrderBy(s => s.Name).ToListAsync(cancellationToken);
     }
+
+    public Task<List<UtilityService>> ListMeteredServicesByPropertyIdAsync(
+        Guid propertyId, CancellationToken cancellationToken = default) =>
+        Context.UtilityServices
+            .AsNoTracking()
+            .Where(s => s.PropertyId == propertyId
+                && s.IsActive
+                && s.BillingMethod == UtilityBillingMethod.Metered)
+            .OrderBy(s => s.Name)
+            .ToListAsync(cancellationToken);
 }

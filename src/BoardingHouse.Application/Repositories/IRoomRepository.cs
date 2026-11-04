@@ -19,8 +19,18 @@ public interface IRoomRepository : IRepository<Room>
         Expression<Func<Room, object>> sortField,
         SortOrder sortOrder,
         CancellationToken cancellationToken = default);
+    Task<PagedResult<RoomWithRecordedMeterCount>> SearchForUtilityReadingAsync(
+        Guid propertyId,
+        DateOnly readingMonth,
+        bool? recorded,
+        string? search,
+        PageRequest pageRequest,
+        Expression<Func<RoomWithRecordedMeterCount, object>> sortField,
+        SortOrder sortOrder,
+        CancellationToken cancellationToken = default);
     Task<Room?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Room?> GetByIdWithPropertyAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<EntityWithOrganizationId<Room>?> GetByIdWithOrganizationIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<EntityWithOrganizationId<Room>?> GetByIdWithOrganizationIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
     Task<EntityWithOrganizationId<Room>?> GetByIdWithOrganizationIdForShareAsync(Guid id, CancellationToken cancellationToken = default);
     Task LoadAmenitiesAsync(Room room, CancellationToken cancellationToken = default);
