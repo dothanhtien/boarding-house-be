@@ -10,7 +10,7 @@ public class BillingMonthTests
     [InlineData("2026-12-31", "2026-12-01")]
     public void Of_ReturnsFirstDayOfMonth(string date, string expected)
     {
-        Assert.Equal(DateOnly.Parse(expected), BillingMonth.Of(DateOnly.Parse(date)));
+        Assert.Equal(DateOnly.Parse(expected), BillingMonth.Of(DateOnly.Parse(date)).FirstDay);
     }
 
     [Theory]
@@ -22,13 +22,19 @@ public class BillingMonthTests
         Assert.Equal(expected, BillingMonth.IsFirstDay(DateOnly.Parse(date)));
     }
 
+    [Fact]
+    public void FromFirstDay_NotTheFirstDay_Throws()
+    {
+        Assert.Throws<DomainException>(() => BillingMonth.FromFirstDay(new DateOnly(2026, 6, 2)));
+    }
+
     [Theory]
     [InlineData("2026-06-01", "2026-06-30")]
     [InlineData("2028-02-01", "2028-02-29")]
     [InlineData("9999-12-01", "9999-12-31")]
     public void LastDay_ReturnsTheLastDayOfTheMonth(string month, string expected)
     {
-        Assert.Equal(DateOnly.Parse(expected), BillingMonth.LastDay(DateOnly.Parse(month)));
+        Assert.Equal(DateOnly.Parse(expected), BillingMonth.Of(DateOnly.Parse(month)).LastDay);
     }
 
     [Theory]
@@ -37,8 +43,21 @@ public class BillingMonthTests
     [InlineData("2026-07-01", "2026-07-01", 0)]
     [InlineData("2026-08-01", "2026-07-01", -1)]
     [InlineData("0001-01-01", "9999-12-01", 119987)]
-    public void MonthsBetween_CountsCalendarMonths(string from, string to, int expected)
+    public void MonthsUntil_CountsCalendarMonths(string from, string to, int expected)
     {
-        Assert.Equal(expected, BillingMonth.MonthsBetween(DateOnly.Parse(from), DateOnly.Parse(to)));
+        Assert.Equal(expected, BillingMonth.Of(DateOnly.Parse(from)).MonthsUntil(BillingMonth.Of(DateOnly.Parse(to))));
+    }
+
+    [Fact]
+    public void Comparison_FollowsTheCalendar()
+    {
+        var june = BillingMonth.Of(new DateOnly(2026, 6, 15));
+        var july = june.AddMonths(1);
+
+        Assert.True(july >= june);
+        Assert.True(june <= july);
+        Assert.False(june >= july);
+        Assert.Equal(BillingMonth.Of(new DateOnly(2026, 7, 31)), july);
+        Assert.Equal("2026-07", july.ToString());
     }
 }

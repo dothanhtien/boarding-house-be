@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Application.Common;
@@ -72,7 +73,7 @@ public class RoomRepository(AppDbContext context) : Repository<Room>(context), I
 
     public async Task<PagedResult<RoomWithRecordedMeterCount>> SearchForUtilityReadingAsync(
         Guid propertyId,
-        DateOnly readingMonth,
+        BillingMonth readingMonth,
         bool? recorded,
         string? search,
         PageRequest pageRequest,

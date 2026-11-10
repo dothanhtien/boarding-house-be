@@ -3,6 +3,7 @@ using BoardingHouse.Application.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Domain.Common;
 
 namespace BoardingHouse.Application.Repositories;
 
@@ -21,7 +22,7 @@ public interface IRoomRepository : IRepository<Room>
         CancellationToken cancellationToken = default);
     Task<PagedResult<RoomWithRecordedMeterCount>> SearchForUtilityReadingAsync(
         Guid propertyId,
-        DateOnly readingMonth,
+        BillingMonth readingMonth,
         bool? recorded,
         string? search,
         PageRequest pageRequest,

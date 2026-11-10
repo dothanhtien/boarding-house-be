@@ -47,7 +47,7 @@ public class RoomRepositoryIntegrationTests(PostgresContainerFixture fixture)
     {
         await using var context = fixture.CreateContext();
         var paged = await new RoomRepository(context).SearchForUtilityReadingAsync(
-            propertyId, Month, recorded, search: null,
+            propertyId, BillingMonth.Of(Month), recorded, search: null,
             new PageRequest(), r => r.Room.RoomNumber, SortOrder.Asc);
         return paged.Items.ToList();
     }
@@ -102,14 +102,8 @@ public class RoomRepositoryIntegrationTests(PostgresContainerFixture fixture)
     }
 
     private static void AddReading(AppDbContext context, Room room, UtilityService service, DateOnly readingMonth) =>
-        context.UtilityReadings.Add(new UtilityReading
-        {
-            RoomId = room.Id,
-            ServiceId = service.Id,
-            ReadOn = readingMonth,
-            ReadingMonth = readingMonth,
-            CurrentValue = 10,
-            CreatedAt = DateTimeOffset.UtcNow,
-            CreatedBy = SentinelActors.System
-        });
+        context.UtilityReadings.Add(UtilityReading.Record(
+            room.Id, service.Id, readOn: readingMonth, BillingMonth.FromFirstDay(readingMonth),
+            latest: null, initialPreviousValue: null, currentValue: 10, billedLeaseId: null,
+            DateTimeOffset.UtcNow, SentinelActors.System));
 }

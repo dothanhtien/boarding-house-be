@@ -39,7 +39,7 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
     private const string Password = "password123";
 
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
-    private static DateOnly CurrentMonth => BillingMonth.Of(Today);
+    private static DateOnly CurrentMonth => BillingMonth.Of(Today).FirstDay;
 
     private Guid _actorId;
     private Guid _organizationId;
@@ -1142,7 +1142,7 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
         {
             await scope.ServiceProvider.GetRequiredService<AppDbContext>().Leases
                 .Where(l => l.Id == lease.Id)
-                .ExecuteUpdateAsync(s => s.SetProperty(l => l.EndDate, BillingMonth.LastDay(CurrentMonth)));
+                .ExecuteUpdateAsync(s => s.SetProperty(l => l.EndDate, BillingMonth.Of(CurrentMonth).LastDay));
         }
 
         var room = await PostReadingsOkAsync(Readings(CurrentMonth.AddMonths(1), Item(electricity.Id, 150, 100)));
@@ -1273,8 +1273,8 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
         Assert.Equal(second.Id, reading.BilledLeaseId);
         Assert.Equal(50, reading.Consumption);
         var history = await GetHistoryAsync();
-        Assert.Equal(first.Id, history.Single(r => r.ReadingMonth == CurrentMonth).BilledLeaseId);
-        Assert.Equal(second.Id, history.Single(r => r.ReadingMonth == CurrentMonth.AddMonths(1)).BilledLeaseId);
+        Assert.Equal(first.Id, history.Single(r => r.ReadingMonth.FirstDay == CurrentMonth).BilledLeaseId);
+        Assert.Equal(second.Id, history.Single(r => r.ReadingMonth.FirstDay == CurrentMonth.AddMonths(1)).BilledLeaseId);
     }
 
     [Fact]

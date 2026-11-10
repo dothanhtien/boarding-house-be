@@ -1,4 +1,5 @@
 using System.Linq.Expressions;
+using Mapster;
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.Common.CurrentUser;
 using BoardingHouse.Application.Common.Listing;
@@ -9,7 +10,7 @@ using BoardingHouse.Application.Repositories;
 using BoardingHouse.Application.Services.Storage;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
-using Mapster;
+using BoardingHouse.Domain.Common;
 
 namespace BoardingHouse.Application.Services;
 
@@ -45,7 +46,7 @@ public class UtilityReadingService(
             NotFoundMessages.Property(propertyId),
             cancellationToken);
 
-        var readingMonth = query.ReadingMonth!.Value;
+        var readingMonth = BillingMonth.FromFirstDay(query.ReadingMonth!.Value);
 
         var sortField = SortableFields.GetValueOrDefault(query.SortBy ?? "", SortableFields[""]);
         var paged = await roomRepository.SearchForUtilityReadingAsync(
@@ -61,7 +62,7 @@ public class UtilityReadingService(
         var roomIds = paged.Items.Select(r => r.Room.Id).ToList();
         var activeLeases = (await leaseRepository.ListActiveOfMonthByRoomIdsAsync(roomIds, readingMonth, cancellationToken))
             .ToDictionary(l => l.RoomId);
-        var lastBilledReadings = (await utilityReadingRepository.ListLastBilledOfMonthByRoomIdsAsync(roomIds, readingMonth, cancellationToken))
+        var lastBilledReadings = (await utilityReadingRepository.ListLastBilledLeasesOfMonthByRoomIdsAsync(roomIds, readingMonth, cancellationToken))
             .ToDictionary(r => r.RoomId);
 
         return new PagedResult<UtilityReadingRoomListItemResponse>
@@ -72,7 +73,7 @@ public class UtilityReadingService(
                     RoomId = r.Room.Id,
                     RoomNumber = r.Room.RoomNumber,
                     RoomStatus = r.Room.RoomStatus,
-                    Lease = (lastBilledReadings.GetValueOrDefault(r.Room.Id)?.BilledLease
+                    Lease = (lastBilledReadings.GetValueOrDefault(r.Room.Id)
                             ?? activeLeases.GetValueOrDefault(r.Room.Id))
                         ?.Adapt<UtilityReadingRoomLeaseResponse>(),
                     MeterCount = r.MeterCount,
@@ -102,7 +103,7 @@ public class UtilityReadingService(
             NotFoundMessages.Room(roomId),
             cancellationToken);
 
-        var readingMonth = query.ReadingMonth!.Value;
+        var readingMonth = BillingMonth.FromFirstDay(query.ReadingMonth!.Value);
         var services = await utilityServiceRepository.ListMeteredServicesByPropertyIdAsync(room.PropertyId, cancellationToken);
         var latestByService = (await utilityReadingRepository.ListLatestByRoomIdAsync(room.Id, cancellationToken))
             .ToDictionary(r => r.ServiceId);
@@ -116,7 +117,7 @@ public class UtilityReadingService(
         Guid roomId, RecordRoomUtilityReadingsRequest request, CancellationToken cancellationToken = default)
     {
         var readOn = request.ReadOn ?? DateOnly.FromDateTime(DateTime.UtcNow);
-        var readingMonth = request.ReadingMonth!.Value;
+        var readingMonth = BillingMonth.FromFirstDay(request.ReadingMonth!.Value);
         Room room;
         List<UtilityService> services;
         Lease? lease;
@@ -161,41 +162,24 @@ public class UtilityReadingService(
                         continue;
                     }
 
-                    var latest = latestByService.GetValueOrDefault(item.ServiceId);
-                    if (latest is not null && latest.ReadingMonth >= readingMonth)
+                    try
                     {
-                        errors[itemKey] = latest.ReadingMonth == readingMonth
-                            ? ["A reading already exists for this month — delete it to enter it again"]
-                            : [$"A reading for a later month ({latest.ReadingMonth:yyyy-MM}) already exists"];
-                        continue;
+                        readings.Add(UtilityReading.Record(
+                            lockedRoom.Id,
+                            item.ServiceId,
+                            readOn,
+                            readingMonth,
+                            latestByService.GetValueOrDefault(item.ServiceId),
+                            item.PreviousValue,
+                            item.CurrentValue,
+                            activeLease?.Id,
+                            now,
+                            createdBy));
                     }
-
-                    if (latest is not null && latest.ReadOn > readOn)
+                    catch (DomainException ex)
                     {
-                        errors[itemKey] = [$"A later reading ({latest.ReadOn:yyyy-MM-dd}) already exists on this meter"];
-                        continue;
+                        errors[ex.Field is null ? itemKey : $"{itemKey}.{ex.Field}"] = [ex.Message];
                     }
-
-                    var previousValue = latest?.CurrentValue ?? item.PreviousValue;
-                    if (item.CurrentValue < previousValue)
-                    {
-                        errors[$"{itemKey}.{nameof(item.CurrentValue)}"] =
-                            [$"CurrentValue must not be less than the previous reading ({previousValue})"];
-                        continue;
-                    }
-
-                    readings.Add(new UtilityReading
-                    {
-                        RoomId = lockedRoom.Id,
-                        ServiceId = item.ServiceId,
-                        ReadOn = readOn,
-                        ReadingMonth = readingMonth,
-                        BilledLeaseId = activeLease?.Id,
-                        PreviousValue = previousValue,
-                        CurrentValue = item.CurrentValue,
-                        CreatedAt = now,
-                        CreatedBy = createdBy
-                    });
                 }
 
                 if (errors.Count > 0)
@@ -268,14 +252,14 @@ public class UtilityReadingService(
         IReadOnlyList<UtilityService> services,
         Lease? activeLease,
         IReadOnlyDictionary<Guid, UtilityReading> latestReadings,
-        DateOnly readingMonth,
+        BillingMonth readingMonth,
         CancellationToken cancellationToken)
     {
         var monthReadings = (await utilityReadingRepository.ListByRoomAndMonthWithImageAsync(room.Id, readingMonth, cancellationToken))
             .ToDictionary(r => r.Entity.ServiceId);
-        var lastBilledReading = (await utilityReadingRepository.ListLastBilledOfMonthByRoomIdsAsync([room.Id], readingMonth, cancellationToken))
+        var lastBilledReading = (await utilityReadingRepository.ListLastBilledLeasesOfMonthByRoomIdsAsync([room.Id], readingMonth, cancellationToken))
             .SingleOrDefault();
-        var lease = lastBilledReading?.BilledLease ?? activeLease;
+        var lease = lastBilledReading ?? activeLease;
 
         var leaseIds = monthReadings.Values
             .Select(r => r.Entity.BilledLeaseId)
@@ -334,7 +318,7 @@ public class UtilityReadingService(
             RoomId = room.Id,
             RoomNumber = room.RoomNumber,
             RoomStatus = room.RoomStatus,
-            ReadingMonth = readingMonth,
+            ReadingMonth = readingMonth.FirstDay,
             Lease = lease?.Adapt<UtilityReadingRoomLeaseResponse>(),
             Meters = meterResponses,
             OtherCharges = lease is null

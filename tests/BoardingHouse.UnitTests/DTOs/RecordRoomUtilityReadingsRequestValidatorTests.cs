@@ -9,7 +9,7 @@ public class RecordRoomUtilityReadingsRequestValidatorTests
     private readonly RecordRoomUtilityReadingsRequestValidator _validator = new();
 
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
-    private static DateOnly ThisMonth => BillingMonth.Of(Today);
+    private static DateOnly ThisMonth => BillingMonth.Of(Today).FirstDay;
     private static DateOnly LastMonth => ThisMonth.AddMonths(-1);
 
     private static RecordRoomUtilityReadingsRequest Request(DateOnly? readingMonth) => new()
