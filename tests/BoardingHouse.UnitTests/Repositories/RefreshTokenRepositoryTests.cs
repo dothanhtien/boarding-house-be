@@ -1,3 +1,4 @@
+using BoardingHouse.UnitTests.Common;
 using Microsoft.EntityFrameworkCore;
 using BoardingHouse.Infrastructure.Persistence;
 using BoardingHouse.Infrastructure.Repositories;
@@ -17,13 +18,13 @@ public class RefreshTokenRepositoryTests
         return new AppDbContext(options);
     }
 
-    private static User NewUser(string email) => new()
+    private static User NewUser(string email) => TestEntities.New<User>(new
     {
         Email = email,
         PasswordHash = "hashed-password",
         FullName = "Test User",
         CreatedBy = SentinelActors.System
-    };
+    });
 
     [Fact]
     public async Task GetByTokenHashAsync_ExistingHash_ReturnsToken()
@@ -31,12 +32,7 @@ public class RefreshTokenRepositoryTests
         using var context = CreateContext();
         var user = NewUser("user@test.com");
         context.Users.Add(user);
-        var token = new RefreshToken
-        {
-            UserId = user.Id,
-            TokenHash = "hash-1",
-            ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
-        };
+        var token = TestRefreshTokens.New(user.Id, "hash-1", expiresAt: DateTimeOffset.UtcNow.AddDays(1));
         context.RefreshTokens.Add(token);
         await context.SaveChangesAsync();
 
@@ -66,16 +62,10 @@ public class RefreshTokenRepositoryTests
         var otherUser = NewUser("other@test.com");
         context.Users.AddRange(user, otherUser);
 
-        var active = new RefreshToken { UserId = user.Id, TokenHash = "active", ExpiresAt = DateTimeOffset.UtcNow.AddDays(1) };
-        var revoked = new RefreshToken
-        {
-            UserId = user.Id,
-            TokenHash = "revoked",
-            ExpiresAt = DateTimeOffset.UtcNow.AddDays(1),
-            RevokedAt = DateTimeOffset.UtcNow.AddMinutes(-1)
-        };
-        var expired = new RefreshToken { UserId = user.Id, TokenHash = "expired", ExpiresAt = DateTimeOffset.UtcNow.AddDays(-1) };
-        var otherUsersToken = new RefreshToken { UserId = otherUser.Id, TokenHash = "other-user", ExpiresAt = DateTimeOffset.UtcNow.AddDays(1) };
+        var active = TestRefreshTokens.New(user.Id, "active", expiresAt: DateTimeOffset.UtcNow.AddDays(1));
+        var revoked = TestRefreshTokens.New(user.Id, "revoked", expiresAt: DateTimeOffset.UtcNow.AddDays(1), revokedAt: DateTimeOffset.UtcNow.AddMinutes(-1));
+        var expired = TestRefreshTokens.New(user.Id, "expired", expiresAt: DateTimeOffset.UtcNow.AddDays(-1));
+        var otherUsersToken = TestRefreshTokens.New(otherUser.Id, "other-user", expiresAt: DateTimeOffset.UtcNow.AddDays(1));
 
         context.RefreshTokens.AddRange(active, revoked, expired, otherUsersToken);
         await context.SaveChangesAsync();
@@ -96,12 +86,7 @@ public class RefreshTokenRepositoryTests
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
-        var token = new RefreshToken
-        {
-            UserId = user.Id,
-            TokenHash = "new-hash",
-            ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
-        };
+        var token = TestRefreshTokens.New(user.Id, "new-hash", expiresAt: DateTimeOffset.UtcNow.AddDays(1));
 
         await repository.AddAsync(token);
         await context.SaveChangesAsync();

@@ -1,17 +1,17 @@
 using System.Linq.Expressions;
 using Mapster;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.Common.CurrentUser;
 using BoardingHouse.Application.DTOs.Users;
 using BoardingHouse.Application.Exceptions;
-using BoardingHouse.Application.Repositories;
 using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Repositories;
 using BoardingHouse.Application.Services.Caching;
 using BoardingHouse.Application.Services.Storage;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
-using BoardingHouse.Application.Common.Listing;
-using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Application.Services;
 
@@ -66,7 +66,7 @@ public class UserService(
 
     public async Task<UserResponse> CreateAsync(CreateUserRequest request, CancellationToken cancellationToken = default)
     {
-        var email = request.Email.Trim().ToLowerInvariant();
+        var email = EmailAddress.Normalize(request.Email)!;
         var phone = PhoneNumber.Normalize(request.Phone);
         var maskedEmail = EmailAddress.Mask(email);
         var maskedPhone = PhoneNumber.Mask(phone ?? "");
@@ -77,14 +77,7 @@ public class UserService(
             throw new AppConflictException("Email or phone already in use");
         }
 
-        var user = new User
-        {
-            Email = email,
-            Phone = phone,
-            PasswordHash = PasswordHasher.Hash(request.Password),
-            FullName = request.FullName,
-            CreatedBy = currentUserAccessor.User?.Id ?? SentinelActors.System
-        };
+        var user = User.Register(email, phone, PasswordHasher.Hash(request.Password), request.FullName, currentUserAccessor.User?.Id ?? SentinelActors.System);
 
         try
         {
@@ -109,7 +102,7 @@ public class UserService(
 
         if (request.Email.IsSet)
         {
-            var email = request.Email.Value!.Trim().ToLowerInvariant();
+            var email = EmailAddress.Normalize(request.Email.Value)!;
             var maskedEmail = EmailAddress.Mask(email);
 
             if (email != user.Email &&
@@ -119,7 +112,7 @@ public class UserService(
                 throw new AppConflictException("Email already in use");
             }
 
-            user.Email = email;
+            user.ChangeEmail(email);
         }
 
         if (request.Phone.IsSet)
@@ -134,15 +127,14 @@ public class UserService(
                 throw new AppConflictException("Phone already in use");
             }
 
-            user.Phone = phone;
+            user.ChangePhone(phone);
         }
 
-        request.FullName.ApplyIfSet(v => user.FullName = v!);
-        request.IsActive.ApplyIfSet(v => user.IsActive = v);
+        request.FullName.ApplyIfSet(v => user.Rename(v!));
+        request.IsActive.ApplyIfSet(user.SetActive);
 
         try
         {
-            userRepository.Update(user);
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
         catch (UniqueConstraintViolationException)

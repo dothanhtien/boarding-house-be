@@ -1,6 +1,6 @@
 using FluentValidation;
-using BoardingHouse.Application.Common;
 using BoardingHouse.Application.DTOs.TenantProfiles;
+using BoardingHouse.Domain.Common;
 
 namespace BoardingHouse.Application.DTOs.Tenants;
 

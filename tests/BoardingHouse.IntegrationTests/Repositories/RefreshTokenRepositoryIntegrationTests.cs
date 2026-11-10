@@ -15,16 +15,20 @@ public class RefreshTokenRepositoryIntegrationTests(PostgresContainerFixture fix
     public Task DisposeAsync() => Task.CompletedTask;
 
     private static User NewUser(string email = "user@test.com") =>
-        new() { Email = email, PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        TestEntities.New<User>(new { Email = email, PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
 
-    private static RefreshToken NewToken(Guid userId, string tokenHash, DateTimeOffset? expiresAt = null, DateTimeOffset? revokedAt = null) =>
-        new()
+    private static RefreshToken NewToken(Guid userId, string tokenHash, DateTimeOffset? expiresAt = null, DateTimeOffset? revokedAt = null)
+    {
+        var token = RefreshToken.Issue(
+            userId, tokenHash, expiresAt ?? DateTimeOffset.UtcNow.AddDays(7), ipAddress: null, userAgent: null,
+            DateTimeOffset.UtcNow);
+        if (revokedAt is { } at)
         {
-            UserId = userId,
-            TokenHash = tokenHash,
-            ExpiresAt = expiresAt ?? DateTimeOffset.UtcNow.AddDays(7),
-            RevokedAt = revokedAt
-        };
+            token.Revoke(RevokedReason.Logout, at);
+        }
+
+        return token;
+    }
 
     [Fact]
     public async Task GetByTokenHashAsync_ExistingHash_ReturnsToken()
@@ -158,8 +162,8 @@ public class RefreshTokenRepositoryIntegrationTests(PostgresContainerFixture fix
         await context.SaveChangesAsync();
 
         var repository = new RefreshTokenRepository(context);
-        var token = NewToken(user.Id, "reused-hash", revokedAt: DateTimeOffset.UtcNow);
-        token.RevokedReason = RevokedReason.Suspicious;
+        var token = NewToken(user.Id, "reused-hash");
+        token.Revoke(RevokedReason.Suspicious, DateTimeOffset.UtcNow);
         await repository.AddAsync(token);
         await context.SaveChangesAsync();
 

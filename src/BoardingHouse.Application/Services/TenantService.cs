@@ -1,14 +1,15 @@
 using Mapster;
-using BoardingHouse.Application.Repositories;
-using BoardingHouse.Application.Persistence;
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.Common.CurrentOrganization;
-using BoardingHouse.Application.Services.Throttling;
-using BoardingHouse.Application.DTOs.Tenants;
-using BoardingHouse.Application.Exceptions;
-using BoardingHouse.Application.DTOs.TenantProfiles;
-using BoardingHouse.Domain.Entities;
 using BoardingHouse.Application.Common.CurrentUser;
+using BoardingHouse.Application.DTOs.Tenants;
+using BoardingHouse.Application.DTOs.TenantProfiles;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services.Throttling;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Application.Services;
 
@@ -82,14 +83,7 @@ public class TenantService(
         {
             var (user, profile) = await unitOfWork.ExecuteInTransactionAsync(async ct =>
             {
-                var created = new User
-                {
-                    Email = email,
-                    Phone = phone,
-                    PasswordHash = PasswordHasher.Hash(request.Password),
-                    FullName = request.FullName,
-                    CreatedBy = currentUserAccessor.RequiredUser.Id
-                };
+                var created = User.Register(email, phone, PasswordHasher.Hash(request.Password), request.FullName, currentUserAccessor.RequiredUser.Id);
 
                 await userRepository.AddAsync(created, ct);
 

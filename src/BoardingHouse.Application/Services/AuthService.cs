@@ -1,14 +1,14 @@
 using Mapster;
-using BoardingHouse.Application.Services.Storage;
-using BoardingHouse.Application.DTOs.Users;
-using BoardingHouse.Application.DTOs.Auth;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.DTOs.Auth;
+using BoardingHouse.Application.DTOs.Users;
 using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Persistence;
 using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services.Storage;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
-using BoardingHouse.Application.Persistence;
 
 namespace BoardingHouse.Application.Services;
 
@@ -22,7 +22,7 @@ public class AuthService(
 {
     public async Task<UserResponse> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default)
     {
-        var email = request.Email.Trim().ToLowerInvariant();
+        var email = EmailAddress.Normalize(request.Email)!;
         var phone = PhoneNumber.Normalize(request.Phone);
         var maskedEmail = EmailAddress.Mask(email);
         var maskedPhone = PhoneNumber.Mask(phone ?? "");
@@ -33,14 +33,7 @@ public class AuthService(
             throw new AppConflictException("Email or phone already in use");
         }
 
-        var user = new User
-        {
-            Email = email,
-            Phone = phone,
-            PasswordHash = PasswordHasher.Hash(request.Password),
-            FullName = request.FullName,
-            CreatedBy = SentinelActors.SelfRegistration
-        };
+        var user = User.Register(email, phone, PasswordHasher.Hash(request.Password), request.FullName, SentinelActors.SelfRegistration);
 
         await userRepository.AddAsync(user, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -82,8 +75,7 @@ public class AuthService(
             throw new AppUnauthorizedException("Email/phone or password is invalid");
         }
 
-        user.LastLoginAt = DateTimeOffset.UtcNow;
-        userRepository.Update(user);
+        user.RecordLogin(DateTimeOffset.UtcNow);
 
         var tokens = await IssueTokensAsync(user, ipAddress, userAgent, cancellationToken);
 
@@ -103,6 +95,7 @@ public class AuthService(
         string? userAgent,
         CancellationToken cancellationToken = default)
     {
+        var now = DateTimeOffset.UtcNow;
         var tokenHash = tokenService.HashToken(refreshToken);
         var existingToken = await refreshTokenRepository.GetByTokenHashAsync(tokenHash, cancellationToken);
 
@@ -112,7 +105,7 @@ public class AuthService(
             throw new AppUnauthorizedException("Invalid refresh token");
         }
 
-        if (existingToken.RevokedAt is not null)
+        if (existingToken.IsRevoked)
         {
             logger.LogWarning(
                 "Refresh token reuse detected for user {UserId}; revoking active token chain ({IpAddress})",
@@ -121,8 +114,7 @@ public class AuthService(
             var activeTokens = await refreshTokenRepository.GetActiveByUserIdAsync(existingToken.UserId, cancellationToken);
             foreach (var activeToken in activeTokens)
             {
-                activeToken.RevokedAt = DateTimeOffset.UtcNow;
-                activeToken.RevokedReason = RevokedReason.Suspicious;
+                activeToken.Revoke(RevokedReason.Suspicious, now);
             }
 
             await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -130,7 +122,7 @@ public class AuthService(
             throw new AppUnauthorizedException("Refresh token has been revoked; please log in again");
         }
 
-        if (existingToken.ExpiresAt < DateTimeOffset.UtcNow)
+        if (existingToken.IsExpiredAt(now))
         {
             logger.LogWarning("Refresh token failed: token expired for user {UserId}", existingToken.UserId);
             throw new AppUnauthorizedException("Refresh token has expired");
@@ -146,19 +138,8 @@ public class AuthService(
         }
 
         var newRefreshToken = tokenService.GenerateRefreshToken();
-        var newExpiresAt = DateTimeOffset.UtcNow.Add(tokenService.RefreshTokenLifetime);
-        var newRefreshTokenEntity = new RefreshToken
-        {
-            UserId = user.Id,
-            TokenHash = tokenService.HashToken(newRefreshToken),
-            ExpiresAt = newExpiresAt,
-            IpAddress = ipAddress,
-            UserAgent = userAgent
-        };
-
-        existingToken.RevokedAt = DateTimeOffset.UtcNow;
-        existingToken.RevokedReason = RevokedReason.Rotation;
-        existingToken.ReplacedById = newRefreshTokenEntity.Id;
+        var newExpiresAt = now.Add(tokenService.RefreshTokenLifetime);
+        var newRefreshTokenEntity = existingToken.RotateTo(tokenService.HashToken(newRefreshToken), newExpiresAt, ipAddress, userAgent, now);
 
         await refreshTokenRepository.AddAsync(newRefreshTokenEntity, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -175,13 +156,12 @@ public class AuthService(
         var tokenHash = tokenService.HashToken(refreshToken);
         var existingToken = await refreshTokenRepository.GetByTokenHashAsync(tokenHash, cancellationToken);
 
-        if (existingToken is null || existingToken.RevokedAt is not null)
+        if (existingToken is null || existingToken.IsRevoked)
         {
             return;
         }
 
-        existingToken.RevokedAt = DateTimeOffset.UtcNow;
-        existingToken.RevokedReason = RevokedReason.Logout;
+        existingToken.Revoke(RevokedReason.Logout, DateTimeOffset.UtcNow);
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -195,17 +175,11 @@ public class AuthService(
         CancellationToken cancellationToken = default)
     {
         var (accessToken, accessTokenExpiresAt) = tokenService.GenerateAccessToken(user);
+        var now = DateTimeOffset.UtcNow;
         var refreshToken = tokenService.GenerateRefreshToken();
-        var expiresAt = DateTimeOffset.UtcNow.Add(tokenService.RefreshTokenLifetime);
+        var expiresAt = now.Add(tokenService.RefreshTokenLifetime);
 
-        var refreshTokenEntity = new RefreshToken
-        {
-            UserId = user.Id,
-            TokenHash = tokenService.HashToken(refreshToken),
-            ExpiresAt = expiresAt,
-            IpAddress = ipAddress,
-            UserAgent = userAgent
-        };
+        var refreshTokenEntity = RefreshToken.Issue(user.Id, tokenService.HashToken(refreshToken), expiresAt, ipAddress, userAgent, now);
 
         await refreshTokenRepository.AddAsync(refreshTokenEntity, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);

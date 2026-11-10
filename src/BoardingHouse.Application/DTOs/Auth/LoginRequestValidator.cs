@@ -1,5 +1,5 @@
-using BoardingHouse.Application.Common;
 using FluentValidation;
+using BoardingHouse.Domain.Common;
 
 namespace BoardingHouse.Application.DTOs.Auth;
 

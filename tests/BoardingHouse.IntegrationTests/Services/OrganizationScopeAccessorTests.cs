@@ -22,7 +22,7 @@ public class OrganizationScopeAccessorTests(PostgresApiFactory factory) : IClass
         var accessor = scope.ServiceProvider.GetRequiredService<IOrganizationScopeAccessor>();
         var currentUserAccessor = scope.ServiceProvider.GetRequiredService<ICurrentUserAccessor>();
 
-        var user = new User { Email = "no-org@test.com", PasswordHash = "x", FullName = "No Org", CreatedBy = Guid.NewGuid() };
+        var user = TestEntities.New<User>(new { Email = "no-org@test.com", PasswordHash = "x", FullName = "No Org", CreatedBy = Guid.NewGuid() });
         context.Users.Add(user);
         await context.SaveChangesAsync();
         currentUserAccessor.User = user;
@@ -42,7 +42,7 @@ public class OrganizationScopeAccessorTests(PostgresApiFactory factory) : IClass
         var currentUserAccessor = scope.ServiceProvider.GetRequiredService<ICurrentUserAccessor>();
 
         var creatorId = Guid.NewGuid();
-        var user = new User { Email = "member@test.com", PasswordHash = "x", FullName = "Member", CreatedBy = creatorId };
+        var user = TestEntities.New<User>(new { Email = "member@test.com", PasswordHash = "x", FullName = "Member", CreatedBy = creatorId });
         var organizationA = new Organization { Name = "Org A", CreatedBy = creatorId };
         var organizationB = new Organization { Name = "Org B", CreatedBy = creatorId };
         var role = new Role { Slug = "test_org_role", Name = "Test Org Role", Scope = RoleScope.Organization, CreatedBy = creatorId };
@@ -50,7 +50,7 @@ public class OrganizationScopeAccessorTests(PostgresApiFactory factory) : IClass
         context.AddRange(user, organizationA, organizationB, role, permission);
         await context.SaveChangesAsync();
 
-        context.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = permission.Id, CreatedBy = creatorId });
+        context.RolePermissions.Add(new RolePermission { CreatedAt = DateTimeOffset.UtcNow, RoleId = role.Id, PermissionId = permission.Id, CreatedBy = creatorId });
         context.OrganizationMembers.Add(new OrganizationMember
         {
             OrganizationId = organizationA.Id,
@@ -77,7 +77,7 @@ public class OrganizationScopeAccessorTests(PostgresApiFactory factory) : IClass
         var accessor = scope.ServiceProvider.GetRequiredService<IOrganizationScopeAccessor>();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var admin = new User { Email = "admin-scope@test.com", PasswordHash = "x", FullName = "Admin", CreatedBy = Guid.NewGuid() };
+        var admin = TestEntities.New<User>(new { Email = "admin-scope@test.com", PasswordHash = "x", FullName = "Admin", CreatedBy = Guid.NewGuid() });
         context.Users.Add(admin);
         await context.SaveChangesAsync();
         await factory.GrantPlatformAdminRoleAsync(admin.Id);

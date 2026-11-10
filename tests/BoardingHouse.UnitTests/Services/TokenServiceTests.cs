@@ -1,3 +1,4 @@
+using BoardingHouse.UnitTests.Common;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.Extensions.Configuration;
 using BoardingHouse.Infrastructure.Services;
@@ -27,7 +28,7 @@ public class TokenServiceTests
     public void GenerateAccessToken_ReturnsDecodableJwt_WithSubClaimEqualToUserId()
     {
         var service = CreateService();
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
 
         var (token, expiresAt) = service.GenerateAccessToken(user);
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
@@ -62,7 +63,7 @@ public class TokenServiceTests
     public void GenerateAccessToken_UserWithoutEmail_OmitsEmailClaim()
     {
         var service = CreateService();
-        var user = new User { Phone = "0912345678", PasswordHash = "hashed-password", FullName = "Tenant", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Phone = "0912345678", PasswordHash = "hashed-password", FullName = "Tenant", CreatedBy = SentinelActors.System });
 
         var (token, _) = service.GenerateAccessToken(user);
         var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);

@@ -1,10 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Serilog;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Services.Caching;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
-using BoardingHouse.Application.Common;
-using BoardingHouse.Application.Services.Caching;
 
 namespace BoardingHouse.Infrastructure.Persistence.Seed;
 
@@ -247,6 +247,7 @@ public class RbacSeeder
             {
                 RoleId = role.Id,
                 PermissionId = permission.Id,
+                CreatedAt = DateTimeOffset.UtcNow,
                 CreatedBy = SentinelActors.System
             });
             grantedNames.Add($"{permission.Resource}:{permission.Action}");

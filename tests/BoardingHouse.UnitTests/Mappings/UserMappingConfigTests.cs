@@ -12,13 +12,13 @@ public class UserMappingConfigTests
 {
     public UserMappingConfigTests() => MapsterTestSupport.EnsureUserMappingRegistered();
 
-    private static User NewUser() => new()
+    private static User NewUser() => TestEntities.New<User>(new
     {
         Email = "user@test.com",
         PasswordHash = "hash",
         FullName = "Test User",
         CreatedBy = SentinelActors.System
-    };
+    });
 
     private static Role NewRole(string slug, string name, RoleScope scope = RoleScope.Platform) => new()
     {
@@ -34,11 +34,14 @@ public class UserMappingConfigTests
         var user = NewUser();
         var platformAdminRole = NewRole(RoleSlugs.PlatformAdmin, "Platform Admin");
         var platformStaffRole = NewRole(RoleSlugs.PlatformStaff, "Platform Staff");
-        user.UserRoles =
-        [
-            new UserRole { User = user, Role = platformStaffRole, CreatedBy = SentinelActors.System },
-            new UserRole { User = user, Role = platformAdminRole, CreatedBy = SentinelActors.System }
-        ];
+        TestEntities.Set(user, new
+        {
+            UserRoles = new List<UserRole>
+            {
+                new() { User = user, Role = platformStaffRole, CreatedBy = SentinelActors.System },
+                new() { User = user, Role = platformAdminRole, CreatedBy = SentinelActors.System }
+            }
+        });
 
         var response = user.Adapt<UserResponse>();
 
@@ -49,7 +52,7 @@ public class UserMappingConfigTests
     public void Adapt_UserWithoutPlatformRole_PlatformRoleIsNull()
     {
         var user = NewUser();
-        user.UserRoles = [];
+        TestEntities.Set(user, new { UserRoles = new List<UserRole>() });
 
         var response = user.Adapt<UserResponse>();
 
@@ -65,11 +68,14 @@ public class UserMappingConfigTests
         var adminRole = NewRole(RoleSlugs.OrganizationAdmin, "Organization Admin", RoleScope.Organization);
         var staffRole = NewRole(RoleSlugs.OrganizationStaff, "Organization Staff", RoleScope.Organization);
 
-        user.OrganizationMembers =
-        [
-            new OrganizationMember { OrganizationId = organizationA.Id, Organization = organizationA, RoleId = adminRole.Id, Role = adminRole, UserId = user.Id, User = user, CreatedBy = SentinelActors.System },
-            new OrganizationMember { OrganizationId = organizationB.Id, Organization = organizationB, RoleId = staffRole.Id, Role = staffRole, UserId = user.Id, User = user, CreatedBy = SentinelActors.System }
-        ];
+        TestEntities.Set(user, new
+        {
+            OrganizationMembers = new List<OrganizationMember>
+            {
+                new() { OrganizationId = organizationA.Id, Organization = organizationA, RoleId = adminRole.Id, Role = adminRole, UserId = user.Id, User = user, CreatedBy = SentinelActors.System },
+                new() { OrganizationId = organizationB.Id, Organization = organizationB, RoleId = staffRole.Id, Role = staffRole, UserId = user.Id, User = user, CreatedBy = SentinelActors.System }
+            }
+        });
 
         var response = user.Adapt<UserResponse>();
 
@@ -86,7 +92,7 @@ public class UserMappingConfigTests
     public void Adapt_UserWithoutOrganizationMemberships_OrganizationsIsEmpty()
     {
         var user = NewUser();
-        user.OrganizationMembers = [];
+        TestEntities.Set(user, new { OrganizationMembers = new List<OrganizationMember>() });
 
         var response = user.Adapt<UserResponse>();
 

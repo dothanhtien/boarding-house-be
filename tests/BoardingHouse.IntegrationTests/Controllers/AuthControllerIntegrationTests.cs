@@ -127,7 +127,7 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var user = await context.Users.SingleAsync(u => u.Email == email);
-        user.IsActive = false;
+        user.SetActive(false);
         await context.SaveChangesAsync();
     }
 

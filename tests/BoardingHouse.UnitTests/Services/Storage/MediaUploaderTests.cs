@@ -1,3 +1,4 @@
+using BoardingHouse.UnitTests.Common;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -27,13 +28,13 @@ public class MediaUploaderTests
     {
         _currentUserAccessor
             .SetupGet(a => a.RequiredUser)
-            .Returns(new User
+            .Returns(TestEntities.New<User>(new
             {
                 Email = "actor@test.com",
                 PasswordHash = "hashed-password",
                 FullName = "Actor",
                 CreatedBy = SentinelActors.System
-            });
+            }));
         _storageProvider.SetupGet(p => p.Provider).Returns(StorageProvider.Cloudinary);
         _storageProvider
             .Setup(p => p.UploadAsync(

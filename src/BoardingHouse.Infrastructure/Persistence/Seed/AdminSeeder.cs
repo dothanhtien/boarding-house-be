@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Application.Common;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
-using BoardingHouse.Application.Common;
 
 namespace BoardingHouse.Infrastructure.Persistence.Seed;
 
@@ -19,7 +19,7 @@ public static class AdminSeeder
         var role = await context.Roles.FirstOrDefaultAsync(r => r.Slug == PlatformAdminRoleSlug, cancellationToken)
             ?? throw new InvalidOperationException($"Role '{PlatformAdminRoleSlug}' not found; run --seed-rbac first.");
 
-        var normalizedEmail = email.Trim().ToLowerInvariant();
+        var normalizedEmail = EmailAddress.Normalize(email)!;
 
         var existingUser = await context.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail, cancellationToken);
 
@@ -33,13 +33,7 @@ public static class AdminSeeder
                 : $"User '{normalizedEmail}' already exists but is missing role '{PlatformAdminRoleSlug}'.");
         }
 
-        var user = new User
-        {
-            Email = normalizedEmail,
-            PasswordHash = PasswordHasher.Hash(password),
-            FullName = fullName,
-            CreatedBy = SentinelActors.System
-        };
+        var user = User.Register(normalizedEmail, phone: null, PasswordHasher.Hash(password), fullName, SentinelActors.System);
 
         context.Users.Add(user);
 

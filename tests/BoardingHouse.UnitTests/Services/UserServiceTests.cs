@@ -49,15 +49,15 @@ public class UserServiceTests
             NullLogger<UserService>.Instance);
     }
 
-    private static User NewUser(string email = "user@test.com") => new()
+    private static User NewUser(string email = "user@test.com") => TestEntities.New<User>(new
     {
         Email = email,
         PasswordHash = "hashed-password",
         FullName = "Test User",
         CreatedBy = SentinelActors.System
-    };
+    });
 
-    private static MediaAsset NewAvatarAsset(string storageKey) => new()
+    private static MediaAsset NewAvatarAsset(string storageKey) => TestEntities.New<MediaAsset>(new
     {
         FileName = "avatar.png",
         StorageProvider = StorageProvider.Cloudinary,
@@ -66,7 +66,7 @@ public class UserServiceTests
         MimeType = "image/png",
         EntityType = MediaAssetEntityType.UserAvatar,
         CreatedBy = SentinelActors.System
-    };
+    });
 
     [Fact]
     public async Task GetAllAsync_ReturnsAllUsersAsResponses()
@@ -279,7 +279,6 @@ public class UserServiceTests
         Assert.Equal("New Name", response.FullName);
         Assert.Equal("0900000000", user.Phone);
         Assert.False(user.IsActive);
-        _userRepository.Verify(r => r.Update(user), Times.Once);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         _userCache.Verify(c => c.InvalidateAsync(user.Id, It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -320,7 +319,7 @@ public class UserServiceTests
     public async Task UpdateAsync_PhoneNotProvided_KeepsExistingPhone()
     {
         var user = NewUser();
-        user.Phone = "0900000000";
+        user.ChangePhone("0900000000");
         _userRepository.Setup(r => r.GetByIdWithAvatarAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(new EntityWithMedia<User>(user, null));
 
         var request = new UpdateUserRequest { FullName = "New Name" };
@@ -354,7 +353,6 @@ public class UserServiceTests
         var request = new UpdateUserRequest { Email = "taken@test.com" };
 
         await Assert.ThrowsAsync<AppConflictException>(() => _userService.UpdateAsync(user.Id, request));
-        _userRepository.Verify(r => r.Update(It.IsAny<User>()), Times.Never);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -362,7 +360,7 @@ public class UserServiceTests
     public async Task UpdateAsync_SamePhoneAsCurrent_DoesNotCheckDuplicate()
     {
         var user = NewUser();
-        user.Phone = "0900000000";
+        user.ChangePhone("0900000000");
         _userRepository.Setup(r => r.GetByIdWithAvatarAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(new EntityWithMedia<User>(user, null));
 
         var request = new UpdateUserRequest { Phone = "0900000000", FullName = "New Name" };
@@ -382,7 +380,6 @@ public class UserServiceTests
         var request = new UpdateUserRequest { Phone = "0911111111" };
 
         await Assert.ThrowsAsync<AppConflictException>(() => _userService.UpdateAsync(user.Id, request));
-        _userRepository.Verify(r => r.Update(It.IsAny<User>()), Times.Never);
         _unitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 

@@ -34,7 +34,7 @@ public class AuditableEntitySaveChangesInterceptorTests
     public async Task SaveChangesAsync_NewEntity_SetsCreatedAt()
     {
         using var context = CreateContext();
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
 
         context.Users.Add(user);
         await context.SaveChangesAsync();
@@ -97,12 +97,12 @@ public class AuditableEntitySaveChangesInterceptorTests
     public async Task SaveChangesAsync_ModifiedEntity_SetsUpdatedAt_KeepsCreatedAt()
     {
         using var context = CreateContext();
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         context.Users.Add(user);
         await context.SaveChangesAsync();
         var createdAt = user.CreatedAt;
 
-        user.FullName = "Updated Name";
+        user.Rename("Updated Name");
         context.Users.Update(user);
         await context.SaveChangesAsync();
 
@@ -113,13 +113,13 @@ public class AuditableEntitySaveChangesInterceptorTests
     [Fact]
     public async Task SaveChangesAsync_ModifiedEntity_WithCurrentUser_SetsUpdatedBy()
     {
-        var actor = new User { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System };
+        var actor = TestEntities.New<User>(new { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System });
         using var context = CreateContext(actor);
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
-        user.FullName = "Updated Name";
+        user.Rename("Updated Name");
         context.Users.Update(user);
         await context.SaveChangesAsync();
 
@@ -130,11 +130,11 @@ public class AuditableEntitySaveChangesInterceptorTests
     public async Task SaveChangesAsync_ModifiedEntity_SystemActorWithoutUser_SetsUpdatedByToSystem()
     {
         using var context = CreateContext(isSystemActor: true);
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
-        user.FullName = "Updated Name";
+        user.Rename("Updated Name");
         context.Users.Update(user);
         await context.SaveChangesAsync();
 
@@ -144,7 +144,7 @@ public class AuditableEntitySaveChangesInterceptorTests
     [Fact]
     public async Task SaveChangesAsync_UpdateAuditableOnlyEntity_SetsUpdatedAtAndUpdatedByOnlyWhenModified()
     {
-        var actor = new User { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System };
+        var actor = TestEntities.New<User>(new { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System });
         using var context = CreateContext(actor);
         var history = new RoomAssetConditionHistory { AssetId = Guid.NewGuid(), NewCondition = AssetCondition.Good };
         context.RoomAssetConditionHistories.Add(history);
@@ -164,11 +164,11 @@ public class AuditableEntitySaveChangesInterceptorTests
     public async Task SaveChangesAsync_ModifiedEntity_WithoutCurrentUser_LeavesUpdatedByNull()
     {
         using var context = CreateContext();
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
-        user.FullName = "Updated Name";
+        user.Rename("Updated Name");
         context.Users.Update(user);
         await context.SaveChangesAsync();
 
@@ -178,14 +178,14 @@ public class AuditableEntitySaveChangesInterceptorTests
     [Fact]
     public async Task SaveChangesAsync_ModifiedEntity_WithExplicitUpdatedBy_DoesNotOverwrite()
     {
-        var actor = new User { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System };
+        var actor = TestEntities.New<User>(new { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System });
         using var context = CreateContext(actor);
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
         var explicitActorId = Guid.NewGuid();
-        user.FullName = "Updated Name";
+        user.Rename("Updated Name");
         user.UpdatedBy = explicitActorId;
         context.Users.Update(user);
         await context.SaveChangesAsync();
@@ -198,11 +198,11 @@ public class AuditableEntitySaveChangesInterceptorTests
     {
         var logger = new Mock<ILogger<AuditableEntitySaveChangesInterceptor>>();
         using var context = CreateContext(logger: logger.Object);
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
-        user.FullName = "Updated Name";
+        user.Rename("Updated Name");
         context.Users.Update(user);
         await context.SaveChangesAsync();
 
@@ -219,14 +219,14 @@ public class AuditableEntitySaveChangesInterceptorTests
     [Fact]
     public async Task SaveChangesAsync_ModifiedEntity_WithCurrentUser_DoesNotLogWarning()
     {
-        var actor = new User { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System };
+        var actor = TestEntities.New<User>(new { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System });
         var logger = new Mock<ILogger<AuditableEntitySaveChangesInterceptor>>();
         using var context = CreateContext(actor, logger.Object);
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
-        user.FullName = "Updated Name";
+        user.Rename("Updated Name");
         context.Users.Update(user);
         await context.SaveChangesAsync();
 
@@ -243,9 +243,9 @@ public class AuditableEntitySaveChangesInterceptorTests
     [Fact]
     public async Task SaveChangesAsync_DeletedEntity_WithCurrentUser_SetsDeletedAtAndDeletedBy()
     {
-        var actor = new User { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System };
+        var actor = TestEntities.New<User>(new { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System });
         using var context = CreateContext(actor);
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
@@ -260,7 +260,7 @@ public class AuditableEntitySaveChangesInterceptorTests
     public async Task SaveChangesAsync_DeletedEntity_WithoutCurrentUser_LeavesDeletedByNull()
     {
         using var context = CreateContext();
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
@@ -274,9 +274,9 @@ public class AuditableEntitySaveChangesInterceptorTests
     [Fact]
     public async Task SaveChangesAsync_DeletedEntity_WithExplicitDeletedBy_DoesNotOverwrite()
     {
-        var actor = new User { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System };
+        var actor = TestEntities.New<User>(new { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System });
         using var context = CreateContext(actor);
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
@@ -293,7 +293,7 @@ public class AuditableEntitySaveChangesInterceptorTests
     {
         var logger = new Mock<ILogger<AuditableEntitySaveChangesInterceptor>>();
         using var context = CreateContext(logger: logger.Object);
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
@@ -313,10 +313,10 @@ public class AuditableEntitySaveChangesInterceptorTests
     [Fact]
     public async Task SaveChangesAsync_DeletedEntity_WithCurrentUser_DoesNotLogWarning()
     {
-        var actor = new User { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System };
+        var actor = TestEntities.New<User>(new { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System });
         var logger = new Mock<ILogger<AuditableEntitySaveChangesInterceptor>>();
         using var context = CreateContext(actor, logger.Object);
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         context.Users.Add(user);
         await context.SaveChangesAsync();
 

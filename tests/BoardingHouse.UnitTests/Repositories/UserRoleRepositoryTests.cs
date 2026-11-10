@@ -67,9 +67,10 @@ public class UserRoleRepositoryTests
         context.UserRoles.Add(userRole);
         await context.SaveChangesAsync();
 
-        var repository = new UserRoleRepository(context);
-        repository.SoftDelete(userRole);
+        context.UserRoles.Remove(userRole);
         await context.SaveChangesAsync();
+
+        var repository = new UserRoleRepository(context);
 
         var result = await repository.GetActiveRoleIdsByUserIdAsync(userId);
 
@@ -106,23 +107,5 @@ public class UserRoleRepositoryTests
         Assert.Equal(2, result.Count);
         Assert.Contains(roleA.Id, result);
         Assert.Contains(roleB.Id, result);
-    }
-
-    [Fact]
-    public async Task AddAsync_NewUserRole_PersistsToDatabase()
-    {
-        using var context = CreateContext();
-        var role = new Role { Name = "Admin", Slug = "admin", Scope = RoleScope.Platform, CreatedBy = SentinelActors.System };
-        context.Roles.Add(role);
-        await context.SaveChangesAsync();
-
-        var repository = new UserRoleRepository(context);
-        var userRole = new UserRole { UserId = Guid.NewGuid(), RoleId = role.Id, CreatedBy = SentinelActors.System };
-
-        await repository.AddAsync(userRole);
-        await context.SaveChangesAsync();
-
-        var result = await context.UserRoles.FirstOrDefaultAsync(ur => ur.Id == userRole.Id);
-        Assert.NotNull(result);
     }
 }

@@ -126,13 +126,13 @@ public class UnitOfWorkTests(PostgresApiFactory factory) : IClassFixture<Postgre
         Assert.Equal(1, await CountOrganizationsAsync("uow-save"));
     }
 
-    private static User NewUser(string email) => new()
+    private static User NewUser(string email) => TestEntities.New<User>(new
     {
         Email = email,
         PasswordHash = "hash",
         FullName = "UoW User",
         CreatedBy = SentinelActors.System
-    };
+    });
 
     // Every service catch matches on ConstraintName, so the real Postgres index name must come through untouched
     [Fact]

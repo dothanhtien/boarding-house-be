@@ -1,11 +1,10 @@
-namespace BoardingHouse.Application.Common;
+namespace BoardingHouse.Domain.Common;
 
 public static class EmailAddress
 {
-    public static string? Normalize(string? email) =>
-        string.IsNullOrWhiteSpace(email) ? null : email.Trim().ToLowerInvariant();
+    public static string? Normalize(string? email) => string.IsNullOrWhiteSpace(email) ? null : email.Trim().ToLowerInvariant();
 
-    // nguyenvana@gmail.com → ng***@gmail.com. Fixed-length mask so the local part's length does not leak.
+    // e.g. nguyenvana@gmail.com → ng***@gmail.com
     public static string Mask(string email)
     {
         var at = email.LastIndexOf('@');
