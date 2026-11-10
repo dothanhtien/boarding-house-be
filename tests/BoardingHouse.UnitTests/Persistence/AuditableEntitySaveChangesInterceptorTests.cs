@@ -1,3 +1,4 @@
+using BoardingHouse.UnitTests.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -40,6 +41,56 @@ public class AuditableEntitySaveChangesInterceptorTests
 
         Assert.True(user.CreatedAt > DateTimeOffset.MinValue);
         Assert.Null(user.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_NewEntityWithoutCreatedBy_WithCurrentUser_SetsCreatedBy()
+    {
+        var actor = TestEntities.New<User>(new { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor" });
+        using var context = CreateContext(actor);
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User" });
+
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        Assert.Equal(actor.Id, user.CreatedBy);
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_NewEntityWithoutCreatedBy_SystemActorWithoutUser_SetsCreatedByToSystem()
+    {
+        using var context = CreateContext(isSystemActor: true);
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User" });
+
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        Assert.Equal(SentinelActors.System, user.CreatedBy);
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_NewEntityWithExplicitCreatedBy_DoesNotOverwrite()
+    {
+        var actor = TestEntities.New<User>(new { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor" });
+        using var context = CreateContext(actor);
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
+
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        Assert.Equal(SentinelActors.System, user.CreatedBy);
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_NewEntityWithoutCreatedBy_WithoutActor_Throws()
+    {
+        using var context = CreateContext();
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User" });
+
+        context.Users.Add(user);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => context.SaveChangesAsync());
+        Assert.Contains(nameof(User), ex.Message);
     }
 
     [Fact]

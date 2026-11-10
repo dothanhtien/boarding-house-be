@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Domain.Common;
 
 namespace BoardingHouse.UnitTests.Exceptions;
 
@@ -45,6 +46,21 @@ public class GlobalExceptionHandlerTests
         var json = ReadBodyAsJson(body);
         Assert.Equal("User not found", json.GetProperty("title").GetString());
         Assert.Equal("test-correlation-id", json.GetProperty("correlationId").GetString());
+    }
+
+    [Theory]
+    [InlineData(DomainErrorKind.Validation, StatusCodes.Status400BadRequest)]
+    [InlineData(DomainErrorKind.Conflict, StatusCodes.Status409Conflict)]
+    [InlineData(DomainErrorKind.NotFound, StatusCodes.Status404NotFound)]
+    public async Task TryHandleAsync_DomainException_MapsKindToStatusCode(DomainErrorKind kind, int expectedStatusCode)
+    {
+        var handler = CreateHandler(Environments.Production);
+        var (context, body) = CreateHttpContext();
+
+        await handler.TryHandleAsync(context, new DomainException("Rule broken", kind), CancellationToken.None);
+
+        Assert.Equal(expectedStatusCode, context.Response.StatusCode);
+        Assert.Equal("Rule broken", ReadBodyAsJson(body).GetProperty("title").GetString());
     }
 
     public static TheoryData<AppException, int> AppExceptionStatusCodes => new()

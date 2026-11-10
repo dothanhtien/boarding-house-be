@@ -15,9 +15,8 @@ public class GlobalExceptionHandler(IHostEnvironment env, ILogger<GlobalExceptio
         var (statusCode, title) = exception switch
         {
             AppException appEx => (ToStatusCode(appEx.Kind), appEx.Message),
-            DomainException domainEx => (StatusCodes.Status400BadRequest, domainEx.Message),
-            UniqueConstraintViolationException =>
-                (StatusCodes.Status409Conflict, "A record with the same value already exists"),
+            DomainException domainEx => (ToStatusCode(domainEx.Kind), domainEx.Message),
+            UniqueConstraintViolationException => (StatusCodes.Status409Conflict, "A record with the same value already exists"),
             _ => (StatusCodes.Status500InternalServerError, "Internal server error")
         };
 
@@ -66,6 +65,14 @@ public class GlobalExceptionHandler(IHostEnvironment env, ILogger<GlobalExceptio
         AppErrorKind.Unauthorized => StatusCodes.Status401Unauthorized,
         AppErrorKind.Forbidden => StatusCodes.Status403Forbidden,
         AppErrorKind.TooManyRequests => StatusCodes.Status429TooManyRequests,
+        _ => StatusCodes.Status500InternalServerError
+    };
+
+    private static int ToStatusCode(DomainErrorKind kind) => kind switch
+    {
+        DomainErrorKind.NotFound => StatusCodes.Status404NotFound,
+        DomainErrorKind.Conflict => StatusCodes.Status409Conflict,
+        DomainErrorKind.Validation => StatusCodes.Status400BadRequest,
         _ => StatusCodes.Status500InternalServerError
     };
 }
