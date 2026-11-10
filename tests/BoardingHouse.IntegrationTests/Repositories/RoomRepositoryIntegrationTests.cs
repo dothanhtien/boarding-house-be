@@ -57,7 +57,7 @@ public class RoomRepositoryIntegrationTests(PostgresContainerFixture fixture)
     private async Task<Guid> SeedAsync()
     {
         await using var context = fixture.CreateContext();
-        var organization = new Organization { Name = "Org", CreatedBy = SentinelActors.System };
+        var organization = TestEntities.New<Organization>(new { Name = "Org", CreatedBy = SentinelActors.System });
         var property = new Property { OrganizationId = organization.Id, Name = "Property", CreatedBy = SentinelActors.System };
         context.AddRange(organization, property);
 

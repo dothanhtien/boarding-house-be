@@ -87,7 +87,7 @@ public class AuthServiceTests
         var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hash", FullName = "Test User", CreatedBy = SentinelActors.System });
         var platformAdminRole = new Role { Slug = RoleSlugs.PlatformAdmin, Name = "Platform Admin", Scope = RoleScope.Platform, CreatedBy = SentinelActors.System };
         var organizationRole = new Role { Slug = RoleSlugs.OrganizationAdmin, Name = "Organization Admin", Scope = RoleScope.Organization, CreatedBy = SentinelActors.System };
-        var organization = new Organization { Name = "Test Org", CreatedBy = SentinelActors.System };
+        var organization = TestEntities.New<Organization>(new { Name = "Test Org", CreatedBy = SentinelActors.System });
         TestEntities.Set(user, new
         {
             UserRoles = new List<UserRole>
@@ -96,13 +96,7 @@ public class AuthServiceTests
             },
             OrganizationMembers = new List<OrganizationMember>
             {
-                new()
-                {
-                    UserId = user.Id, User = user,
-                    OrganizationId = organization.Id, Organization = organization,
-                    RoleId = organizationRole.Id, Role = organizationRole,
-                    CreatedBy = SentinelActors.System
-                }
+                TestMembers.WithNavigations(OrganizationMember.Create(organization.Id, user.Id, organizationRole, SentinelActors.System), organization, user, organizationRole)
             }
         });
 

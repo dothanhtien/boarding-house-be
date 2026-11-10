@@ -63,8 +63,8 @@ public class UserMappingConfigTests
     public void Adapt_UserWithMultipleOrganizationMemberships_MapsAllWithOrganizationAndRoleDetails()
     {
         var user = NewUser();
-        var organizationA = new Organization { Name = "Org A", CreatedBy = SentinelActors.System };
-        var organizationB = new Organization { Name = "Org B", CreatedBy = SentinelActors.System };
+        var organizationA = TestEntities.New<Organization>(new { Name = "Org A", CreatedBy = SentinelActors.System });
+        var organizationB = TestEntities.New<Organization>(new { Name = "Org B", CreatedBy = SentinelActors.System });
         var adminRole = NewRole(RoleSlugs.OrganizationAdmin, "Organization Admin", RoleScope.Organization);
         var staffRole = NewRole(RoleSlugs.OrganizationStaff, "Organization Staff", RoleScope.Organization);
 
@@ -72,8 +72,8 @@ public class UserMappingConfigTests
         {
             OrganizationMembers = new List<OrganizationMember>
             {
-                new() { OrganizationId = organizationA.Id, Organization = organizationA, RoleId = adminRole.Id, Role = adminRole, UserId = user.Id, User = user, CreatedBy = SentinelActors.System },
-                new() { OrganizationId = organizationB.Id, Organization = organizationB, RoleId = staffRole.Id, Role = staffRole, UserId = user.Id, User = user, CreatedBy = SentinelActors.System }
+                TestMembers.WithNavigations(OrganizationMember.Create(organizationA.Id, user.Id, adminRole, SentinelActors.System), organizationA, user, adminRole),
+                TestMembers.WithNavigations(OrganizationMember.Create(organizationB.Id, user.Id, staffRole, SentinelActors.System), organizationB, user, staffRole)
             }
         });
 

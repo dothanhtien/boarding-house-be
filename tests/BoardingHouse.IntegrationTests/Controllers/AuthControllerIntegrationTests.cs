@@ -329,17 +329,11 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         {
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var organizationRole = await context.Roles.SingleAsync(r => r.Slug == "organization_admin");
-            var organization = new Organization { Name = "Member Org", CreatedBy = SentinelActors.System };
+            var organization = TestEntities.New<Organization>(new { Name = "Member Org", CreatedBy = SentinelActors.System });
             context.Organizations.Add(organization);
             await context.SaveChangesAsync();
 
-            context.OrganizationMembers.Add(new OrganizationMember
-            {
-                OrganizationId = organization.Id,
-                UserId = userId,
-                RoleId = organizationRole.Id,
-                CreatedBy = SentinelActors.System
-            });
+            context.OrganizationMembers.Add(OrganizationMember.Create(organization.Id, userId, organizationRole, SentinelActors.System));
             await context.SaveChangesAsync();
 
             organizationId = organization.Id;
@@ -515,17 +509,11 @@ public class AuthControllerIntegrationTests(PostgresApiFactory factory)
         {
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var organizationRole = await context.Roles.SingleAsync(r => r.Slug == "organization_admin");
-            var organization = new Organization { Name = "Member Org", CreatedBy = SentinelActors.System };
+            var organization = TestEntities.New<Organization>(new { Name = "Member Org", CreatedBy = SentinelActors.System });
             context.Organizations.Add(organization);
             await context.SaveChangesAsync();
 
-            context.OrganizationMembers.Add(new OrganizationMember
-            {
-                OrganizationId = organization.Id,
-                UserId = userId,
-                RoleId = organizationRole.Id,
-                CreatedBy = SentinelActors.System
-            });
+            context.OrganizationMembers.Add(OrganizationMember.Create(organization.Id, userId, organizationRole, SentinelActors.System));
             await context.SaveChangesAsync();
 
             organizationId = organization.Id;

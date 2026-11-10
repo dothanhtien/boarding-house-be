@@ -95,7 +95,7 @@ public class TenantsControllerIntegrationTests(PostgresApiFactory factory)
 
     private async Task<Guid> CreateOrganizationAsync(string name)
     {
-        var organization = new Organization { Name = name, CreatedBy = SentinelActors.System };
+        var organization = TestEntities.New<Organization>(new { Name = name, CreatedBy = SentinelActors.System });
         await WithContextAsync(async context =>
         {
             context.Organizations.Add(organization);
@@ -115,13 +115,7 @@ public class TenantsControllerIntegrationTests(PostgresApiFactory factory)
         {
             await RbacSeeder.SeedAsync(context);
             var role = await context.Roles.SingleAsync(r => r.Slug == roleSlug);
-            context.OrganizationMembers.Add(new OrganizationMember
-            {
-                OrganizationId = organizationId,
-                UserId = userId,
-                RoleId = role.Id,
-                CreatedBy = SentinelActors.System
-            });
+            context.OrganizationMembers.Add(OrganizationMember.Create(organizationId, userId, role, SentinelActors.System));
             await context.SaveChangesAsync();
         });
 

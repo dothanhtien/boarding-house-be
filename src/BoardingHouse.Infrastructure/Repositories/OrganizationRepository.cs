@@ -11,6 +11,22 @@ namespace BoardingHouse.Infrastructure.Repositories;
 public class OrganizationRepository(AppDbContext context)
     : Repository<Organization>(context), IOrganizationRepository
 {
+    public async Task<Organization?> GetAggregateForUpdateAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var organization = await Context.Organizations
+            .FromSql($"SELECT * FROM organizations WHERE id = {id} FOR UPDATE")
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (organization is null)
+        {
+            return null;
+        }
+
+        await Context.Entry(organization).Collection(o => o.Members).LoadAsync(cancellationToken);
+
+        return organization;
+    }
+
     public Task<Organization?> GetByIdWithMembersAsync(Guid id, CancellationToken cancellationToken = default) =>
         Context.Organizations
             .AsNoTracking()

@@ -43,21 +43,15 @@ public class OrganizationScopeAccessorTests(PostgresApiFactory factory) : IClass
 
         var creatorId = Guid.NewGuid();
         var user = TestEntities.New<User>(new { Email = "member@test.com", PasswordHash = "x", FullName = "Member", CreatedBy = creatorId });
-        var organizationA = new Organization { Name = "Org A", CreatedBy = creatorId };
-        var organizationB = new Organization { Name = "Org B", CreatedBy = creatorId };
+        var organizationA = TestEntities.New<Organization>(new { Name = "Org A", CreatedBy = creatorId });
+        var organizationB = TestEntities.New<Organization>(new { Name = "Org B", CreatedBy = creatorId });
         var role = new Role { Slug = "test_org_role", Name = "Test Org Role", Scope = RoleScope.Organization, CreatedBy = creatorId };
         var permission = new Permission { Resource = "property", Action = "read", CreatedBy = creatorId };
         context.AddRange(user, organizationA, organizationB, role, permission);
         await context.SaveChangesAsync();
 
         context.RolePermissions.Add(new RolePermission { CreatedAt = DateTimeOffset.UtcNow, RoleId = role.Id, PermissionId = permission.Id, CreatedBy = creatorId });
-        context.OrganizationMembers.Add(new OrganizationMember
-        {
-            OrganizationId = organizationA.Id,
-            UserId = user.Id,
-            RoleId = role.Id,
-            CreatedBy = creatorId
-        });
+        context.OrganizationMembers.Add(OrganizationMember.Create(organizationA.Id, user.Id, role, creatorId));
         await context.SaveChangesAsync();
         currentUserAccessor.User = user;
 

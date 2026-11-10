@@ -181,7 +181,7 @@ public class RoomAssetsControllerIntegrationTests(PostgresApiFactory factory)
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await RbacSeeder.SeedAsync(context);
 
-        var organization = new Organization { Name = $"Member Org {Guid.NewGuid()}", CreatedBy = SentinelActors.System };
+        var organization = TestEntities.New<Organization>(new { Name = $"Member Org {Guid.NewGuid()}", CreatedBy = SentinelActors.System });
         context.Organizations.Add(organization);
         await context.SaveChangesAsync();
 
@@ -198,13 +198,7 @@ public class RoomAssetsControllerIntegrationTests(PostgresApiFactory factory)
         var member = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
 
         var role = await context.Roles.SingleAsync(r => r.Slug == roleSlug);
-        context.OrganizationMembers.Add(new OrganizationMember
-        {
-            OrganizationId = organization.Id,
-            UserId = member!.Id,
-            RoleId = role.Id,
-            CreatedBy = SentinelActors.System
-        });
+        context.OrganizationMembers.Add(OrganizationMember.Create(organization.Id, member!.Id, role, SentinelActors.System));
         await context.SaveChangesAsync();
 
         var loginResponse = await memberClient.PostAsJsonAsync("/api/auth/login", new LoginRequest

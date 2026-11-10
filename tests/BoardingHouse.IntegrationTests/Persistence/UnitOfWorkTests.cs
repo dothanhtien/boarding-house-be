@@ -15,11 +15,11 @@ public class UnitOfWorkTests(PostgresApiFactory factory) : IClassFixture<Postgre
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    private static Organization NewOrganization(string name) => new()
+    private static Organization NewOrganization(string name) => TestEntities.New<Organization>(new
     {
         Name = name,
         CreatedBy = SentinelActors.System
-    };
+    });
 
     // Reads through a fresh scope so the assertion hits the database, not the change tracker of the context under test
     private async Task<int> CountOrganizationsAsync(string name)
