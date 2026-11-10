@@ -56,7 +56,7 @@ public class MediaAttachmentServiceTests
             ContentType = contentType
         });
 
-    private MediaAsset ExistingAvatar() => new()
+    private MediaAsset ExistingAvatar() => TestEntities.New<MediaAsset>(new
     {
         FileName = "old.png",
         StorageProvider = StorageProvider.Cloudinary,
@@ -67,7 +67,7 @@ public class MediaAttachmentServiceTests
         EntityType = MediaAssetEntityType.UserAvatar,
         EntityId = _userId,
         CreatedBy = SentinelActors.System
-    };
+    });
 
     private void SetupCurrent(MediaAsset? asset) =>
         _mediaAssetRepository
@@ -154,7 +154,7 @@ public class MediaAttachmentServiceTests
     {
         var removed = ExistingAvatar();
         var added = ExistingAvatar();
-        added.StorageKey = "root/users/x/new";
+        TestEntities.Set(added, new { StorageKey = "root/users/x/new" });
 
         await _service.CompleteAsync(new MediaAttachmentChange(added, removed));
 
@@ -177,7 +177,7 @@ public class MediaAttachmentServiceTests
     {
         var removed = ExistingAvatar();
         var added = ExistingAvatar();
-        added.StorageKey = "root/users/x/new";
+        TestEntities.Set(added, new { StorageKey = "root/users/x/new" });
 
         await _service.DiscardAsync(new MediaAttachmentChange(added, removed));
 

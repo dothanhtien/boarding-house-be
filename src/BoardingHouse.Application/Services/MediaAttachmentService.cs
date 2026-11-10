@@ -18,8 +18,7 @@ public class MediaAttachmentService(
         CancellationToken cancellationToken = default)
     {
         var added = await mediaUploader.UploadAsync(file, folder, organizationId, cancellationToken);
-        added.EntityType = entityType;
-        added.EntityId = entityId;
+        added.AssignTo(entityType, entityId);
 
         try
         {

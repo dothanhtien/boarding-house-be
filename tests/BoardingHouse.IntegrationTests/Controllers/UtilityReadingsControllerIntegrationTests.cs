@@ -186,7 +186,7 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
 
         using var scope = factory.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var asset = new MediaAsset
+        var asset = TestEntities.New<MediaAsset>(new
         {
             OrganizationId = _organizationId,
             FileName = "meter.png",
@@ -198,7 +198,7 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
             EntityType = MediaAssetEntityType.UtilityReadingImage,
             EntityId = readingId,
             CreatedBy = SentinelActors.System
-        };
+        });
         context.MediaAssets.Add(asset);
         await context.SaveChangesAsync();
         return asset;

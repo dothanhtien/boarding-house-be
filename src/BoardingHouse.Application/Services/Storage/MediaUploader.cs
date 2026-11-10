@@ -27,18 +27,8 @@ public class MediaUploader(
         var stored = await storageProvider.UploadAsync(content, fileName, mimeType, folder, cancellationToken);
 
         var userId = currentUserAccessor.RequiredUser.Id;
-        return new MediaAsset
-        {
-            OrganizationId = organizationId,
-            FileName = fileName,
-            StorageProvider = storageProvider.Provider,
-            StorageKey = stored.StorageKey,
-            FileUrl = stored.Url,
-            MimeType = mimeType,
-            FileSize = stored.SizeBytes,
-            UploadedByUserId = userId,
-            CreatedBy = userId
-        };
+        return MediaAsset.Uploaded(
+            organizationId, fileName, storageProvider.Provider, stored.StorageKey, stored.Url, mimeType, stored.SizeBytes, userId);
     }
 
     public async Task TryDeleteAsync(string storageKey, string mimeType)

@@ -16,7 +16,7 @@ public class MediaAssetConstraintsTests(PostgresApiFactory factory) : IClassFixt
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    private static MediaAsset NewAsset(MediaAssetEntityType? entityType, Guid? entityId) => new()
+    private static MediaAsset NewAsset(MediaAssetEntityType? entityType, Guid? entityId) => TestEntities.New<MediaAsset>(new
     {
         FileName = "file.png",
         StorageProvider = StorageProvider.Cloudinary,
@@ -27,7 +27,7 @@ public class MediaAssetConstraintsTests(PostgresApiFactory factory) : IClassFixt
         EntityType = entityType,
         EntityId = entityId,
         CreatedBy = SentinelActors.System
-    };
+    });
 
     private async Task InsertAsync(MediaAsset asset)
     {

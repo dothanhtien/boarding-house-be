@@ -156,7 +156,7 @@ public class RoomAssetConditionHistoryRepositoryIntegrationTests(PostgresContain
 
     private static void AddPhoto(AppDbContext context, RoomAssetConditionHistory history, bool deleted = false)
     {
-        var mediaAsset = new MediaAsset
+        var mediaAsset = TestEntities.New<MediaAsset>(new
         {
             FileName = "photo.png",
             StorageProvider = StorageProvider.Cloudinary,
@@ -166,7 +166,7 @@ public class RoomAssetConditionHistoryRepositoryIntegrationTests(PostgresContain
             FileSize = 16,
             EntityType = MediaAssetEntityType.RoomAssetConditionPhoto,
             CreatedBy = SentinelActors.System
-        };
+        });
         context.MediaAssets.Add(mediaAsset);
         context.RoomAssetConditionHistoryMedia.Add(new RoomAssetConditionHistoryMedia
         {
