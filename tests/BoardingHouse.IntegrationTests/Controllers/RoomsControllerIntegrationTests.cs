@@ -555,7 +555,7 @@ public class RoomsControllerIntegrationTests(PostgresApiFactory factory)
         await using (var transaction = await context.Database.BeginTransactionAsync())
         {
             await context.Properties.FromSql($"SELECT * FROM properties WHERE id = {_propertyId} FOR SHARE").SingleAsync();
-            context.Rooms.Add(new Room { PropertyId = _propertyId, RoomNumber = "LOCK1", CreatedBy = _actorId });
+            context.Rooms.Add(TestRooms.New(propertyId: _propertyId, roomNumber: "LOCK1", createdBy: _actorId));
             await context.SaveChangesAsync();
 
             var deleteTask = _client.DeleteAsync($"/api/properties/{_propertyId}");

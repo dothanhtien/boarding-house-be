@@ -1,3 +1,4 @@
+using BoardingHouse.UnitTests.Common;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using BoardingHouse.Api.Common.CurrentUser;
@@ -39,7 +40,7 @@ public class ExpireLeasesJobTests
 
     private Lease SetupLease(LeaseStatus status, DateOnly? endDate)
     {
-        var room = new Room { RoomNumber = "101", RoomStatus = RoomStatus.Occupied, CreatedBy = SentinelActors.System };
+        var room = TestEntities.Set(TestRooms.New(), new { RoomStatus = RoomStatus.Occupied });
         var lease = new Lease
         {
             LeaseCode = "HD-TEST",

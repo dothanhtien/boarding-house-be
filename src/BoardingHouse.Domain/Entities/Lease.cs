@@ -53,7 +53,7 @@ public class Lease : BaseEntity
             tenant.JoinedDate = StartDate;
         }
 
-        RequiredRoom.RoomStatus = RoomStatus.Occupied;
+        RequiredRoom.MarkOccupied();
 
         return history;
     }
@@ -134,7 +134,7 @@ public class Lease : BaseEntity
     private void End(DateOnly leftDate)
     {
         MoveOutTenants(leftDate);
-        RequiredRoom.RoomStatus = RoomStatus.Available;
+        RequiredRoom.MarkAvailable();
     }
 
     private void MoveOutTenants(DateOnly leftDate)

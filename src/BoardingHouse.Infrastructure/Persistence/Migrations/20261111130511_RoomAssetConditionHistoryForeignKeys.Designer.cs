@@ -2005,7 +2005,7 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.RoomAsset", b =>
                 {
                     b.HasOne("BoardingHouse.Domain.Entities.Room", "Room")
-                        .WithMany("Assets")
+                        .WithMany()
                         .HasForeignKey("RoomId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
@@ -2025,7 +2025,7 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                     b.HasOne("BoardingHouse.Domain.Entities.RoomAsset", "Asset")
                         .WithMany()
                         .HasForeignKey("AssetId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.ClientNoAction)
                         .IsRequired()
                         .HasConstraintName("fk_room_asset_condition_histories_room_assets_asset_id");
 
@@ -2037,7 +2037,7 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                     b.HasOne("BoardingHouse.Domain.Entities.RoomAssetConditionHistory", "ConditionHistory")
                         .WithMany("Media")
                         .HasForeignKey("ConditionHistoryId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_room_asset_condition_history_media_room_asset_condition_his");
 
@@ -2175,8 +2175,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Room", b =>
                 {
                     b.Navigation("Amenities");
-
-                    b.Navigation("Assets");
 
                     b.Navigation("Media");
                 });

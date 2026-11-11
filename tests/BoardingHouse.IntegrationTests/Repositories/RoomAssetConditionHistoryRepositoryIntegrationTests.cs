@@ -134,7 +134,7 @@ public class RoomAssetConditionHistoryRepositoryIntegrationTests(PostgresContain
     {
         var organization = TestEntities.New<Organization>(new { Name = $"Org {roomNumber}", CreatedBy = SentinelActors.System });
         var property = TestEntities.New<Property>(new { OrganizationId = organization.Id, Name = $"Property {roomNumber}", CreatedBy = SentinelActors.System });
-        var room = new Room { PropertyId = property.Id, RoomNumber = roomNumber, CreatedBy = SentinelActors.System };
+        var room = TestRooms.New(propertyId: property.Id, roomNumber: roomNumber);
         context.AddRange(organization, property, room);
         return room;
     }

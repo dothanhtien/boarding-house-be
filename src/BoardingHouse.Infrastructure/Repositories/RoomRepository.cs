@@ -1,11 +1,11 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.Repositories;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
-using BoardingHouse.Application.Common;
-using BoardingHouse.Application.Repositories;
-using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Infrastructure.Persistence;
 using BoardingHouse.Infrastructure.Persistence.Listing;
 
@@ -130,7 +130,6 @@ public class RoomRepository(AppDbContext context) : Repository<Room>(context), I
             .AsNoTracking()
             .Include(r => r.Property)
             .Include(r => r.Amenities)
-            .Include(r => r.Assets)
             .Include(r => r.Media).ThenInclude(m => m.MediaAsset)
             .AsSplitQuery()
             .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
@@ -163,33 +162,23 @@ public class RoomRepository(AppDbContext context) : Repository<Room>(context), I
             .Select(r => new EntityWithOrganizationId<Room>(r, r.Property!.OrganizationId))
             .FirstOrDefaultAsync(cancellationToken);
 
-    public Task LoadAmenitiesAsync(Room room, CancellationToken cancellationToken = default) =>
-        Context.Entry(room).Collection(r => r.Amenities).LoadAsync(cancellationToken);
+    public async Task<EntityWithOrganizationId<Room>?> GetAggregateForUpdateAsync(
+        Guid id, CancellationToken cancellationToken = default)
+    {
+        var locked = await GetByIdWithOrganizationIdForUpdateAsync(id, cancellationToken);
+        if (locked is null)
+        {
+            return null;
+        }
 
-    public Task LoadAssetsAsync(Room room, CancellationToken cancellationToken = default) =>
-        Context.Entry(room).Collection(r => r.Assets).LoadAsync(cancellationToken);
+        var room = locked.Entity;
 
-    public Task LoadMediaAsync(Room room, CancellationToken cancellationToken = default) =>
-        Context.Entry(room).Collection(r => r.Media).Query().Include(m => m.MediaAsset).LoadAsync(cancellationToken);
+        await Context.Entry(room).Collection(r => r.Amenities).LoadAsync(cancellationToken);
+        await Context.Entry(room).Collection(r => r.Media).Query().Include(m => m.MediaAsset).LoadAsync(cancellationToken);
+
+        return locked;
+    }
 
     public Task<bool> ExistsByPropertyIdAsync(Guid propertyId, CancellationToken cancellationToken = default) =>
         Context.Rooms.AnyAsync(r => r.PropertyId == propertyId, cancellationToken);
-
-    public void AddAmenity(Room room, RoomAmenity amenity)
-    {
-        room.Amenities.Add(amenity);
-        Context.RoomAmenities.Add(amenity);
-    }
-
-    public void AddMedia(Room room, RoomMedia media)
-    {
-        room.Media.Add(media);
-        Context.RoomMedia.Add(media);
-    }
-
-    public void RemoveMedia(Room room, RoomMedia media)
-    {
-        room.Media.Remove(media);
-        Context.RoomMedia.Remove(media);
-    }
 }

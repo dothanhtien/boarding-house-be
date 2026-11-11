@@ -22,7 +22,7 @@ public class RoomAssetConfiguration : IEntityTypeConfiguration<RoomAsset>
             .HasDefaultValue(AssetCondition.Good);
 
         builder.HasOne(a => a.Room)
-            .WithMany(r => r.Assets)
+            .WithMany()
             .HasForeignKey(a => a.RoomId)
             .OnDelete(DeleteBehavior.Restrict);
 

@@ -1,4 +1,4 @@
-using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore;
 using BoardingHouse.IntegrationTests.Fixtures;
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.Common.Listing;
@@ -40,6 +40,43 @@ public class RoomRepositoryIntegrationTests(PostgresContainerFixture fixture)
         var rooms = await SearchAsync(propertyId, recorded: false);
 
         Assert.Equal(["102", "103"], rooms.Select(r => r.Room.RoomNumber));
+    }
+
+    [Fact]
+    public async Task GetAggregateForUpdateAsync_LoadsAmenitiesAndMediaWithAsset()
+    {
+        Guid roomId;
+        await using (var seed = fixture.CreateContext())
+        {
+            var organization = TestEntities.New<Organization>(new { Name = "Org", CreatedBy = SentinelActors.System });
+            var property = TestEntities.New<Property>(new { OrganizationId = organization.Id, Name = "Property", CreatedBy = SentinelActors.System });
+            seed.AddRange(organization, property);
+            var room = AddRoom(seed, property, "101");
+            room.ApplyAmenityChanges([new AmenityChange { Name = "Fan" }], SentinelActors.System);
+            var mediaAsset = TestEntities.New<MediaAsset>(new
+            {
+                FileName = "photo.png",
+                StorageProvider = StorageProvider.Cloudinary,
+                StorageKey = $"test/{Guid.NewGuid():N}",
+                FileUrl = "https://storage.test/photo.png",
+                MimeType = "image/png",
+                FileSize = 16,
+                EntityType = MediaAssetEntityType.RoomMedia,
+                CreatedBy = SentinelActors.System
+            });
+            seed.MediaAssets.Add(mediaAsset);
+            room.AddMedia([mediaAsset], SentinelActors.System);
+            await seed.SaveChangesAsync();
+            roomId = room.Id;
+        }
+
+        await using var context = fixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var (loaded, organizationId) = (await new RoomRepository(context).GetAggregateForUpdateAsync(roomId))!;
+
+        Assert.NotEqual(Guid.Empty, organizationId);
+        Assert.Equal("Fan", Assert.Single(loaded.Amenities).Name);
+        Assert.NotNull(Assert.Single(loaded.Media).MediaAsset);
     }
 
     private async Task<List<RoomWithRecordedMeterCount>> SearchAsync(
@@ -96,7 +133,7 @@ public class RoomRepositoryIntegrationTests(PostgresContainerFixture fixture)
 
     private static Room AddRoom(AppDbContext context, Property property, string roomNumber)
     {
-        var room = new Room { PropertyId = property.Id, RoomNumber = roomNumber, CreatedBy = SentinelActors.System };
+        var room = TestRooms.New(propertyId: property.Id, roomNumber: roomNumber);
         context.Rooms.Add(room);
         return room;
     }

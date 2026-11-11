@@ -1,9 +1,9 @@
 using System.Linq.Expressions;
 using BoardingHouse.Application.Common;
-using BoardingHouse.Domain.Entities;
-using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Application.Repositories;
 
@@ -33,12 +33,7 @@ public interface IRoomRepository : IRepository<Room>
     Task<Room?> GetByIdWithPropertyAsync(Guid id, CancellationToken cancellationToken = default);
     Task<EntityWithOrganizationId<Room>?> GetByIdWithOrganizationIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<EntityWithOrganizationId<Room>?> GetByIdWithOrganizationIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<EntityWithOrganizationId<Room>?> GetAggregateForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
     Task<EntityWithOrganizationId<Room>?> GetByIdWithOrganizationIdForShareAsync(Guid id, CancellationToken cancellationToken = default);
-    Task LoadAmenitiesAsync(Room room, CancellationToken cancellationToken = default);
-    Task LoadAssetsAsync(Room room, CancellationToken cancellationToken = default);
-    Task LoadMediaAsync(Room room, CancellationToken cancellationToken = default);
     Task<bool> ExistsByPropertyIdAsync(Guid propertyId, CancellationToken cancellationToken = default);
-    void AddAmenity(Room room, RoomAmenity amenity);
-    void AddMedia(Room room, RoomMedia media);
-    void RemoveMedia(Room room, RoomMedia media);
 }

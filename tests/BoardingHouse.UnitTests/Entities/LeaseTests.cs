@@ -19,7 +19,7 @@ public class LeaseTests
         StartDate = StartDate,
         EndDate = EndDate,
         Status = status,
-        Room = new Room { RoomNumber = "101", CreatedBy = SentinelActors.System },
+        Room = TestRooms.New(),
         Tenants = tenants.ToList()
     };
 
@@ -122,7 +122,7 @@ public class LeaseTests
         var current = NewTenant();
         var alreadyLeft = NewTenant(leftDate: movedOutEarlier);
         var lease = NewLease(LeaseStatus.Active, current, alreadyLeft);
-        lease.Room!.RoomStatus = RoomStatus.Occupied;
+        TestEntities.Set(lease.Room!, new { RoomStatus = RoomStatus.Occupied });
         var leftDate = new DateOnly(2026, 10, 15);
 
         var history = lease.Terminate(Now, ActorId, leftDate, "Moved to another city");
@@ -132,7 +132,7 @@ public class LeaseTests
         Assert.Equal("Moved to another city", lease.TerminationReason);
         Assert.Equal(leftDate, current.LeftDate);
         Assert.Equal(movedOutEarlier, alreadyLeft.LeftDate);
-        Assert.Equal(RoomStatus.Available, lease.Room.RoomStatus);
+        Assert.Equal(RoomStatus.Available, lease.Room!.RoomStatus);
         Assert.Equal(((LeaseStatus?)LeaseStatus.Active, LeaseStatus.Terminated, (string?)"Moved to another city"),
             (history.OldStatus, history.NewStatus, history.Reason));
     }
@@ -161,13 +161,13 @@ public class LeaseTests
     {
         var tenant = NewTenant();
         var lease = NewLease(LeaseStatus.Active, tenant);
-        lease.Room!.RoomStatus = RoomStatus.Occupied;
+        TestEntities.Set(lease.Room!, new { RoomStatus = RoomStatus.Occupied });
 
         var history = lease.Expire(Now);
 
         Assert.Equal(LeaseStatus.Expired, lease.Status);
         Assert.Equal(EndDate, tenant.LeftDate);
-        Assert.Equal(RoomStatus.Available, lease.Room.RoomStatus);
+        Assert.Equal(RoomStatus.Available, lease.Room!.RoomStatus);
         Assert.Equal(((LeaseStatus?)LeaseStatus.Active, LeaseStatus.Expired), (history.OldStatus, history.NewStatus));
         Assert.Null(history.ChangedBy);
         Assert.Equal(Lease.ExpiredReason, history.Reason);
