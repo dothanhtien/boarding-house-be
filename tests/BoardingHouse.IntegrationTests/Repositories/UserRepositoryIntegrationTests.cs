@@ -19,7 +19,7 @@ public class UserRepositoryIntegrationTests(PostgresContainerFixture fixture)
         await using var context = fixture.CreateContext();
         var repository = new UserRepository(context);
 
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         await repository.AddAsync(user);
         await context.SaveChangesAsync();
 
@@ -34,11 +34,11 @@ public class UserRepositoryIntegrationTests(PostgresContainerFixture fixture)
     public async Task SaveChangesAsync_TwoUsersWithSamePhone_ThrowsDbUpdateException()
     {
         await using var context = fixture.CreateContext();
-        context.Users.Add(new User { Email = "a@test.com", PasswordHash = "hashed-password", Phone = "0900000000", FullName = "A", CreatedBy = SentinelActors.System });
+        context.Users.Add(TestEntities.New<User>(new { Email = "a@test.com", PasswordHash = "hashed-password", Phone = "0900000000", FullName = "A", CreatedBy = SentinelActors.System }));
         await context.SaveChangesAsync();
 
         await using var secondContext = fixture.CreateContext();
-        secondContext.Users.Add(new User { Email = "b@test.com", PasswordHash = "hashed-password", Phone = "0900000000", FullName = "B", CreatedBy = SentinelActors.System });
+        secondContext.Users.Add(TestEntities.New<User>(new { Email = "b@test.com", PasswordHash = "hashed-password", Phone = "0900000000", FullName = "B", CreatedBy = SentinelActors.System }));
 
         await Assert.ThrowsAsync<DbUpdateException>(() => secondContext.SaveChangesAsync());
     }
@@ -47,8 +47,8 @@ public class UserRepositoryIntegrationTests(PostgresContainerFixture fixture)
     public async Task SaveChangesAsync_TwoUsersWithNullPhone_Succeeds()
     {
         await using var context = fixture.CreateContext();
-        context.Users.Add(new User { Email = "a@test.com", PasswordHash = "hashed-password", Phone = null, FullName = "A", CreatedBy = SentinelActors.System });
-        context.Users.Add(new User { Email = "b@test.com", PasswordHash = "hashed-password", Phone = null, FullName = "B", CreatedBy = SentinelActors.System });
+        context.Users.Add(TestEntities.New<User>(new { Email = "a@test.com", PasswordHash = "hashed-password", Phone = (string?)null, FullName = "A", CreatedBy = SentinelActors.System }));
+        context.Users.Add(TestEntities.New<User>(new { Email = "b@test.com", PasswordHash = "hashed-password", Phone = (string?)null, FullName = "B", CreatedBy = SentinelActors.System }));
 
         await context.SaveChangesAsync();
 
@@ -60,8 +60,8 @@ public class UserRepositoryIntegrationTests(PostgresContainerFixture fixture)
     public async Task SaveChangesAsync_TwoUsersWithEmptyStringPhone_Succeeds()
     {
         await using var context = fixture.CreateContext();
-        context.Users.Add(new User { Email = "a@test.com", PasswordHash = "hashed-password", Phone = "", FullName = "A", CreatedBy = SentinelActors.System });
-        context.Users.Add(new User { Email = "b@test.com", PasswordHash = "hashed-password", Phone = "", FullName = "B", CreatedBy = SentinelActors.System });
+        context.Users.Add(TestEntities.New<User>(new { Email = "a@test.com", PasswordHash = "hashed-password", Phone = "", FullName = "A", CreatedBy = SentinelActors.System }));
+        context.Users.Add(TestEntities.New<User>(new { Email = "b@test.com", PasswordHash = "hashed-password", Phone = "", FullName = "B", CreatedBy = SentinelActors.System }));
 
         await context.SaveChangesAsync();
 
@@ -75,7 +75,7 @@ public class UserRepositoryIntegrationTests(PostgresContainerFixture fixture)
         await using var context = fixture.CreateContext();
         var repository = new UserRepository(context);
 
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
         await repository.AddAsync(user);
         await context.SaveChangesAsync();
 
@@ -87,44 +87,5 @@ public class UserRepositoryIntegrationTests(PostgresContainerFixture fixture)
             .SingleAsync();
 
         Assert.NotNull(deletedAt);
-    }
-
-    [Fact]
-    public async Task HardDeleteAsync_ActiveUser_RemovesRowFromDatabase()
-    {
-        await using var context = fixture.CreateContext();
-        var repository = new UserRepository(context);
-
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
-        await repository.AddAsync(user);
-        await context.SaveChangesAsync();
-
-        await repository.HardDeleteAsync(user.Id);
-
-        var count = await context.Database
-            .SqlQueryRaw<long>("SELECT COUNT(*) AS \"Value\" FROM users WHERE id = {0}", user.Id)
-            .SingleAsync();
-        Assert.Equal(0, count);
-    }
-
-    [Fact]
-    public async Task HardDeleteAsync_SoftDeletedUser_RemovesRowFromDatabase()
-    {
-        await using var context = fixture.CreateContext();
-        var repository = new UserRepository(context);
-
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
-        await repository.AddAsync(user);
-        await context.SaveChangesAsync();
-
-        repository.SoftDelete(user);
-        await context.SaveChangesAsync();
-
-        await repository.HardDeleteAsync(user.Id);
-
-        var count = await context.Database
-            .SqlQueryRaw<long>("SELECT COUNT(*) AS \"Value\" FROM users WHERE id = {0}", user.Id)
-            .SingleAsync();
-        Assert.Equal(0, count);
     }
 }

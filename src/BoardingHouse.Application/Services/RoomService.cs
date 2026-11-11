@@ -1,17 +1,17 @@
 using Mapster;
 using System.Linq.Expressions;
-using BoardingHouse.Application.Repositories;
-using BoardingHouse.Application.Services.Storage;
-using BoardingHouse.Application.Persistence;
-using BoardingHouse.Application.Common.CurrentOrganization;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.CurrentOrganization;
+using BoardingHouse.Application.Common.CurrentUser;
+using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.DTOs.Rooms;
 using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Application.Mappings;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services.Storage;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
-using BoardingHouse.Application.Common.Listing;
-using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Application.Services;
 
@@ -92,35 +92,32 @@ public class RoomService(
                 await organizationScopeAccessor.EnsureScopeAsync(
                     property.OrganizationId, PermissionResources.Room, PermissionActions.Create, NotFoundMessages.Property(request.PropertyId), ct);
 
-                var created = new Room
-                {
-                    PropertyId = request.PropertyId,
-                    RoomNumber = request.RoomNumber,
-                    RoomCategory = request.RoomCategory,
-                    FloorNumber = request.FloorNumber,
-                    Area = request.Area,
-                    Capacity = request.Capacity,
-                    MonthlyRent = request.MonthlyRent,
-                    DepositAmount = request.DepositAmount,
-                    Note = request.Note,
-                    CreatedBy = currentUserAccessor.RequiredUser.Id,
-                    Amenities = request.Amenities?
-                        .Select(a => new RoomAmenity
+                var created = Room.Create(
+                    request.PropertyId,
+                    new RoomDetails(
+                        request.RoomNumber,
+                        request.RoomCategory,
+                        request.FloorNumber,
+                        request.Area,
+                        request.Capacity,
+                        request.MonthlyRent,
+                        request.DepositAmount,
+                        request.Note),
+                    request.Amenities?
+                        .Select(a => new AmenityChange
                         {
                             Name = a.Name,
                             Quantity = a.Quantity,
-                            Icon = a.Icon,
-                            CreatedBy = currentUserAccessor.RequiredUser.Id
-                        })
-                        .ToList() ?? []
-                };
+                            Icon = a.Icon
+                        }).ToList() ?? [],
+                    currentUserAccessor.RequiredUser.Id);
 
                 await roomRepository.AddAsync(created, ct);
                 return created;
             }, cancellationToken);
 
             logger.LogInformation("Room created ({RoomId})", room.Id);
-            return room.Adapt<RoomDetailsResponse>() with { Media = [] };
+            return room.Adapt<RoomDetailsResponse>() with { Assets = [], Media = [] };
         }
         catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.RoomPropertyIdRoomNumber)
         {
@@ -135,7 +132,7 @@ public class RoomService(
         {
             var room = await unitOfWork.ExecuteInTransactionAsync(async ct =>
             {
-                var (existing, organizationId) = await roomRepository.GetByIdWithOrganizationIdForUpdateAsync(id, ct)
+                var (existing, organizationId) = await roomRepository.GetAggregateForUpdateAsync(id, ct)
                     ?? throw new AppNotFoundException(NotFoundMessages.Room(id));
 
                 await organizationScopeAccessor.EnsureScopeAsync(
@@ -143,15 +140,9 @@ public class RoomService(
 
                 if (request.RoomStatus.IsSet && request.RoomStatus.Value != existing.RoomStatus)
                 {
-                    if (request.RoomStatus.Value == RoomStatus.Occupied)
-                    {
-                        throw new AppValidationException("Room status OCCUPIED is managed by leases");
-                    }
-
-                    if (await leaseRepository.ExistsActiveByRoomIdAsync(id, ct))
-                    {
-                        throw new AppConflictException("Room has an active lease");
-                    }
+                    existing.ChangeStatus(
+                        request.RoomStatus.Value,
+                        hasActiveLease: await leaseRepository.ExistsActiveByRoomIdAsync(id, ct));
                 }
 
                 if (request.Capacity is { IsSet: true, Value: { } capacity } && capacity < (existing.Capacity ?? int.MaxValue))
@@ -164,22 +155,23 @@ public class RoomService(
                     }
                 }
 
-                await roomRepository.LoadAmenitiesAsync(existing, ct);
-
-                request.Adapt(existing, RoomMappingConfig.UpdateConfig);
+                var current = existing.Details;
+                existing.Update(new RoomDetails(
+                    request.RoomNumber.OrKeep(current.RoomNumber)!,
+                    request.RoomCategory.OrKeep(current.RoomCategory),
+                    request.FloorNumber.OrKeep(current.FloorNumber),
+                    request.Area.OrKeep(current.Area),
+                    request.Capacity.OrKeep(current.Capacity),
+                    request.MonthlyRent.OrKeep(current.MonthlyRent),
+                    request.DepositAmount.OrKeep(current.DepositAmount),
+                    request.Note.OrKeep(current.Note)));
 
                 if (request.Amenities.IsSet)
                 {
-                    var changes = request.Amenities.Value!;
-                    EnsureAmenityChangesValid(existing, changes);
-                    RemoveDeletedAmenities(existing, changes);
-                    UpsertAmenities(existing, changes);
+                    existing.ApplyAmenityChanges(
+                        request.Amenities.Value!.Select(ToAmenityChange).ToList(),
+                        currentUserAccessor.RequiredUser.Id);
                 }
-
-                roomRepository.Update(existing);
-
-                await roomRepository.LoadAssetsAsync(existing, ct);
-                await roomRepository.LoadMediaAsync(existing, ct);
 
                 return existing;
             }, cancellationToken);
@@ -199,7 +191,7 @@ public class RoomService(
     {
         var removedMedia = await unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            var (room, organizationId) = await roomRepository.GetByIdWithOrganizationIdForUpdateAsync(id, ct)
+            var (room, organizationId) = await roomRepository.GetAggregateForUpdateAsync(id, ct)
                 ?? throw new AppNotFoundException(NotFoundMessages.Room(id));
 
             await organizationScopeAccessor.EnsureScopeAsync(
@@ -211,10 +203,6 @@ public class RoomService(
                 throw new AppConflictException("Cannot delete a room that has a draft or active lease");
             }
 
-            // Amenities must be tracked so EF cascades the room's soft-delete to them
-            await roomRepository.LoadAmenitiesAsync(room, ct);
-            await roomRepository.LoadMediaAsync(room, ct);
-
             var assets = await roomAssetRepository.ListByRoomIdForUpdateAsync(id, ct);
             foreach (var asset in assets)
             {
@@ -222,8 +210,9 @@ public class RoomService(
             }
 
             var mediaAssets = room.Media.Select(m => m.MediaAsset!).ToList();
-            mediaAssets.AddRange(await roomAssetConditionHistoryRepository.RemoveMediaByAssetIdsAsync(
-                assets.Select(a => a.Id).ToList(), ct));
+            var histories = await roomAssetConditionHistoryRepository.ListWithPhotosByAssetIdsAsync(
+                assets.Select(a => a.Id).ToList(), ct);
+            mediaAssets.AddRange(histories.SelectMany(h => h.RemoveAllPhotos()));
 
             roomRepository.SoftDelete(room);
             mediaCollectionService.StageRemove(mediaAssets);
@@ -246,7 +235,7 @@ public class RoomService(
         await organizationScopeAccessor.EnsureScopeAsync(
             organizationId, PermissionResources.Room, PermissionActions.Update, NotFoundMessages.Room(roomId), cancellationToken);
 
-        EnsureMediaLimit(room, files.Count);
+        room.EnsureCanAddMedia(files.Count);
 
         var media = await mediaCollectionService.AddAsync(
             MediaAssetEntityType.RoomMedia,
@@ -257,24 +246,7 @@ public class RoomService(
             {
                 var locked = await LockRoomForMediaChangeAsync(roomId, ct);
 
-                EnsureMediaLimit(locked, uploaded.Count);
-
-                var nextSortOrder = MediaCollectionRules.NextSortOrder(locked.Media.Select(m => m.SortOrder));
-                var needsCover = !locked.Media.Any(m => m.IsCover);
-                var userId = currentUserAccessor.RequiredUser.Id;
-
-                for (var i = 0; i < uploaded.Count; i++)
-                {
-                    roomRepository.AddMedia(locked, new RoomMedia
-                    {
-                        RoomId = locked.Id,
-                        MediaAssetId = uploaded[i].Id,
-                        MediaAsset = uploaded[i],
-                        SortOrder = nextSortOrder + i,
-                        IsCover = needsCover && i == 0,
-                        CreatedBy = userId
-                    });
-                }
+                locked.AddMedia(uploaded, currentUserAccessor.RequiredUser.Id);
 
                 return locked.Media.ToList();
             },
@@ -293,12 +265,14 @@ public class RoomService(
 
             if (request.Order.IsSet)
             {
-                ApplyMediaOrder(room, request.Order.Value!);
+                room.ReorderMedia(request.Order.Value!);
             }
 
-            if (request.CoverMediaId.IsSet)
+            if (request.CoverMediaId is { IsSet: true, Value: { } coverMediaId })
             {
-                await ChangeCoverAsync(room, request.CoverMediaId.Value!.Value, ct);
+                room.ReleaseCoverFor(coverMediaId);
+                await unitOfWork.SaveChangesAsync(ct);
+                room.SetCover(coverMediaId);
             }
 
             return room.Media.ToList();
@@ -314,17 +288,13 @@ public class RoomService(
         {
             var room = await LockRoomForMediaChangeAsync(roomId, ct);
 
-            var target = room.Media.FirstOrDefault(m => m.MediaAssetId == mediaId)
-                ?? throw new AppNotFoundException(NotFoundMessages.RoomMedia(mediaId));
-
-            roomRepository.RemoveMedia(room, target);
+            var target = room.RemoveMedia(mediaId);
             mediaCollectionService.StageRemove([target.MediaAsset!]);
 
-            var nextCover = target.IsCover ? room.Media.OrderBy(m => m.SortOrder).FirstOrDefault() : null;
-            if (nextCover is not null)
+            if (room.HasPendingCoverChange)
             {
                 await unitOfWork.SaveChangesAsync(ct);
-                nextCover.IsCover = true;
+                room.ApplyPendingCoverChange();
             }
 
             return target.MediaAsset!;
@@ -335,132 +305,44 @@ public class RoomService(
         logger.LogInformation("Room media removed ({RoomId}, {MediaAssetId})", roomId, mediaId);
     }
 
-    // Validates the merge against the room's current amenities: every Id must belong to this room, and the
-    // resulting list must stay within the per-room limit.
-    private static void EnsureAmenityChangesValid(Room room, List<UpdateRoomAmenityRequest> changes)
+    private static AmenityChange ToAmenityChange(UpdateRoomAmenityRequest request) => new()
     {
-        var existingById = room.Amenities.ToDictionary(a => a.Id);
-        var unknown = changes.FirstOrDefault(c => c.Id is not null && !existingById.ContainsKey(c.Id.Value));
-        if (unknown is not null)
-        {
-            throw new AppNotFoundException(NotFoundMessages.RoomAmenity(unknown.Id!.Value));
-        }
-
-        var deletedCount = changes.Count(c => c.IsDeleted);
-        var addedCount = changes.Count(c => c.Id is null);
-        if (room.Amenities.Count - deletedCount + addedCount > Room.MaxAmenities)
-        {
-            throw new AppValidationException($"A room must not have more than {Room.MaxAmenities} amenities");
-        }
-    }
-
-    // Removing from the collection orphans the amenity → EF marks it Deleted → the interceptor soft-deletes it.
-    private static void RemoveDeletedAmenities(Room room, List<UpdateRoomAmenityRequest> changes)
-    {
-        var deletedIds = changes.Where(c => c.IsDeleted).Select(c => c.Id!.Value).ToHashSet();
-        var deleted = room.Amenities.Where(a => deletedIds.Contains(a.Id)).ToList();
-        foreach (var amenity in deleted)
-        {
-            room.Amenities.Remove(amenity);
-        }
-    }
-
-    private void UpsertAmenities(Room room, List<UpdateRoomAmenityRequest> changes)
-    {
-        var existingById = room.Amenities.ToDictionary(a => a.Id);
-        foreach (var change in changes.Where(c => !c.IsDeleted))
-        {
-            if (change.Id is { } amenityId)
-            {
-                var existing = existingById[amenityId];
-                if (change.Name is not null)
-                {
-                    existing.Name = change.Name;
-                }
-
-                change.Quantity.ApplyIfSet(quantity => existing.Quantity = quantity);
-                change.Icon.ApplyIfSet(icon => existing.Icon = icon);
-            }
-            else
-            {
-                roomRepository.AddAmenity(room, new RoomAmenity
-                {
-                    RoomId = room.Id,
-                    Name = change.Name!,
-                    Quantity = change.Quantity.Value,
-                    Icon = change.Icon.Value,
-                    CreatedBy = currentUserAccessor.RequiredUser.Id
-                });
-            }
-        }
-    }
+        Id = request.Id,
+        Name = request.Name,
+        Quantity = request.Quantity.ToChange(),
+        Icon = request.Icon.ToChange()!,
+        IsDeleted = request.IsDeleted
+    };
 
     private async Task<Room> LockRoomForMediaChangeAsync(Guid roomId, CancellationToken cancellationToken)
     {
-        var (room, organizationId) = await roomRepository.GetByIdWithOrganizationIdForUpdateAsync(roomId, cancellationToken)
+        var (room, organizationId) = await roomRepository.GetAggregateForUpdateAsync(roomId, cancellationToken)
             ?? throw new AppNotFoundException(NotFoundMessages.Room(roomId));
 
         await organizationScopeAccessor.EnsureScopeAsync(
             organizationId, PermissionResources.Room, PermissionActions.Update, NotFoundMessages.Room(roomId), cancellationToken);
 
-        await roomRepository.LoadMediaAsync(room, cancellationToken);
-
         return room;
-    }
-
-    private static void EnsureMediaLimit(Room room, int addedCount) =>
-        MediaCollectionRules.EnsureWithinLimit(
-            room.Media.Count, addedCount, Room.MaxMedia, $"A room must not have more than {Room.MaxMedia} media");
-
-    private static void ApplyMediaOrder(Room room, List<Guid> order)
-    {
-        var mediaById = room.Media.ToDictionary(m => m.MediaAssetId);
-        if (order.Count != mediaById.Count || !order.All(mediaById.ContainsKey))
-        {
-            throw new AppValidationException("Order must list every media of the room exactly once");
-        }
-
-        for (var i = 0; i < order.Count; i++)
-        {
-            mediaById[order[i]].SortOrder = i;
-        }
-    }
-
-    private async Task ChangeCoverAsync(Room room, Guid coverMediaId, CancellationToken cancellationToken)
-    {
-        var cover = room.Media.FirstOrDefault(m => m.MediaAssetId == coverMediaId)
-            ?? throw new AppNotFoundException(NotFoundMessages.RoomMedia(coverMediaId));
-
-        var previous = room.Media.FirstOrDefault(m => m.IsCover);
-        if (previous == cover)
-        {
-            return;
-        }
-
-        if (previous is not null)
-        {
-            previous.IsCover = false;
-            await unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-
-        cover.IsCover = true;
     }
 
     private async Task<RoomDetailsResponse> ToDetailsResponseAsync(Room room, CancellationToken cancellationToken)
     {
+        var assets = await roomAssetRepository.ListByRoomIdAsync(room.Id, cancellationToken);
         var currentPhotos = await roomAssetConditionHistoryRepository.ListCurrentPhotosByAssetIdsAsync(
-            room.Assets.Select(a => a.Id).ToList(), cancellationToken);
+            assets.Select(a => a.Id).ToList(), cancellationToken);
         var media = room.Media.ToMediaResponses(storageProvider);
-        var details = room.Adapt<RoomDetailsResponse>();
 
-        return details with
+        return room.Adapt<RoomDetailsResponse>() with
         {
             Media = media,
             CoverUrl = media.FirstOrDefault(m => m.IsCover)?.Url,
-            Assets = details.Assets
+            Assets = assets
                 .Select(a => currentPhotos.TryGetValue(a.Id, out var photos)
-                    ? a with { CurrentPhotos = photos.History.ToCurrentPhotosResponse(photos.IsLatest, storageProvider) }
-                    : a)
+                    ? a.Adapt<RoomDetailsAssetResponse>() with
+                    {
+                        CurrentPhotos = photos.History.ToCurrentPhotosResponse(photos.IsLatest, storageProvider)
+                    }
+                    : a.Adapt<RoomDetailsAssetResponse>())
                 .ToList()
         };
     }

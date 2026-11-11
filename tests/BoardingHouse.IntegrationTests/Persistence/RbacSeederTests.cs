@@ -95,7 +95,7 @@ public class RbacSeederTests(PostgresContainerFixture fixture) : IClassFixture<P
 
         var staff = await context.Roles.FirstAsync(r => r.Slug == "platform_staff");
         var userCreate = await context.Permissions.SingleAsync(p => p.Resource == "user" && p.Action == "create");
-        context.RolePermissions.Add(new RolePermission { RoleId = staff.Id, PermissionId = userCreate.Id, CreatedBy = SentinelActors.System });
+        context.RolePermissions.Add(new RolePermission { CreatedAt = DateTimeOffset.UtcNow, RoleId = staff.Id, PermissionId = userCreate.Id, CreatedBy = SentinelActors.System });
         await context.SaveChangesAsync();
 
         await RbacSeeder.SeedAsync(context);
@@ -117,7 +117,7 @@ public class RbacSeederTests(PostgresContainerFixture fixture) : IClassFixture<P
         var stray = new Permission { Resource = "stray", Action = "test", CreatedBy = SentinelActors.System };
         context.Permissions.Add(stray);
         await context.SaveChangesAsync();
-        context.RolePermissions.Add(new RolePermission { RoleId = staff.Id, PermissionId = stray.Id, CreatedBy = SentinelActors.System });
+        context.RolePermissions.Add(new RolePermission { CreatedAt = DateTimeOffset.UtcNow, RoleId = staff.Id, PermissionId = stray.Id, CreatedBy = SentinelActors.System });
         await context.SaveChangesAsync();
 
         await RbacSeeder.SeedAsync(context);

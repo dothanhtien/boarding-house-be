@@ -14,10 +14,7 @@ public interface IRoomAssetConditionHistoryRepository
     Task<IReadOnlyDictionary<Guid, RoomAssetConditionHistoryEntry>> ListCurrentPhotosByAssetIdsAsync(
         IReadOnlyCollection<Guid> assetIds,
         CancellationToken cancellationToken = default);
-    Task<List<MediaAsset>> RemoveMediaByAssetIdsAsync(
+    Task<List<RoomAssetConditionHistory>> ListWithPhotosByAssetIdsAsync(
         IReadOnlyCollection<Guid> assetIds,
         CancellationToken cancellationToken = default);
-    void AddMedia(RoomAssetConditionHistory history, RoomAssetConditionHistoryMedia media);
-    void RemoveMedia(RoomAssetConditionHistory history, RoomAssetConditionHistoryMedia media);
-    void MarkUpdated(RoomAssetConditionHistory history);
 }

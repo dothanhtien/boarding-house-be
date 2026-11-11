@@ -69,6 +69,11 @@ public class AuditableEntitySaveChangesInterceptor(
             {
                 case EntityState.Added when entry.Entity is IAuditable auditable:
                     auditable.CreatedAt = now;
+                    if (auditable.CreatedBy == Guid.Empty)
+                    {
+                        auditable.CreatedBy = userId
+                            ?? throw new InvalidOperationException($"Creating {entry.Entity.GetType().Name} without a current user or CreatedBy");
+                    }
                     break;
                 case EntityState.Modified:
                     entry.Entity.UpdatedAt = now;

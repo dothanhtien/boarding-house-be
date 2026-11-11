@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json.Serialization;
 using BoardingHouse.Application.Common.Json;
+using BoardingHouse.Domain.Common;
 
 namespace BoardingHouse.Application.Common;
 
@@ -24,6 +25,18 @@ public readonly struct Optional<T>(T? value)
     /// A field left out of the initializer stays <c>default(Optional&lt;T&gt;)</c>, i.e. unset.
     /// </summary>
     public static implicit operator Optional<T>(T? value) => new(value);
+
+    /// <summary>
+    /// The value the caller sent, or <paramref name="current"/> when the field was omitted — resolves a PATCH field
+    /// to the full new value a domain method expects.
+    /// </summary>
+    public T? OrKeep(T? current) => IsSet ? Value : current;
+
+    /// <summary>
+    /// The same "sent or not" field as the Domain's <see cref="Change{T}"/>, for building a change record
+    /// (<c>TenantChange</c>, <c>AmenityChange</c>...) from a PATCH request.
+    /// </summary>
+    public Change<T> ToChange() => IsSet ? new Change<T>(Value) : default;
 
     /// <summary>
     /// Applies <paramref name="apply"/> to <see cref="Value"/> only when the field was actually sent

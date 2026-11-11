@@ -1,7 +1,6 @@
 using BoardingHouse.Application.Common.CurrentUser;
 using BoardingHouse.Application.Persistence;
 using BoardingHouse.Application.Repositories;
-using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Application.Jobs;
 
@@ -12,7 +11,6 @@ namespace BoardingHouse.Application.Jobs;
 /// </summary>
 public class ExpireLeasesJob(
     ILeaseRepository leaseRepository,
-    ILeaseStatusHistoryRepository leaseStatusHistoryRepository,
     IRoomRepository roomRepository,
     IUnitOfWork unitOfWork,
     ICurrentUserAccessor currentUserAccessor,
@@ -63,22 +61,14 @@ public class ExpireLeasesJob(
 
             if (await roomRepository.GetByIdWithOrganizationIdForUpdateAsync(roomId.Value, ct) is null) return false;
 
-            var lease = await leaseRepository.GetByIdWithRoomForUpdateAsync(leaseId, ct);
+            var lease = await leaseRepository.GetAggregateForUpdateAsync(leaseId, ct);
 
-            if (lease is null
-                || lease.RoomId != roomId
-                || lease.Status != LeaseStatus.Active
-                || lease.EndDate is not { } endDate
-                || endDate >= today)
+            if (lease is null || lease.RoomId != roomId || !lease.IsDueToExpire(today))
             {
                 return false;
             }
 
-            await leaseRepository.LoadTenantsAsync(lease, ct);
-
-            var history = lease.Expire(DateTimeOffset.UtcNow);
-
-            await leaseStatusHistoryRepository.AddAsync(history, ct);
+            lease.Expire(DateTimeOffset.UtcNow, today);
 
             logger.LogInformation("Lease expired ({LeaseId})", leaseId);
 

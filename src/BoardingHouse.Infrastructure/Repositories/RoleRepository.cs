@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using BoardingHouse.Domain.Entities;
 using BoardingHouse.Application.Repositories;
+using BoardingHouse.Domain.Entities;
 using BoardingHouse.Infrastructure.Persistence;
 
 namespace BoardingHouse.Infrastructure.Repositories;
@@ -15,6 +15,9 @@ public class RoleRepository(AppDbContext context) : Repository<Role>(context), I
             .Select(rp => new ValueTuple<string, string>(rp.Permission!.Resource, rp.Permission!.Action))
             .Distinct()
             .ToListAsync(cancellationToken);
+
+    public Task<List<Role>> ListAllAsync(CancellationToken cancellationToken = default) =>
+        Context.Roles.ToListAsync(cancellationToken);
 
     public Task<Role?> GetBySlugAsync(string slug, CancellationToken cancellationToken = default) =>
         Context.Roles.FirstOrDefaultAsync(r => r.Slug == slug && r.IsActive, cancellationToken);

@@ -1,3 +1,4 @@
+using BoardingHouse.UnitTests.Common;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -29,13 +30,13 @@ public class MediaAttachmentServiceTests
     {
         _currentUserAccessor
             .SetupGet(a => a.RequiredUser)
-            .Returns(new User
+            .Returns(TestEntities.New<User>(new
             {
                 Email = "actor@test.com",
                 PasswordHash = "hashed-password",
                 FullName = "Actor",
                 CreatedBy = SentinelActors.System
-            });
+            }));
         _storageProvider.SetupGet(p => p.Provider).Returns(StorageProvider.Cloudinary);
         _storageProvider
             .Setup(p => p.UploadAsync(
@@ -55,7 +56,7 @@ public class MediaAttachmentServiceTests
             ContentType = contentType
         });
 
-    private MediaAsset ExistingAvatar() => new()
+    private MediaAsset ExistingAvatar() => TestEntities.New<MediaAsset>(new
     {
         FileName = "old.png",
         StorageProvider = StorageProvider.Cloudinary,
@@ -66,7 +67,7 @@ public class MediaAttachmentServiceTests
         EntityType = MediaAssetEntityType.UserAvatar,
         EntityId = _userId,
         CreatedBy = SentinelActors.System
-    };
+    });
 
     private void SetupCurrent(MediaAsset? asset) =>
         _mediaAssetRepository
@@ -153,7 +154,7 @@ public class MediaAttachmentServiceTests
     {
         var removed = ExistingAvatar();
         var added = ExistingAvatar();
-        added.StorageKey = "root/users/x/new";
+        TestEntities.Set(added, new { StorageKey = "root/users/x/new" });
 
         await _service.CompleteAsync(new MediaAttachmentChange(added, removed));
 
@@ -176,7 +177,7 @@ public class MediaAttachmentServiceTests
     {
         var removed = ExistingAvatar();
         var added = ExistingAvatar();
-        added.StorageKey = "root/users/x/new";
+        TestEntities.Set(added, new { StorageKey = "root/users/x/new" });
 
         await _service.DiscardAsync(new MediaAttachmentChange(added, removed));
 

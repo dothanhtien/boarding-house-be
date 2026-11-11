@@ -42,14 +42,14 @@ public class RoleRepositoryTests
     }
 
     [Fact]
-    public async Task GetAllAsync_ReturnsAllRoles()
+    public async Task ListAllAsync_ReturnsAllRoles()
     {
         using var context = CreateContext();
         context.Roles.AddRange(NewRole("admin"), NewRole("tenant"));
         await context.SaveChangesAsync();
 
         var repository = new RoleRepository(context);
-        var result = await repository.GetAllAsync();
+        var result = await repository.ListAllAsync();
 
         Assert.Equal(2, result.Count);
     }

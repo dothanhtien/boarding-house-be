@@ -84,21 +84,21 @@ public class AuthServiceTests
     [Fact]
     public async Task GetCurrentUserAsync_UserExists_ReturnsUserResponse_WithPlatformRoleAndOrganizations()
     {
-        var user = new User { Email = "user@test.com", PasswordHash = "hash", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hash", FullName = "Test User", CreatedBy = SentinelActors.System });
         var platformAdminRole = new Role { Slug = RoleSlugs.PlatformAdmin, Name = "Platform Admin", Scope = RoleScope.Platform, CreatedBy = SentinelActors.System };
         var organizationRole = new Role { Slug = RoleSlugs.OrganizationAdmin, Name = "Organization Admin", Scope = RoleScope.Organization, CreatedBy = SentinelActors.System };
-        var organization = new Organization { Name = "Test Org", CreatedBy = SentinelActors.System };
-        user.UserRoles = [new UserRole { UserId = user.Id, User = user, RoleId = platformAdminRole.Id, Role = platformAdminRole, CreatedBy = SentinelActors.System }];
-        user.OrganizationMembers =
-        [
-            new OrganizationMember
+        var organization = TestEntities.New<Organization>(new { Name = "Test Org", CreatedBy = SentinelActors.System });
+        TestEntities.Set(user, new
+        {
+            UserRoles = new List<UserRole>
             {
-                UserId = user.Id, User = user,
-                OrganizationId = organization.Id, Organization = organization,
-                RoleId = organizationRole.Id, Role = organizationRole,
-                CreatedBy = SentinelActors.System
+                new() { UserId = user.Id, User = user, RoleId = platformAdminRole.Id, Role = platformAdminRole, CreatedBy = SentinelActors.System }
+            },
+            OrganizationMembers = new List<OrganizationMember>
+            {
+                TestMembers.WithNavigations(OrganizationMember.Create(organization.Id, user.Id, organizationRole, SentinelActors.System), organization, user, organizationRole)
             }
-        ];
+        });
 
         _userRepository.Setup(r => r.GetByIdWithRolesAndOrganizationsAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(new EntityWithMedia<User>(user, null));
 
@@ -122,13 +122,13 @@ public class AuthServiceTests
     [Fact]
     public async Task LoginAsync_WrongPassword_ThrowsAppUnauthorizedException()
     {
-        var user = new User
+        var user = TestEntities.New<User>(new
         {
             Email = "user@test.com",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("correct-password"),
             FullName = "Test User",
             CreatedBy = SentinelActors.System
-        };
+        });
         _userRepository.Setup(r => r.GetByEmailWithRolesAndOrganizationsAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(new EntityWithMedia<User>(user, null));
 
         var request = new LoginRequest { Identifier = "user@test.com", Password = "wrong-password" };
@@ -140,14 +140,14 @@ public class AuthServiceTests
     [Fact]
     public async Task LoginAsync_InactiveUser_ThrowsAppUnauthorizedException()
     {
-        var user = new User
+        var user = TestEntities.New<User>(new
         {
             Email = "user@test.com",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword("password1"),
             FullName = "Test User",
             IsActive = false,
             CreatedBy = SentinelActors.System
-        };
+        });
         _userRepository.Setup(r => r.GetByEmailWithRolesAndOrganizationsAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(new EntityWithMedia<User>(user, null));
 
         var request = new LoginRequest { Identifier = "user@test.com", Password = "password1" };
@@ -159,7 +159,7 @@ public class AuthServiceTests
     [Fact]
     public async Task LoginAsync_ValidCredentials_ReturnsTokens_AndUpdatesLastLoginAt()
     {
-        var user = new User { Email = "user@test.com", PasswordHash = BCrypt.Net.BCrypt.HashPassword("password1"), FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = BCrypt.Net.BCrypt.HashPassword("password1"), FullName = "Test User", CreatedBy = SentinelActors.System });
         var accessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(15);
         _userRepository.Setup(r => r.GetByEmailWithRolesAndOrganizationsAsync("user@test.com", It.IsAny<CancellationToken>())).ReturnsAsync(new EntityWithMedia<User>(user, null));
         _tokenService.Setup(t => t.GenerateAccessToken(It.IsAny<User>())).Returns(("access-token", accessTokenExpiresAt));
@@ -195,19 +195,8 @@ public class AuthServiceTests
     public async Task RefreshTokenAsync_AlreadyRevoked_ThrowsAppUnauthorizedException_AndRevokesActiveChain()
     {
         var userId = Guid.NewGuid();
-        var revokedToken = new RefreshToken
-        {
-            UserId = userId,
-            TokenHash = "revoked-hash",
-            RevokedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
-            ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
-        };
-        var otherActiveToken = new RefreshToken
-        {
-            UserId = userId,
-            TokenHash = "other-active-hash",
-            ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
-        };
+        var revokedToken = TestRefreshTokens.New(userId, "revoked-hash", expiresAt: DateTimeOffset.UtcNow.AddDays(1), revokedAt: DateTimeOffset.UtcNow.AddMinutes(-1));
+        var otherActiveToken = TestRefreshTokens.New(userId, "other-active-hash", expiresAt: DateTimeOffset.UtcNow.AddDays(1));
 
         _tokenService.Setup(t => t.HashToken("stolen-token")).Returns("revoked-hash");
         _refreshTokenRepository
@@ -227,12 +216,7 @@ public class AuthServiceTests
     [Fact]
     public async Task RefreshTokenAsync_Expired_ThrowsAppUnauthorizedException()
     {
-        var token = new RefreshToken
-        {
-            UserId = Guid.NewGuid(),
-            TokenHash = "expired-hash",
-            ExpiresAt = DateTimeOffset.UtcNow.AddDays(-1)
-        };
+        var token = TestRefreshTokens.New(Guid.NewGuid(), "expired-hash", expiresAt: DateTimeOffset.UtcNow.AddDays(-1));
 
         _tokenService.Setup(t => t.HashToken("expired-token")).Returns("expired-hash");
         _refreshTokenRepository
@@ -246,13 +230,8 @@ public class AuthServiceTests
     [Fact]
     public async Task RefreshTokenAsync_Valid_RevokesOldToken_AndReturnsNewTokens()
     {
-        var user = new User { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System };
-        var oldToken = new RefreshToken
-        {
-            UserId = user.Id,
-            TokenHash = "old-hash",
-            ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
-        };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
+        var oldToken = TestRefreshTokens.New(user.Id, "old-hash", expiresAt: DateTimeOffset.UtcNow.AddDays(1));
 
         var accessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(15);
         _tokenService.Setup(t => t.HashToken("old-token")).Returns("old-hash");
@@ -282,7 +261,7 @@ public class AuthServiceTests
     [Fact]
     public async Task LogoutAsync_RevokesToken_ByHash()
     {
-        var token = new RefreshToken { UserId = Guid.NewGuid(), TokenHash = "logout-hash" };
+        var token = TestRefreshTokens.New(Guid.NewGuid(), "logout-hash");
         _tokenService.Setup(t => t.HashToken("logout-token")).Returns("logout-hash");
         _refreshTokenRepository
             .Setup(r => r.GetByTokenHashAsync("logout-hash", It.IsAny<CancellationToken>()))
@@ -310,7 +289,7 @@ public class AuthServiceTests
     [Fact]
     public async Task LoginAsync_ByPhone_NormalizesAndLooksUpByPhone()
     {
-        var user = new User { Phone = "0912345678", PasswordHash = BCrypt.Net.BCrypt.HashPassword("password1"), FullName = "Tenant", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Phone = "0912345678", PasswordHash = BCrypt.Net.BCrypt.HashPassword("password1"), FullName = "Tenant", CreatedBy = SentinelActors.System });
         _userRepository.Setup(r => r.GetByPhoneWithRolesAndOrganizationsAsync("0912345678", It.IsAny<CancellationToken>())).ReturnsAsync(new EntityWithMedia<User>(user, null));
         _tokenService.Setup(t => t.GenerateAccessToken(It.IsAny<User>())).Returns(("access-token", DateTimeOffset.UtcNow.AddMinutes(15)));
         _tokenService.Setup(t => t.GenerateRefreshToken()).Returns("refresh-token");

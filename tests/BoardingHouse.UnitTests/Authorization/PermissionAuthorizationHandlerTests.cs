@@ -1,3 +1,4 @@
+using BoardingHouse.UnitTests.Common;
 using Microsoft.AspNetCore.Authorization;
 using Moq;
 using BoardingHouse.Api.Authorization;
@@ -37,7 +38,7 @@ public class PermissionAuthorizationHandlerTests
     [Fact]
     public async Task HandleAsync_UserHasPermission_Succeeds()
     {
-        var user = new User { Email = "user@test.com", PasswordHash = "hash", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hash", FullName = "Test User", CreatedBy = SentinelActors.System });
         _currentUserAccessor.SetupGet(a => a.User).Returns(user);
         _permissionService
             .Setup(s => s.HasPermissionAsync(user.Id, "user", "read", It.IsAny<CancellationToken>()))
@@ -53,7 +54,7 @@ public class PermissionAuthorizationHandlerTests
     [Fact]
     public async Task HandleAsync_UserLacksPermission_DoesNotSucceed()
     {
-        var user = new User { Email = "user@test.com", PasswordHash = "hash", FullName = "Test User", CreatedBy = SentinelActors.System };
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hash", FullName = "Test User", CreatedBy = SentinelActors.System });
         _currentUserAccessor.SetupGet(a => a.User).Returns(user);
         _permissionService
             .Setup(s => s.HasPermissionAsync(user.Id, "user", "delete", It.IsAny<CancellationToken>()))

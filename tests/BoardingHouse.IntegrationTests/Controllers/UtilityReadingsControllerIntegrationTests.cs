@@ -39,7 +39,7 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
     private const string Password = "password123";
 
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
-    private static DateOnly CurrentMonth => BillingMonth.Of(Today);
+    private static DateOnly CurrentMonth => BillingMonth.Of(Today).FirstDay;
 
     private Guid _actorId;
     private Guid _organizationId;
@@ -186,7 +186,7 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
 
         using var scope = factory.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var asset = new MediaAsset
+        var asset = TestEntities.New<MediaAsset>(new
         {
             OrganizationId = _organizationId,
             FileName = "meter.png",
@@ -198,7 +198,7 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
             EntityType = MediaAssetEntityType.UtilityReadingImage,
             EntityId = readingId,
             CreatedBy = SentinelActors.System
-        };
+        });
         context.MediaAssets.Add(asset);
         await context.SaveChangesAsync();
         return asset;
@@ -288,7 +288,7 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await RbacSeeder.SeedAsync(context);
 
-        var organization = new Organization { Name = $"Other Org {Guid.NewGuid()}", CreatedBy = SentinelActors.System };
+        var organization = TestEntities.New<Organization>(new { Name = $"Other Org {Guid.NewGuid()}", CreatedBy = SentinelActors.System });
         context.Organizations.Add(organization);
         await context.SaveChangesAsync();
 
@@ -305,13 +305,7 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
         var member = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
 
         var role = await context.Roles.SingleAsync(r => r.Slug == RoleSlugs.OrganizationAdmin);
-        context.OrganizationMembers.Add(new OrganizationMember
-        {
-            OrganizationId = organization.Id,
-            UserId = member!.Id,
-            RoleId = role.Id,
-            CreatedBy = SentinelActors.System
-        });
+        context.OrganizationMembers.Add(OrganizationMember.Create(organization.Id, member!.Id, role, SentinelActors.System));
         await context.SaveChangesAsync();
 
         var loginResponse = await memberClient.PostAsJsonAsync("/api/auth/login", new LoginRequest { Identifier = email, Password = Password });
@@ -628,13 +622,11 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
         using (var scope = factory.Services.CreateScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            context.LeaseTenants.Add(new LeaseTenant
-            {
-                LeaseId = lease.Id,
-                UserId = leftTenantId,
-                LeftDate = Today,
-                CreatedBy = SentinelActors.System
-            });
+            var leftUser = await context.Users.SingleAsync(u => u.Id == leftTenantId);
+            var leftTenant = new LeaseTenant(
+                lease.Id, leftUser, isRepresentative: false, joinedDate: null, SentinelActors.System);
+            leftTenant.SetLeftDate(Today);
+            context.LeaseTenants.Add(leftTenant);
             await context.SaveChangesAsync();
         }
 
@@ -1142,7 +1134,7 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
         {
             await scope.ServiceProvider.GetRequiredService<AppDbContext>().Leases
                 .Where(l => l.Id == lease.Id)
-                .ExecuteUpdateAsync(s => s.SetProperty(l => l.EndDate, BillingMonth.LastDay(CurrentMonth)));
+                .ExecuteUpdateAsync(s => s.SetProperty(l => l.EndDate, BillingMonth.Of(CurrentMonth).LastDay));
         }
 
         var room = await PostReadingsOkAsync(Readings(CurrentMonth.AddMonths(1), Item(electricity.Id, 150, 100)));
@@ -1240,7 +1232,6 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
         Assert.Empty(await GetHistoryAsync());
     }
 
-    // Known limitation until TICKET-054: a closed lease gets no final reading
     [Fact]
     public async Task Record_AfterTermination_BillsNobody()
     {
@@ -1273,8 +1264,8 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
         Assert.Equal(second.Id, reading.BilledLeaseId);
         Assert.Equal(50, reading.Consumption);
         var history = await GetHistoryAsync();
-        Assert.Equal(first.Id, history.Single(r => r.ReadingMonth == CurrentMonth).BilledLeaseId);
-        Assert.Equal(second.Id, history.Single(r => r.ReadingMonth == CurrentMonth.AddMonths(1)).BilledLeaseId);
+        Assert.Equal(first.Id, history.Single(r => r.ReadingMonth.FirstDay == CurrentMonth).BilledLeaseId);
+        Assert.Equal(second.Id, history.Single(r => r.ReadingMonth.FirstDay == CurrentMonth.AddMonths(1)).BilledLeaseId);
     }
 
     [Fact]

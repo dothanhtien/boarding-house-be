@@ -1,3 +1,4 @@
+using BoardingHouse.UnitTests.Common;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using BoardingHouse.Api.Common.CurrentUser;
@@ -16,7 +17,6 @@ public class ExpireLeasesJobTests
     private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
 
     private readonly Mock<ILeaseRepository> _leaseRepository = new();
-    private readonly Mock<ILeaseStatusHistoryRepository> _leaseStatusHistoryRepository = new();
     private readonly Mock<IRoomRepository> _roomRepository = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly CurrentUserAccessor _currentUserAccessor = new();
@@ -30,7 +30,6 @@ public class ExpireLeasesJobTests
 
         _job = new ExpireLeasesJob(
             _leaseRepository.Object,
-            _leaseStatusHistoryRepository.Object,
             _roomRepository.Object,
             _unitOfWork.Object,
             _currentUserAccessor,
@@ -39,24 +38,33 @@ public class ExpireLeasesJobTests
 
     private Lease SetupLease(LeaseStatus status, DateOnly? endDate)
     {
-        var room = new Room { RoomNumber = "101", RoomStatus = RoomStatus.Occupied, CreatedBy = SentinelActors.System };
-        var lease = new Lease
+        var room = TestRooms.New();
+        var tenant = TestEntities.New<User>(new { FullName = "Tenant", PasswordHash = "hash", CreatedBy = SentinelActors.System });
+        var startDate = Today.AddMonths(-6);
+        var now = DateTimeOffset.UtcNow;
+        var lease = Lease.CreateDraft(
+            Guid.NewGuid(), room, previousLeaseId: null, "HD-TEST", startDate, endDate, billingDay: null,
+            monthlyRent: 1, depositAmount: 1, [new TenantChange { UserId = tenant.Id, IsRepresentative = true }],
+            new Dictionary<Guid, User> { [tenant.Id] = tenant }, utilityServices: [], now, SentinelActors.System);
+        lease.Activate(now, startDate, SentinelActors.System);
+
+        switch (status)
         {
-            LeaseCode = "HD-TEST",
-            CreatedBy = SentinelActors.System,
-            RoomId = room.Id,
-            Room = room,
-            StartDate = Today.AddMonths(-6),
-            EndDate = endDate,
-            Status = status
-        };
+            case LeaseStatus.Active:
+                break;
+            case LeaseStatus.Terminated:
+                lease.Terminate(now, Today, SentinelActors.System, leftDate: null, "Moved out");
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(status), status, "Only Active / Terminated are used here");
+        }
 
         _leaseRepository.Setup(r => r.GetRoomIdAsync(lease.Id, It.IsAny<CancellationToken>())).ReturnsAsync(room.Id);
         _roomRepository
             .Setup(r => r.GetByIdWithOrganizationIdForUpdateAsync(room.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new EntityWithOrganizationId<Room>(room, Guid.NewGuid()));
         _leaseRepository
-            .Setup(r => r.GetByIdWithRoomForUpdateAsync(lease.Id, It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetAggregateForUpdateAsync(lease.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(lease);
 
         return lease;
@@ -78,13 +86,10 @@ public class ExpireLeasesJobTests
         Assert.Equal(LeaseStatus.Expired, lease.Status);
         Assert.Equal(RoomStatus.Available, lease.Room!.RoomStatus);
         Assert.True(_currentUserAccessor.IsSystemActor);
-        _leaseStatusHistoryRepository.Verify(r => r.AddAsync(
-            It.Is<LeaseStatusHistory>(h =>
-                h.LeaseId == lease.Id
-                && h.NewStatus == LeaseStatus.Expired
-                && h.ChangedBy == null
-                && h.Reason == Lease.ExpiredReason),
-            It.IsAny<CancellationToken>()), Times.Once);
+        var history = lease.StatusHistories.Last();
+        Assert.Equal(LeaseStatus.Expired, history.NewStatus);
+        Assert.Null(history.ChangedBy);
+        Assert.Equal(Lease.ExpiredReason, history.Reason);
     }
 
     [Theory]
@@ -99,8 +104,7 @@ public class ExpireLeasesJobTests
         await _job.RunAsync();
 
         Assert.Equal(status, lease.Status);
-        _leaseStatusHistoryRepository.Verify(
-            r => r.AddAsync(It.IsAny<LeaseStatusHistory>(), It.IsAny<CancellationToken>()), Times.Never);
+        Assert.DoesNotContain(lease.StatusHistories, h => h.NewStatus == LeaseStatus.Expired);
     }
 
     [Fact]
@@ -120,7 +124,7 @@ public class ExpireLeasesJobTests
         var failing = SetupLease(LeaseStatus.Active, Today.AddDays(-1));
         var ok = SetupLease(LeaseStatus.Active, Today.AddDays(-1));
         _leaseRepository
-            .Setup(r => r.GetByIdWithRoomForUpdateAsync(failing.Id, It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetAggregateForUpdateAsync(failing.Id, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("boom"));
         SetupLeaseIdsToExpire(failing.Id, ok.Id);
 

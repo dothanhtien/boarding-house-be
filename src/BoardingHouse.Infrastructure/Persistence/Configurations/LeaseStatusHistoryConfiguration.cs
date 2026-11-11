@@ -20,7 +20,7 @@ public class LeaseStatusHistoryConfiguration : IEntityTypeConfiguration<LeaseSta
             .HasMaxLength(20);
 
         builder.HasOne(h => h.Lease)
-            .WithMany()
+            .WithMany(l => l.StatusHistories)
             .HasForeignKey(h => h.LeaseId)
             .OnDelete(DeleteBehavior.Restrict);
 

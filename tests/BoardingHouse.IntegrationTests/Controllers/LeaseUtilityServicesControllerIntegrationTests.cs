@@ -203,7 +203,7 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await RbacSeeder.SeedAsync(context);
 
-        var organization = new Organization { Name = $"Other Org {Guid.NewGuid()}", CreatedBy = SentinelActors.System };
+        var organization = TestEntities.New<Organization>(new { Name = $"Other Org {Guid.NewGuid()}", CreatedBy = SentinelActors.System });
         context.Organizations.Add(organization);
         await context.SaveChangesAsync();
 
@@ -220,13 +220,7 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
         var member = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
 
         var role = await context.Roles.SingleAsync(r => r.Slug == RoleSlugs.OrganizationAdmin);
-        context.OrganizationMembers.Add(new OrganizationMember
-        {
-            OrganizationId = organization.Id,
-            UserId = member!.Id,
-            RoleId = role.Id,
-            CreatedBy = SentinelActors.System
-        });
+        context.OrganizationMembers.Add(OrganizationMember.Create(organization.Id, member!.Id, role, SentinelActors.System));
         await context.SaveChangesAsync();
 
         var loginResponse = await memberClient.PostAsJsonAsync("/api/auth/login", new LoginRequest { Identifier = email, Password = Password });
@@ -617,6 +611,20 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
     {
         var water = await CreateUtilityServiceAsync("Water", 15_000, UtilityBillingMethod.Metered);
         await CreateLeaseAsync([water]);
+
+        var response = await PatchUtilityServiceAsync(water.Id, new UpdateUtilityServiceRequest { BillingMethod = UtilityBillingMethod.PerTenant });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(LeaseStatus.Terminated)]
+    [InlineData(LeaseStatus.Expired)]
+    public async Task UpdateBillingMethod_ServiceUsedByClosedLease_Returns409(LeaseStatus status)
+    {
+        var water = await CreateUtilityServiceAsync("Water", 15_000, UtilityBillingMethod.Metered);
+        var lease = await CreateLeaseAsync([water]);
+        await SetLeaseStatusAsync(lease.Id, status);
 
         var response = await PatchUtilityServiceAsync(water.Id, new UpdateUtilityServiceRequest { BillingMethod = UtilityBillingMethod.PerTenant });
 

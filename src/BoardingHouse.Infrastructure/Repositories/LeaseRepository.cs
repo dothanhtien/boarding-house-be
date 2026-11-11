@@ -1,10 +1,10 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.Repositories;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
-using BoardingHouse.Application.Repositories;
-using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Infrastructure.Persistence;
 using BoardingHouse.Infrastructure.Persistence.Listing;
 
@@ -71,22 +71,20 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
     }
 
     public Task<Lease?> GetActiveOfMonthByRoomIdAsync(
-        Guid roomId, DateOnly month, CancellationToken cancellationToken = default) =>
+        Guid roomId, BillingMonth month, CancellationToken cancellationToken = default) =>
         ActiveOfMonth(month).FirstOrDefaultAsync(l => l.RoomId == roomId, cancellationToken);
 
     public Task<List<Lease>> ListActiveOfMonthByRoomIdsAsync(
-        IReadOnlyCollection<Guid> roomIds, DateOnly month, CancellationToken cancellationToken = default) =>
+        IReadOnlyCollection<Guid> roomIds, BillingMonth month, CancellationToken cancellationToken = default) =>
         ActiveOfMonth(month).Where(l => roomIds.Contains(l.RoomId)).ToListAsync(cancellationToken);
 
-    // An ACTIVE lease whose EndDate passed (ExpireLeasesJob hasn't run yet) doesn't cover the months after it
-    private IQueryable<Lease> ActiveOfMonth(DateOnly month)
+    private IQueryable<Lease> ActiveOfMonth(BillingMonth month)
     {
-        var lastDay = BillingMonth.LastDay(month);
         return Context.Leases
             .AsNoTracking()
             .Where(l => l.Status == LeaseStatus.Active
-                && l.StartDate <= lastDay
-                && (l.EndDate == null || l.EndDate >= month));
+                && l.StartDate <= month.LastDay
+                && (l.EndDate == null || l.EndDate >= month.FirstDay));
     }
 
     public Task<Lease?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default) =>
@@ -99,16 +97,46 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
             .AsSplitQuery()
             .FirstOrDefaultAsync(l => l.Id == id, cancellationToken);
 
-    public Task<Lease?> GetByIdWithRoomForUpdateAsync(Guid id, CancellationToken cancellationToken = default) =>
-        Context.Leases
+    public async Task<Lease?> GetAggregateForUpdateAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var lease = await Context.Leases
             .FromSql($"SELECT * FROM leases WHERE id = {id} FOR UPDATE")
             .Include(l => l.Room)
             .FirstOrDefaultAsync(cancellationToken);
 
-    public Task<Lease?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default) =>
-        Context.Leases
+        if (lease is null)
+        {
+            return null;
+        }
+
+        await Context.Entry(lease).Collection(l => l.Tenants).Query()
+            .IgnoreQueryFilters()
+            .Where(t => t.DeletedAt == null)
+            .Include(t => t.User)
+            .LoadAsync(cancellationToken);
+
+        await Context.Entry(lease).Collection(l => l.UtilityServices).Query()
+            .Include(s => s.Service)
+            .LoadAsync(cancellationToken);
+
+        return lease;
+    }
+
+    public async Task<Lease?> GetByIdWithTenantsForDeleteAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var lease = await Context.Leases
             .FromSql($"SELECT * FROM leases WHERE id = {id} FOR UPDATE")
             .FirstOrDefaultAsync(cancellationToken);
+
+        if (lease is null)
+        {
+            return null;
+        }
+
+        await Context.Entry(lease).Collection(l => l.Tenants).LoadAsync(cancellationToken);
+
+        return lease;
+    }
 
     public Task<Lease?> GetByIdForShareAsync(Guid id, CancellationToken cancellationToken = default) =>
         Context.Leases
@@ -137,14 +165,12 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
             t => t.Lease!.RoomId == roomId && t.Lease.Status == LeaseStatus.Active && t.LeftDate == null,
             cancellationToken);
 
-    public Task<int> CountTenantsInMonthAsync(Guid leaseId, DateOnly month, CancellationToken cancellationToken = default)
+    public Task<int> CountTenantsInMonthAsync(Guid leaseId, BillingMonth month, CancellationToken cancellationToken = default)
     {
-        var lastDay = BillingMonth.LastDay(month);
-
         return Context.LeaseTenants.CountAsync(
             t => t.LeaseId == leaseId
-                && (t.JoinedDate ?? t.Lease!.StartDate) <= lastDay
-                && (t.LeftDate == null || t.LeftDate >= month),
+                && (t.JoinedDate ?? t.Lease!.StartDate) <= month.LastDay
+                && (t.LeftDate == null || t.LeftDate >= month.FirstDay),
             cancellationToken);
     }
 
@@ -207,19 +233,43 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
             .ToListAsync(cancellationToken);
     }
 
-    public Task LoadTenantsAsync(Lease lease, CancellationToken cancellationToken = default) =>
-        Context.Entry(lease).Collection(l => l.Tenants).LoadAsync(cancellationToken);
+    public Task<List<LeaseStatusHistory>> ListStatusHistoriesAsync(Guid leaseId, CancellationToken cancellationToken = default) =>
+        Context.LeaseStatusHistories
+            .AsNoTracking()
+            .Where(h => h.LeaseId == leaseId)
+            .OrderBy(h => h.ChangedAt)
+            .ThenBy(h => h.Id)
+            .ToListAsync(cancellationToken);
 
-    public Task LoadTenantsWithUsersAsync(Lease lease, CancellationToken cancellationToken = default) =>
-        Context.Entry(lease).Collection(l => l.Tenants).Query()
+    public Task<List<LeaseUtilityService>> ListUtilityServicesAsync(Guid leaseId, CancellationToken cancellationToken = default) =>
+        Context.LeaseUtilityServices
             .IgnoreQueryFilters()
-            .Where(t => t.DeletedAt == null)
-            .Include(t => t.User)
-            .LoadAsync(cancellationToken);
+            .AsNoTracking()
+            .Include(s => s.Service)
+            .Where(s => s.LeaseId == leaseId)
+            .OrderBy(s => s.Service!.Name)
+            .ThenBy(s => s.ServiceId)
+            .ToListAsync(cancellationToken);
 
-    public void AddTenant(Lease lease, LeaseTenant tenant)
-    {
-        lease.Tenants.Add(tenant);
-        Context.LeaseTenants.Add(tenant);
-    }
+    public Task<List<LeaseUtilityService>> ListUtilityServicesIncludingInactiveAsync(IReadOnlyCollection<Guid> leaseIds, CancellationToken cancellationToken = default) =>
+        Context.LeaseUtilityServices
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Include(l => l.Service)
+            .Where(l => leaseIds.Contains(l.LeaseId))
+            .OrderBy(s => s.Service!.Name)
+            .ToListAsync(cancellationToken);
+
+    public Task<bool> ExistsUtilityServiceUsageAsync(Guid serviceId, CancellationToken cancellationToken = default) =>
+        Context.LeaseUtilityServices.AnyAsync(
+            s => s.ServiceId == serviceId && s.Lease!.DeletedAt == null,
+            cancellationToken);
+
+    public Task<bool> ExistsActiveUtilityServiceInOpenLeaseAsync(Guid serviceId, CancellationToken cancellationToken = default) =>
+        Context.LeaseUtilityServices.AnyAsync(
+            s => s.ServiceId == serviceId
+                && s.IsActive
+                && s.Lease!.DeletedAt == null
+                && (s.Lease.Status == LeaseStatus.Draft || s.Lease.Status == LeaseStatus.Active),
+            cancellationToken);
 }

@@ -52,7 +52,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             {
                 modelBuilder.Entity(entityType.ClrType)
                     .Property(nameof(Entity.Id))
-                    .HasDefaultValueSql("gen_random_uuid()");
+                    .HasDefaultValueSql("gen_random_uuid()")
+                    .ValueGeneratedNever();
             }
         }
     }

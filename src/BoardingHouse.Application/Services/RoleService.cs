@@ -8,7 +8,7 @@ public class RoleService(IRoleRepository roleRepository) : IRoleService
 {
     public async Task<List<RoleResponse>> GetAllAsync(CancellationToken cancellationToken = default)
     {
-        var roles = await roleRepository.GetAllAsync(cancellationToken);
+        var roles = await roleRepository.ListAllAsync(cancellationToken);
         return roles.Adapt<List<RoleResponse>>();
     }
 }

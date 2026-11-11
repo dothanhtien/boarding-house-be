@@ -132,16 +132,19 @@ public class RoomAssetConditionHistoryRepositoryIntegrationTests(PostgresContain
 
     private static Room AddRoom(AppDbContext context, string roomNumber)
     {
-        var organization = new Organization { Name = $"Org {roomNumber}", CreatedBy = SentinelActors.System };
-        var property = new Property { OrganizationId = organization.Id, Name = $"Property {roomNumber}", CreatedBy = SentinelActors.System };
-        var room = new Room { PropertyId = property.Id, RoomNumber = roomNumber, CreatedBy = SentinelActors.System };
+        var organization = TestEntities.New<Organization>(new { Name = $"Org {roomNumber}", CreatedBy = SentinelActors.System });
+        var property = TestEntities.New<Property>(new { OrganizationId = organization.Id, Name = $"Property {roomNumber}", CreatedBy = SentinelActors.System });
+        var room = TestRooms.New(propertyId: property.Id, roomNumber: roomNumber);
         context.AddRange(organization, property, room);
         return room;
     }
 
     private static RoomAsset AddAsset(AppDbContext context, Room room, string name)
     {
-        var asset = new RoomAsset { RoomId = room.Id, Name = name, CreatedBy = SentinelActors.System };
+        // The initial history entry Create returns is left out: each test adds the entries it needs
+        var (asset, _) = RoomAsset.Create(
+            Guid.NewGuid(), room.Id, name, quantity: 1, purchaseDate: null, purchaseUnitPrice: null, note: null,
+            photos: [], SentinelActors.System, T0);
         context.RoomAssets.Add(asset);
         return asset;
     }
@@ -149,14 +152,15 @@ public class RoomAssetConditionHistoryRepositoryIntegrationTests(PostgresContain
     private static RoomAssetConditionHistory AddHistory(
         AppDbContext context, RoomAsset asset, AssetCondition condition, DateTimeOffset changedAt)
     {
-        var history = new RoomAssetConditionHistory { AssetId = asset.Id, NewCondition = condition, ChangedAt = changedAt };
+        var history = new RoomAssetConditionHistory(
+            asset.Id, oldCondition: null, condition, note: null, photos: [], SentinelActors.System, changedAt);
         context.RoomAssetConditionHistories.Add(history);
         return history;
     }
 
     private static void AddPhoto(AppDbContext context, RoomAssetConditionHistory history, bool deleted = false)
     {
-        var mediaAsset = new MediaAsset
+        var mediaAsset = TestEntities.New<MediaAsset>(new
         {
             FileName = "photo.png",
             StorageProvider = StorageProvider.Cloudinary,
@@ -166,16 +170,14 @@ public class RoomAssetConditionHistoryRepositoryIntegrationTests(PostgresContain
             FileSize = 16,
             EntityType = MediaAssetEntityType.RoomAssetConditionPhoto,
             CreatedBy = SentinelActors.System
-        };
-        context.MediaAssets.Add(mediaAsset);
-        context.RoomAssetConditionHistoryMedia.Add(new RoomAssetConditionHistoryMedia
-        {
-            ConditionHistoryId = history.Id,
-            MediaAssetId = mediaAsset.Id,
-            CreatedBy = SentinelActors.System,
-            DeletedAt = deleted ? T0 : null,
-            DeletedBy = deleted ? SentinelActors.System : null
         });
+        context.MediaAssets.Add(mediaAsset);
+        context.RoomAssetConditionHistoryMedia.Add(
+            new RoomAssetConditionHistoryMedia(history.Id, mediaAsset, sortOrder: 0, SentinelActors.System)
+            {
+                DeletedAt = deleted ? T0 : null,
+                DeletedBy = deleted ? SentinelActors.System : null
+            });
     }
 
     private sealed class CommandCounter : DbCommandInterceptor

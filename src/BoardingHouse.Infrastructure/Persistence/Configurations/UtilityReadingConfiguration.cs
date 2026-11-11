@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Application.Persistence;
+using BoardingHouse.Infrastructure.Persistence.Converters;
 
 namespace BoardingHouse.Infrastructure.Persistence.Configurations;
 
@@ -17,6 +18,8 @@ public class UtilityReadingConfiguration : IEntityTypeConfiguration<UtilityReadi
         builder.HasIndex(r => new { r.RoomId, r.ServiceId, r.ReadOn });
 
         builder.HasIndex(r => r.BilledLeaseId);
+
+        builder.Property(r => r.ReadingMonth).HasConversion(BillingMonthDbValueConverter.Instance);
 
         builder.Property(r => r.PreviousValue).HasColumnType("decimal(18,2)");
 

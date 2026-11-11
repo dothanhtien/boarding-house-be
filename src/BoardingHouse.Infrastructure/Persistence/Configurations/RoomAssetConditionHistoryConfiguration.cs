@@ -19,9 +19,11 @@ public class RoomAssetConditionHistoryConfiguration : IEntityTypeConfiguration<R
             .HasConversion(AssetConditionDbValueConverter.Instance)
             .HasMaxLength(20);
 
+        // ClientNoAction: soft-deleting an asset while its histories are tracked (to remove their photos) must not
+        // touch them; Restrict makes SaveChanges throw "association has been severed". The DB still refuses a hard delete.
         builder.HasOne(h => h.Asset)
             .WithMany()
             .HasForeignKey(h => h.AssetId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.ClientNoAction);
     }
 }

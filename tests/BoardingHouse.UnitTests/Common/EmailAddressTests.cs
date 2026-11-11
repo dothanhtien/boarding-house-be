@@ -1,3 +1,4 @@
+using BoardingHouse.Domain.Common;
 using BoardingHouse.Application.Common;
 
 namespace BoardingHouse.UnitTests.Common;

@@ -1,19 +1,19 @@
 using Mapster;
-using BoardingHouse.Application.Repositories;
-using BoardingHouse.Application.Persistence;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.CurrentUser;
 using BoardingHouse.Application.DTOs.UtilityServices;
 using BoardingHouse.Application.Exceptions;
-using BoardingHouse.Application.Mappings;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Repositories;
 using BoardingHouse.Domain.Entities;
-using BoardingHouse.Application.Common.CurrentUser;
+using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Application.Services;
 
 public class UtilityServiceService(
     IUtilityServiceRepository utilityServiceRepository,
     IPropertyRepository propertyRepository,
-    ILeaseUtilityServiceRepository leaseUtilityServiceRepository,
+    ILeaseRepository leaseRepository,
     IUtilityReadingRepository utilityReadingRepository,
     IUnitOfWork unitOfWork,
     IOrganizationScopeAccessor organizationScopeAccessor,
@@ -64,17 +64,12 @@ public class UtilityServiceService(
                 await organizationScopeAccessor.EnsureScopeAsync(
                     property.OrganizationId, PermissionResources.UtilityService, PermissionActions.Create, NotFoundMessages.Property(request.PropertyId), ct);
 
-                var created = new UtilityService
-                {
-                    PropertyId = request.PropertyId,
-                    Name = request.Name,
-                    Type = request.Type,
-                    BillingMethod = request.BillingMethod,
-                    Unit = request.Unit,
-                    DefaultUnitPrice = request.DefaultUnitPrice,
-                    IsActive = request.IsActive,
-                    CreatedBy = currentUserAccessor.RequiredUser.Id
-                };
+                var created = UtilityService.Create(
+                    request.PropertyId,
+                    request.Type,
+                    new UtilityServiceDetails(
+                        request.Name, request.BillingMethod, request.Unit, request.DefaultUnitPrice, request.IsActive),
+                    currentUserAccessor.RequiredUser.Id);
 
                 await utilityServiceRepository.AddAsync(created, ct);
 
@@ -98,32 +93,28 @@ public class UtilityServiceService(
         {
             var service = await unitOfWork.ExecuteInTransactionAsync(async ct =>
             {
-                // FOR UPDATE serializes with a concurrent soft-delete (direct or via PropertyService.DeleteAsync) so the
-                // full-row Update() below can't write back deleted_at = NULL over a delete committed after our read
+                // FOR UPDATE serializes with a concurrent soft-delete (direct or via PropertyService.DeleteAsync), so
+                // this update never lands on a service deleted after our read
                 var (existing, organizationId) = await utilityServiceRepository.GetByIdWithOrganizationIdForUpdateAsync(id, ct)
                     ?? throw new AppNotFoundException(NotFoundMessages.UtilityService(id));
 
                 await organizationScopeAccessor.EnsureScopeAsync(
                     organizationId, PermissionResources.UtilityService, PermissionActions.Update, NotFoundMessages.UtilityService(id), ct);
 
-                if (request.BillingMethod.IsSet && request.BillingMethod.Value != existing.BillingMethod)
-                {
-                    if (await leaseUtilityServiceRepository.ExistsByServiceIdAsync(existing.Id, ct))
-                    {
-                        throw new AppConflictException(
-                            "BillingMethod cannot be changed once the service is used by a lease — create a new service instead");
-                    }
+                var current = existing.Details;
+                var details = new UtilityServiceDetails(
+                    request.Name.OrKeep(current.Name)!,
+                    request.BillingMethod.OrKeep(current.BillingMethod),
+                    request.Unit.OrKeep(current.Unit)!,
+                    request.DefaultUnitPrice.OrKeep(current.DefaultUnitPrice),
+                    request.IsActive.OrKeep(current.IsActive));
 
-                    if (await utilityReadingRepository.ExistsByServiceIdAsync(existing.Id, ct))
-                    {
-                        throw new AppConflictException(
-                            "BillingMethod cannot be changed once the service has utility readings — create a new service instead");
-                    }
-                }
+                // Usage needs 2 queries: only look it up when the billing method actually changes
+                var usage = details.BillingMethod == current.BillingMethod
+                    ? UtilityServiceUsage.None
+                    : await GetUsageAsync(existing.Id, ct);
 
-                request.Adapt(existing, UtilityServiceMappingConfig.UpdateConfig);
-
-                utilityServiceRepository.Update(existing);
+                existing.Update(details, usage);
 
                 return existing;
             }, cancellationToken);
@@ -149,7 +140,7 @@ public class UtilityServiceService(
             await organizationScopeAccessor.EnsureScopeAsync(
                 organizationId, PermissionResources.UtilityService, PermissionActions.Delete, NotFoundMessages.UtilityService(id), ct);
 
-            if (await leaseUtilityServiceRepository.ExistsActiveInOpenLeaseByServiceIdAsync(service.Id, ct))
+            if (await leaseRepository.ExistsActiveUtilityServiceInOpenLeaseAsync(service.Id, ct))
             {
                 logger.LogWarning("Delete utility service failed: still used by an open lease ({UtilityServiceId})", id);
                 throw new AppConflictException(
@@ -160,5 +151,22 @@ public class UtilityServiceService(
         }, cancellationToken);
 
         logger.LogInformation("Utility service soft-deleted ({UtilityServiceId})", id);
+    }
+
+    private async Task<UtilityServiceUsage> GetUsageAsync(Guid serviceId, CancellationToken cancellationToken)
+    {
+        var usage = UtilityServiceUsage.None;
+
+        if (await leaseRepository.ExistsUtilityServiceUsageAsync(serviceId, cancellationToken))
+        {
+            usage |= UtilityServiceUsage.Leases;
+        }
+
+        if (await utilityReadingRepository.ExistsByServiceIdAsync(serviceId, cancellationToken))
+        {
+            usage |= UtilityServiceUsage.Readings;
+        }
+
+        return usage;
     }
 }

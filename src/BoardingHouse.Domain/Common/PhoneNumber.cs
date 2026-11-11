@@ -1,4 +1,4 @@
-namespace BoardingHouse.Application.Common;
+namespace BoardingHouse.Domain.Common;
 
 public static class PhoneNumber
 {

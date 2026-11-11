@@ -442,13 +442,14 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
         using (var scope = factory.Services.CreateScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            context.TenantProfiles.Add(new TenantProfile
-            {
-                UserId = created.Id,
-                CreatedBy = _actorId,
-                IdentityType = IdentityType.CitizenIdentityCard,
-                IdentityNumber = "001095012345"
-            });
+            context.TenantProfiles.Add(TenantProfile.Create(
+                created.Id,
+                TenantProfileDetails.Empty with
+                {
+                    IdentityType = IdentityType.CitizenIdentityCard,
+                    IdentityNumber = "001095012345"
+                },
+                _actorId));
             await context.SaveChangesAsync();
         }
 
@@ -461,13 +462,14 @@ public class UsersControllerIntegrationTests(PostgresApiFactory factory)
             var profile = await context.TenantProfiles.IgnoreQueryFilters().SingleAsync(t => t.UserId == created.Id);
             Assert.NotNull(profile.DeletedAt);
 
-            context.TenantProfiles.Add(new TenantProfile
-            {
-                UserId = _actorId,
-                CreatedBy = _actorId,
-                IdentityType = IdentityType.CitizenIdentityCard,
-                IdentityNumber = "001095012345"
-            });
+            context.TenantProfiles.Add(TenantProfile.Create(
+                _actorId,
+                TenantProfileDetails.Empty with
+                {
+                    IdentityType = IdentityType.CitizenIdentityCard,
+                    IdentityNumber = "001095012345"
+                },
+                _actorId));
             await context.SaveChangesAsync();
         }
     }

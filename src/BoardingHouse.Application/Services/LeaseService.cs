@@ -1,17 +1,16 @@
 using System.Linq.Expressions;
 using System.Security.Cryptography;
 using Mapster;
-using BoardingHouse.Application.Repositories;
-using BoardingHouse.Application.Persistence;
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.Common.CurrentOrganization;
+using BoardingHouse.Application.Common.CurrentUser;
+using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.DTOs.Leases;
 using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Repositories;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
-using BoardingHouse.Application.Mappings;
-using BoardingHouse.Application.Common.Listing;
-using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Application.Services;
 
@@ -20,7 +19,6 @@ public class LeaseService(
     IRoomRepository roomRepository,
     ILeaseRepository leaseRepository,
     IUtilityServiceRepository utilityServiceRepository,
-    ILeaseStatusHistoryRepository leaseStatusHistoryRepository,
     IUnitOfWork unitOfWork,
     IOrganizationScopeAccessor organizationScopeAccessor,
     ICurrentUserAccessor currentUserAccessor,
@@ -107,63 +105,38 @@ public class LeaseService(
                     NotFoundMessages.Room(request.RoomId),
                     ct);
 
-                var monthlyRent = request.MonthlyRent ?? room.MonthlyRent
-                    ?? throw new AppValidationException("MonthlyRent is required because the room has no listed rent");
-
-                var depositAmount = request.DepositAmount ?? room.DepositAmount
-                    ?? throw new AppValidationException("DepositAmount is required because the room has no listed deposit");
-
                 if (request.PreviousLeaseId is { } previousLeaseId)
                 {
                     await EnsureCanBePreviousLeaseAsync(previousLeaseId, organizationId, room.Id, leaseId: null, ct);
                 }
 
                 var tenants = request.Tenants ?? [];
-                if (room.Capacity is { } capacity && tenants.Count > capacity)
-                {
-                    throw new AppValidationException($"The room allows at most {capacity} tenants");
-                }
-
-                var users = await EnsureUsersCanBeTenantsAsync(tenants.Select(t => t.UserId).ToList(), ct);
+                var users = await GetUsersAsync(tenants.Select(t => t.UserId).ToList(), ct);
+                var utilityServices = await GetUtilityServiceSelectionsAsync(request.UtilityServices ?? [], ct);
                 var currentUserId = currentUserAccessor.RequiredUser.Id;
 
-                var created = new Lease
-                {
-                    OrganizationId = organizationId,
-                    RoomId = room.Id,
-                    PreviousLeaseId = request.PreviousLeaseId,
-                    LeaseCode = request.LeaseCode ?? GenerateLeaseCode(),
-                    StartDate = request.StartDate,
-                    EndDate = request.EndDate,
-                    BillingDay = request.BillingDay,
-                    MonthlyRent = monthlyRent,
-                    DepositAmount = depositAmount,
-                    CreatedBy = currentUserId,
-                    Tenants = tenants
-                        .Select(t => new LeaseTenant
-                        {
-                            UserId = t.UserId,
-                            User = users[t.UserId],
-                            IsRepresentative = t.IsRepresentative,
-                            JoinedDate = t.JoinedDate,
-                            CreatedBy = currentUserId
-                        })
-                        .ToList()
-                };
-
-                EnsureTenantsJoinWithinLeaseTerm(created);
-
-                await AttachUtilityServicesAsync(created, room.PropertyId, request.UtilityServices ?? [], currentUserId, ct);
+                var created = Lease.CreateDraft(
+                    organizationId,
+                    room,
+                    request.PreviousLeaseId,
+                    request.LeaseCode ?? GenerateLeaseCode(),
+                    request.StartDate,
+                    request.EndDate,
+                    request.BillingDay,
+                    request.MonthlyRent,
+                    request.DepositAmount,
+                    tenants.Select(t => new TenantChange
+                    {
+                        UserId = t.UserId,
+                        IsRepresentative = t.IsRepresentative,
+                        JoinedDate = t.JoinedDate
+                    }).ToList(),
+                    users,
+                    utilityServices,
+                    DateTimeOffset.UtcNow,
+                    currentUserId);
 
                 await leaseRepository.AddAsync(created, ct);
-
-                await leaseStatusHistoryRepository.AddAsync(new LeaseStatusHistory
-                {
-                    LeaseId = created.Id,
-                    NewStatus = created.Status,
-                    ChangedBy = currentUserId,
-                    ChangedAt = DateTimeOffset.UtcNow
-                }, ct);
 
                 return created;
             }, cancellationToken);
@@ -197,7 +170,7 @@ public class LeaseService(
                 _ = await roomRepository.GetByIdWithOrganizationIdForShareAsync(roomId, ct)
                     ?? throw new AppNotFoundException(NotFoundMessages.Lease(id));
 
-                var existing = await leaseRepository.GetByIdWithRoomForUpdateAsync(id, ct)
+                var existing = await leaseRepository.GetAggregateForUpdateAsync(id, ct)
                     ?? throw new AppNotFoundException(NotFoundMessages.Lease(id));
 
                 await organizationScopeAccessor.EnsureScopeAsync(
@@ -212,34 +185,24 @@ public class LeaseService(
                     throw new AppConflictException("The lease was modified concurrently, please retry");
                 }
 
-                switch (existing.Status)
-                {
-                    case LeaseStatus.Draft:
-                        break;
-                    case LeaseStatus.Active when HasContractChanges(request, existing):
-                        throw new AppConflictException("Contract terms of an active lease cannot be changed");
-                    case LeaseStatus.Active:
-                        break;
-                    default:
-                        throw new AppConflictException("Only draft or active leases can be edited");
-                }
+                var current = existing.CurrentTerms;
+                var terms = new LeaseTerms(
+                    request.PreviousLeaseId.OrKeep(current.PreviousLeaseId),
+                    request.LeaseCode.OrKeep(current.LeaseCode)!,
+                    request.StartDate.OrKeep(current.StartDate),
+                    request.EndDate.OrKeep(current.EndDate),
+                    request.BillingDay.OrKeep(current.BillingDay),
+                    request.MonthlyRent.OrKeep(current.MonthlyRent),
+                    request.DepositAmount.OrKeep(current.DepositAmount));
 
-                await leaseRepository.LoadTenantsWithUsersAsync(existing, ct);
+                var tenantChanges = request.Tenants.IsSet ? request.Tenants.Value!.Select(ToTenantChange).ToList() : null;
+                var newUsers = await GetUsersAsync(
+                    tenantChanges?.Where(c => c.TenantId is null).Select(c => c.UserId!.Value).ToList() ?? [], ct);
 
-                request.Adapt(existing, LeaseMappingConfig.UpdateConfig);
-
-                if (existing.EndDate is { } endDate && endDate <= existing.StartDate)
-                {
-                    throw new AppValidationException("EndDate must be after StartDate");
-                }
+                existing.Update(terms, tenantChanges, newUsers, Today, currentUserAccessor.RequiredUser.Id);
 
                 if (request.PreviousLeaseId is { IsSet: true, Value: { } previousLeaseId })
                 {
-                    if (previousLeaseId == existing.Id)
-                    {
-                        throw new AppValidationException("A lease cannot be its own previous lease");
-                    }
-
                     await EnsureCanBePreviousLeaseAsync(previousLeaseId, existing.OrganizationId, existing.RoomId, existing.Id, ct);
 
                     if (await leaseRepository.IsInRenewalChainAsync(existing.Id, previousLeaseId, ct))
@@ -248,14 +211,11 @@ public class LeaseService(
                     }
                 }
 
-                if (request.Tenants.IsSet)
+                if (existing.HasPendingTenantChanges)
                 {
-                    await ApplyTenantChangesAsync(existing, request.Tenants.Value!, ct);
+                    await unitOfWork.SaveChangesAsync(ct);
+                    existing.ApplyPendingTenantChanges();
                 }
-
-                EnsureTenantsJoinWithinLeaseTerm(existing);
-
-                leaseRepository.Update(existing);
 
                 return existing;
             }, cancellationToken);
@@ -279,7 +239,7 @@ public class LeaseService(
     {
         await unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            var lease = await leaseRepository.GetByIdForUpdateAsync(id, ct)
+            var lease = await leaseRepository.GetByIdWithTenantsForDeleteAsync(id, ct)
                 ?? throw new AppNotFoundException(NotFoundMessages.Lease(id));
 
             await organizationScopeAccessor.EnsureScopeAsync(
@@ -289,17 +249,12 @@ public class LeaseService(
                 NotFoundMessages.Lease(id),
                 ct);
 
-            if (!lease.IsEditable)
-            {
-                throw new AppConflictException("Only draft leases can be deleted");
-            }
+            lease.EnsureCanBeDeleted();
 
             if (await leaseRepository.ExistsByPreviousLeaseIdAsync(id, cancellationToken: ct))
             {
                 throw new AppConflictException("Cannot delete a lease that is the previous lease of another lease");
             }
-
-            await leaseRepository.LoadTenantsAsync(lease, ct);
 
             leaseRepository.SoftDelete(lease);
         }, cancellationToken);
@@ -319,7 +274,7 @@ public class LeaseService(
                 var (room, _) = await roomRepository.GetByIdWithOrganizationIdForUpdateAsync(roomId, ct)
                     ?? throw new AppNotFoundException(NotFoundMessages.Lease(id));
 
-                var existing = await leaseRepository.GetByIdWithRoomForUpdateAsync(id, ct)
+                var existing = await leaseRepository.GetAggregateForUpdateAsync(id, ct)
                     ?? throw new AppNotFoundException(NotFoundMessages.Lease(id));
 
                 await organizationScopeAccessor.EnsureScopeAsync(
@@ -334,33 +289,12 @@ public class LeaseService(
                     throw new AppConflictException("The lease was modified concurrently, please retry");
                 }
 
-                if (!existing.CanTransitionTo(LeaseStatus.Active))
-                {
-                    throw new AppConflictException("Only draft leases can be activated");
-                }
-
-                await leaseRepository.LoadTenantsWithUsersAsync(existing, ct);
-
-                EnsureTenantsCanBeActivated(existing, room);
-
-                if (existing.EndDate is { } endDate && endDate <= DateOnly.FromDateTime(DateTime.UtcNow))
-                {
-                    throw new AppValidationException("Cannot activate a lease whose end date has passed");
-                }
-
-                if (room.RoomStatus == RoomStatus.Maintenance)
-                {
-                    throw new AppConflictException("Room is under maintenance");
-                }
-
-                if (await leaseRepository.ExistsActiveByRoomIdAsync(room.Id, ct))
+                if (existing.CanTransitionTo(LeaseStatus.Active) && await leaseRepository.ExistsActiveByRoomIdAsync(room.Id, ct))
                 {
                     throw new AppConflictException("Room already has an active lease");
                 }
 
-                var history = existing.Activate(DateTimeOffset.UtcNow, currentUserAccessor.RequiredUser.Id);
-
-                await leaseStatusHistoryRepository.AddAsync(history, ct);
+                existing.Activate(DateTimeOffset.UtcNow, Today, currentUserAccessor.RequiredUser.Id);
 
                 return existing;
             }, cancellationToken);
@@ -385,7 +319,7 @@ public class LeaseService(
             var (room, _) = await roomRepository.GetByIdWithOrganizationIdForUpdateAsync(roomId, ct)
                 ?? throw new AppNotFoundException(NotFoundMessages.Lease(id));
 
-            var existing = await leaseRepository.GetByIdWithRoomForUpdateAsync(id, ct)
+            var existing = await leaseRepository.GetAggregateForUpdateAsync(id, ct)
                 ?? throw new AppNotFoundException(NotFoundMessages.Lease(id));
 
             await organizationScopeAccessor.EnsureScopeAsync(
@@ -400,34 +334,8 @@ public class LeaseService(
                 throw new AppConflictException("The lease was modified concurrently, please retry");
             }
 
-            if (!existing.CanTransitionTo(LeaseStatus.Terminated))
-            {
-                throw new AppConflictException("Only active leases can be terminated");
-            }
-
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
-            var latestLeftDate = today > existing.StartDate ? today : existing.StartDate;
-            var leftDate = request.LeftDate ?? latestLeftDate;
-
-            if (leftDate < existing.StartDate || leftDate > latestLeftDate)
-            {
-                throw new AppValidationException(
-                    "LeftDate must be between the lease StartDate and today (or StartDate if the lease has not started yet)");
-            }
-
-            await leaseRepository.LoadTenantsWithUsersAsync(existing, ct);
-
-            var joinedLater = existing.Tenants.FirstOrDefault(t =>
-                (t.LeftDate is null || t.LeftDate > leftDate) && t.JoinedDate > leftDate);
-            if (joinedLater is not null)
-            {
-                throw new AppValidationException(
-                    $"LeftDate must not be before tenant JoinedDate {joinedLater.JoinedDate:yyyy-MM-dd}");
-            }
-
-            var history = existing.Terminate(DateTimeOffset.UtcNow, currentUserAccessor.RequiredUser.Id, leftDate, request.Reason);
-
-            await leaseStatusHistoryRepository.AddAsync(history, ct);
+            existing.Terminate(
+                DateTimeOffset.UtcNow, Today, currentUserAccessor.RequiredUser.Id, request.LeftDate, request.Reason);
 
             return existing;
         }, cancellationToken);
@@ -448,199 +356,24 @@ public class LeaseService(
             NotFoundMessages.Lease(id),
             cancellationToken);
 
-        var histories = await leaseStatusHistoryRepository.ListByLeaseIdAsync(id, cancellationToken);
+        var histories = await leaseRepository.ListStatusHistoriesAsync(id, cancellationToken);
 
         return histories.Adapt<List<LeaseStatusHistoryResponse>>();
     }
 
-    private static void EnsureTenantsCanBeActivated(Lease lease, Room room)
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
+
+    private static TenantChange ToTenantChange(UpdateLeaseTenantRequest request) => new()
     {
-        if (lease.Tenants.Count == 0)
-        {
-            throw new AppValidationException("A lease must have at least one tenant to be activated");
-        }
+        TenantId = request.Id,
+        UserId = request.UserId,
+        IsRepresentative = request.IsRepresentative,
+        JoinedDate = request.JoinedDate.ToChange(),
+        LeftDate = request.LeftDate.ToChange(),
+        IsDeleted = request.IsDeleted
+    };
 
-        if (lease.Tenants.Count(t => t.IsRepresentative) != 1)
-        {
-            throw new AppValidationException("A lease must have exactly one representative tenant to be activated");
-        }
-
-        if (room.Capacity is { } capacity && lease.Tenants.Count > capacity)
-        {
-            throw new AppValidationException($"The room allows at most {capacity} tenants");
-        }
-
-        var unavailable = lease.Tenants.FirstOrDefault(t => t.User is not { IsActive: true, IsDeleted: false });
-
-        if (unavailable is not null)
-        {
-            throw new AppValidationException($"User '{unavailable.UserId}' is inactive and cannot be a tenant of an active lease");
-        }
-    }
-
-    private static bool HasContractChanges(UpdateLeaseRequest request, Lease lease) =>
-        Changes(request.PreviousLeaseId, lease.PreviousLeaseId)
-        || Changes(request.LeaseCode, lease.LeaseCode)
-        || Changes(request.StartDate, lease.StartDate)
-        || Changes(request.EndDate, lease.EndDate)
-        || Changes(request.BillingDay, lease.BillingDay)
-        || Changes(request.MonthlyRent, lease.MonthlyRent)
-        || Changes(request.DepositAmount, lease.DepositAmount);
-
-    private static bool Changes<T>(Optional<T> field, T? current) =>
-        field.IsSet && !EqualityComparer<T?>.Default.Equals(field.Value, current);
-
-    private async Task ApplyTenantChangesAsync(
-        Lease lease, List<UpdateLeaseTenantRequest> changes, CancellationToken cancellationToken)
-    {
-        var existingById = lease.Tenants.ToDictionary(t => t.Id);
-        var unknown = changes.FirstOrDefault(c => c.Id is not null && !existingById.ContainsKey(c.Id.Value));
-        if (unknown is not null)
-        {
-            throw new AppNotFoundException(NotFoundMessages.LeaseTenant(unknown.Id!.Value));
-        }
-
-        var isActive = lease.Status == LeaseStatus.Active;
-
-        if (isActive && changes.Any(c => c.IsDeleted))
-        {
-            throw new AppConflictException("Tenants of an active lease cannot be removed — set LeftDate instead");
-        }
-
-        if (!isActive && changes.Any(c => c.LeftDate.IsSet))
-        {
-            throw new AppValidationException("LeftDate can only be set on an active lease");
-        }
-
-        if (isActive && changes.Any(c => c.Id is not null && c.JoinedDate is { IsSet: true, Value: null }))
-        {
-            throw new AppValidationException("JoinedDate cannot be cleared on an active lease");
-        }
-
-        var updated = changes.Where(c => c is { Id: not null, IsDeleted: false }).ToDictionary(c => c.Id!.Value);
-        var deletedIds = changes.Where(c => c.IsDeleted).Select(c => c.Id!.Value).ToHashSet();
-        var added = changes.Where(c => c.Id is null).ToList();
-        var remaining = lease.Tenants.Where(t => !deletedIds.Contains(t.Id)).ToList();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var latestMoveDate = today > lease.StartDate ? today : lease.StartDate;
-        var defaultJoinedDate = isActive ? latestMoveDate : (DateOnly?)null;
-
-        var currentUserIds = remaining.Where(t => LeftDateAfter(t, updated) is null).Select(t => t.UserId)
-            .Concat(added.Select(c => c.UserId!.Value))
-            .ToList();
-        var duplicateUserId = currentUserIds.GroupBy(u => u).FirstOrDefault(g => g.Count() > 1)?.Key;
-        if (duplicateUserId is not null)
-        {
-            throw new AppConflictException($"User '{duplicateUserId}' is already a tenant of this lease");
-        }
-
-        var overlappingStay = added.FirstOrDefault(c =>
-            (c.JoinedDate.Value ?? defaultJoinedDate) is { } joined
-            && remaining.Any(t => t.UserId == c.UserId && LeftDateAfter(t, updated) > joined));
-        if (overlappingStay is not null)
-        {
-            throw new AppValidationException(
-                $"User '{overlappingStay.UserId}' cannot rejoin before the LeftDate of their previous stay");
-        }
-
-        var currentCount = currentUserIds.Count;
-        if (currentCount > Lease.MaxTenants)
-        {
-            throw new AppValidationException($"A lease must not have more than {Lease.MaxTenants} current tenants");
-        }
-
-        if (lease.Room!.Capacity is { } capacity && currentCount > capacity)
-        {
-            throw new AppValidationException($"The room allows at most {capacity} tenants");
-        }
-
-        if (remaining.Any(t => LeftDateAfter(t, updated) is not null && IsRepresentativeAfter(t, updated)))
-        {
-            throw new AppValidationException("A tenant who has moved out cannot be the representative");
-        }
-
-        var representativeCount = remaining.Count(t => IsRepresentativeAfter(t, updated))
-            + added.Count(c => c.IsRepresentative == true);
-        if (representativeCount > 1)
-        {
-            throw new AppValidationException("A lease can have at most one representative tenant");
-        }
-
-        if (isActive && currentCount == 0)
-        {
-            throw new AppValidationException("An active lease must keep at least one tenant who has not moved out");
-        }
-
-        if (isActive && representativeCount != 1)
-        {
-            throw new AppValidationException("An active lease must have exactly one representative tenant");
-        }
-
-        var invalidLeftDate = remaining.FirstOrDefault(t => LeftDateAfter(t, updated) is { } left
-            && (left < (JoinedDateAfter(t, updated) ?? lease.StartDate) || left > latestMoveDate || left > lease.EndDate));
-        if (invalidLeftDate is not null)
-        {
-            throw new AppValidationException(
-                $"Tenant LeftDate {LeftDateAfter(invalidLeftDate, updated):yyyy-MM-dd} must be between their JoinedDate and today " +
-                "(or StartDate if the lease has not started yet)");
-        }
-
-        var users = await EnsureUsersCanBeTenantsAsync(added.Select(c => c.UserId!.Value).ToList(), cancellationToken);
-
-        foreach (var tenant in lease.Tenants.Where(t => deletedIds.Contains(t.Id)).ToList())
-        {
-            lease.Tenants.Remove(tenant);
-        }
-
-        foreach (var (tenantId, change) in updated)
-        {
-            var tenant = existingById[tenantId];
-            change.JoinedDate.ApplyIfSet(v => tenant.JoinedDate = v);
-            change.LeftDate.ApplyIfSet(v => tenant.LeftDate = v);
-            if (change.IsRepresentative == false)
-            {
-                tenant.IsRepresentative = false;
-            }
-        }
-
-        var promoted = updated.Where(u => u.Value.IsRepresentative == true && !existingById[u.Key].IsRepresentative).ToList();
-        var freesSlots = deletedIds.Count > 0
-            || updated.Any(u => u.Value.IsRepresentative == false || u.Value.LeftDate.IsSet);
-        if (freesSlots && (added.Count > 0 || promoted.Count > 0))
-        {
-            await unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-
-        foreach (var (tenantId, _) in promoted)
-        {
-            existingById[tenantId].IsRepresentative = true;
-        }
-
-        var userId = currentUserAccessor.RequiredUser.Id;
-        foreach (var change in added)
-        {
-            leaseRepository.AddTenant(lease, new LeaseTenant
-            {
-                LeaseId = lease.Id,
-                UserId = change.UserId!.Value,
-                User = users[change.UserId!.Value],
-                IsRepresentative = change.IsRepresentative ?? false,
-                JoinedDate = change.JoinedDate.Value ?? defaultJoinedDate,
-                CreatedBy = userId
-            });
-        }
-    }
-
-    private static DateOnly? LeftDateAfter(LeaseTenant tenant, Dictionary<Guid, UpdateLeaseTenantRequest> updated) =>
-        updated.TryGetValue(tenant.Id, out var c) && c.LeftDate.IsSet ? c.LeftDate.Value : tenant.LeftDate;
-
-    private static DateOnly? JoinedDateAfter(LeaseTenant tenant, Dictionary<Guid, UpdateLeaseTenantRequest> updated) =>
-        updated.TryGetValue(tenant.Id, out var c) && c.JoinedDate.IsSet ? c.JoinedDate.Value : tenant.JoinedDate;
-
-    private static bool IsRepresentativeAfter(LeaseTenant tenant, Dictionary<Guid, UpdateLeaseTenantRequest> updated) =>
-        updated.TryGetValue(tenant.Id, out var c) ? c.IsRepresentative ?? tenant.IsRepresentative : tenant.IsRepresentative;
-
-    private async Task<Dictionary<Guid, User>> EnsureUsersCanBeTenantsAsync(List<Guid> userIds, CancellationToken cancellationToken)
+    private async Task<Dictionary<Guid, User>> GetUsersAsync(List<Guid> userIds, CancellationToken cancellationToken)
     {
         if (userIds.Count == 0)
         {
@@ -655,41 +388,27 @@ public class LeaseService(
             throw new AppNotFoundException(NotFoundMessages.User(missing));
         }
 
-        var inactive = users.FirstOrDefault(u => !u.IsActive);
-        if (inactive is not null)
-        {
-            throw new AppValidationException($"User '{inactive.Id}' is inactive and cannot be added to a lease");
-        }
-
         return users.ToDictionary(u => u.Id);
     }
 
-    private async Task AttachUtilityServicesAsync(
-        Lease lease,
-        Guid propertyId,
-        List<CreateLeaseUtilityServiceRequest> requested,
-        Guid createdBy,
-        CancellationToken cancellationToken)
+    private async Task<List<LeaseUtilityServiceSelection>> GetUtilityServiceSelectionsAsync(
+        List<CreateLeaseUtilityServiceRequest> requested, CancellationToken cancellationToken)
     {
         if (requested.Count == 0)
         {
-            return;
+            return [];
         }
 
         var services = (await utilityServiceRepository.ListByIdsForShareAsync(
                 requested.Select(s => s.ServiceId).ToList(), cancellationToken))
             .ToDictionary(s => s.Id);
 
-        foreach (var item in requested)
-        {
-            if (!services.TryGetValue(item.ServiceId, out var service) || service.PropertyId != propertyId)
-            {
-                throw new AppValidationException(
-                    $"Utility service '{item.ServiceId}' must belong to the property of the lease's room");
-            }
-
-            lease.AttachUtilityService(service, item.UnitPriceOverride, item.Quantity, createdBy);
-        }
+        return requested
+            .Select(item => services.TryGetValue(item.ServiceId, out var service)
+                ? new LeaseUtilityServiceSelection(service, item.UnitPriceOverride, item.Quantity)
+                : throw new AppValidationException(
+                    $"Utility service '{item.ServiceId}' must belong to the property of the lease's room"))
+            .ToList();
     }
 
     private async Task EnsureCanBePreviousLeaseAsync(
@@ -701,30 +420,11 @@ public class LeaseService(
             throw new AppNotFoundException(NotFoundMessages.Lease(previousLeaseId));
         }
 
-        if (previous.RoomId != roomId)
-        {
-            throw new AppValidationException("The previous lease must belong to the same room");
-        }
-
-        if (previous.Status == LeaseStatus.Draft)
-        {
-            throw new AppValidationException("Previous lease must not be a draft");
-        }
+        previous.EnsureCanBeRenewedFor(roomId);
 
         if (await leaseRepository.ExistsByPreviousLeaseIdAsync(previousLeaseId, leaseId, cancellationToken))
         {
             throw new AppConflictException("The previous lease has already been renewed by another lease");
-        }
-    }
-
-    private static void EnsureTenantsJoinWithinLeaseTerm(Lease lease)
-    {
-        var outOfRange = lease.Tenants.FirstOrDefault(t =>
-            t.JoinedDate is { } joined && (joined < lease.StartDate || joined >= lease.EndDate));
-        if (outOfRange is not null)
-        {
-            throw new AppValidationException(
-                $"Tenant JoinedDate {outOfRange.JoinedDate:yyyy-MM-dd} must be on or after StartDate and before EndDate");
         }
     }
 

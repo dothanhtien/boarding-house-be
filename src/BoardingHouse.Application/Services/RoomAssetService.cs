@@ -81,41 +81,19 @@ public class RoomAssetService(
         await organizationScopeAccessor.EnsureScopeAsync(
             organizationId, PermissionResources.Room, PermissionActions.Update, NotFoundMessages.Room(roomId), cancellationToken);
 
-        var actorId = currentUserAccessor.RequiredUser.Id;
-        var asset = new RoomAsset
-        {
-            Id = assetId,
-            RoomId = roomId,
-            Name = input.Name,
-            Quantity = input.Quantity,
-            PurchaseDate = input.PurchaseDate,
-            PurchaseUnitPrice = input.PurchaseUnitPrice,
-            Condition = AssetCondition.Good,
-            Note = input.Note,
-            CreatedBy = actorId
-        };
+        var (asset, history) = RoomAsset.Create(
+            assetId,
+            roomId,
+            input.Name,
+            input.Quantity,
+            input.PurchaseDate,
+            input.PurchaseUnitPrice,
+            input.Note,
+            uploaded,
+            currentUserAccessor.RequiredUser.Id,
+            DateTimeOffset.UtcNow);
+
         await roomAssetRepository.AddAsync(asset, cancellationToken);
-
-        var history = new RoomAssetConditionHistory
-        {
-            AssetId = assetId,
-            OldCondition = null,
-            NewCondition = asset.Condition,
-            ChangedBy = actorId
-        };
-
-        foreach (var (media, i) in uploaded.Select((media, i) => (media, i)))
-        {
-            history.Media.Add(new RoomAssetConditionHistoryMedia
-            {
-                ConditionHistoryId = history.Id,
-                MediaAssetId = media.Id,
-                MediaAsset = media,
-                SortOrder = i,
-                CreatedBy = actorId
-            });
-        }
-
         await roomAssetConditionHistoryRepository.AddAsync(history, cancellationToken);
 
         return (asset, history);
@@ -131,9 +109,12 @@ public class RoomAssetService(
             await organizationScopeAccessor.EnsureScopeAsync(
                 organizationId, PermissionResources.Room, PermissionActions.Update, NotFoundMessages.RoomAsset(assetId), ct);
 
-            request.Adapt(existing, RoomAssetMappingConfig.UpdateConfig);
-
-            roomAssetRepository.Update(existing);
+            existing.Update(
+                request.Name.OrKeep(existing.Name)!,
+                request.Quantity.OrKeep(existing.Quantity),
+                request.PurchaseDate.OrKeep(existing.PurchaseDate),
+                request.PurchaseUnitPrice.OrKeep(existing.PurchaseUnitPrice),
+                request.Note.OrKeep(existing.Note));
 
             return existing;
         }, cancellationToken);
@@ -153,7 +134,8 @@ public class RoomAssetService(
             await organizationScopeAccessor.EnsureScopeAsync(
                 organizationId, PermissionResources.Room, PermissionActions.Update, NotFoundMessages.RoomAsset(assetId), ct);
 
-            var photos = await roomAssetConditionHistoryRepository.RemoveMediaByAssetIdsAsync([existing.Id], ct);
+            var histories = await roomAssetConditionHistoryRepository.ListWithPhotosByAssetIdsAsync([existing.Id], ct);
+            var photos = histories.SelectMany(h => h.RemoveAllPhotos()).ToList();
             mediaCollectionService.StageRemove(photos);
             roomAssetRepository.SoftDelete(existing);
 
@@ -178,38 +160,12 @@ public class RoomAssetService(
             await organizationScopeAccessor.EnsureScopeAsync(
                 organizationId, PermissionResources.Room, PermissionActions.Update, NotFoundMessages.RoomAsset(assetId), ct);
 
-            if (request.Quantity >= existing.Quantity)
-            {
-                throw new AppValidationException(
-                    $"Quantity must be less than the asset's quantity ({existing.Quantity}); to change the condition of the whole row, record a condition history entry instead");
-            }
+            var (created, history) = existing.Split(
+                request.Quantity, request.NewCondition, request.Note, currentUserAccessor.RequiredUser.Id, DateTimeOffset.UtcNow);
 
-            var actorId = currentUserAccessor.RequiredUser.Id;
-            var created = new RoomAsset
-            {
-                RoomId = roomId,
-                Name = existing.Name,
-                Quantity = request.Quantity,
-                PurchaseDate = existing.PurchaseDate,
-                PurchaseUnitPrice = existing.PurchaseUnitPrice,
-                Condition = request.NewCondition,
-                Note = existing.Note,
-                SplitFromAssetId = existing.Id,
-                CreatedBy = actorId
-            };
-
-            existing.Quantity -= request.Quantity;
-            roomAssetRepository.Update(existing);
             await roomAssetRepository.AddAsync(created, ct);
 
-            await roomAssetConditionHistoryRepository.AddAsync(new RoomAssetConditionHistory
-            {
-                AssetId = created.Id,
-                OldCondition = existing.Condition,
-                NewCondition = request.NewCondition,
-                Note = request.Note,
-                ChangedBy = actorId
-            }, ct);
+            await roomAssetConditionHistoryRepository.AddAsync(history, ct);
 
             return (existing, created);
         }, cancellationToken);

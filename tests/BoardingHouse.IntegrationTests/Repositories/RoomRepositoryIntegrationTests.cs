@@ -1,4 +1,4 @@
-using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore;
 using BoardingHouse.IntegrationTests.Fixtures;
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.Common.Listing;
@@ -42,12 +42,49 @@ public class RoomRepositoryIntegrationTests(PostgresContainerFixture fixture)
         Assert.Equal(["102", "103"], rooms.Select(r => r.Room.RoomNumber));
     }
 
+    [Fact]
+    public async Task GetAggregateForUpdateAsync_LoadsAmenitiesAndMediaWithAsset()
+    {
+        Guid roomId;
+        await using (var seed = fixture.CreateContext())
+        {
+            var organization = TestEntities.New<Organization>(new { Name = "Org", CreatedBy = SentinelActors.System });
+            var property = TestEntities.New<Property>(new { OrganizationId = organization.Id, Name = "Property", CreatedBy = SentinelActors.System });
+            seed.AddRange(organization, property);
+            var room = AddRoom(seed, property, "101");
+            room.ApplyAmenityChanges([new AmenityChange { Name = "Fan" }], SentinelActors.System);
+            var mediaAsset = TestEntities.New<MediaAsset>(new
+            {
+                FileName = "photo.png",
+                StorageProvider = StorageProvider.Cloudinary,
+                StorageKey = $"test/{Guid.NewGuid():N}",
+                FileUrl = "https://storage.test/photo.png",
+                MimeType = "image/png",
+                FileSize = 16,
+                EntityType = MediaAssetEntityType.RoomMedia,
+                CreatedBy = SentinelActors.System
+            });
+            seed.MediaAssets.Add(mediaAsset);
+            room.AddMedia([mediaAsset], SentinelActors.System);
+            await seed.SaveChangesAsync();
+            roomId = room.Id;
+        }
+
+        await using var context = fixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var (loaded, organizationId) = (await new RoomRepository(context).GetAggregateForUpdateAsync(roomId))!;
+
+        Assert.NotEqual(Guid.Empty, organizationId);
+        Assert.Equal("Fan", Assert.Single(loaded.Amenities).Name);
+        Assert.NotNull(Assert.Single(loaded.Media).MediaAsset);
+    }
+
     private async Task<List<RoomWithRecordedMeterCount>> SearchAsync(
         Guid propertyId, bool? recorded)
     {
         await using var context = fixture.CreateContext();
         var paged = await new RoomRepository(context).SearchForUtilityReadingAsync(
-            propertyId, Month, recorded, search: null,
+            propertyId, BillingMonth.Of(Month), recorded, search: null,
             new PageRequest(), r => r.Room.RoomNumber, SortOrder.Asc);
         return paged.Items.ToList();
     }
@@ -57,14 +94,14 @@ public class RoomRepositoryIntegrationTests(PostgresContainerFixture fixture)
     private async Task<Guid> SeedAsync()
     {
         await using var context = fixture.CreateContext();
-        var organization = new Organization { Name = "Org", CreatedBy = SentinelActors.System };
-        var property = new Property { OrganizationId = organization.Id, Name = "Property", CreatedBy = SentinelActors.System };
+        var organization = TestEntities.New<Organization>(new { Name = "Org", CreatedBy = SentinelActors.System });
+        var property = TestEntities.New<Property>(new { OrganizationId = organization.Id, Name = "Property", CreatedBy = SentinelActors.System });
         context.AddRange(organization, property);
 
         var electricity = AddService(context, property, "Electricity");
         var water = AddService(context, property, "Water");
         var retired = AddService(context, property, "Gas");
-        retired.IsActive = false;
+        TestEntities.Set(retired, new { IsActive = false });
 
         var room101 = AddRoom(context, property, "101");
         var room102 = AddRoom(context, property, "102");
@@ -82,34 +119,28 @@ public class RoomRepositoryIntegrationTests(PostgresContainerFixture fixture)
 
     private static UtilityService AddService(AppDbContext context, Property property, string name)
     {
-        var service = new UtilityService
+        var service = TestEntities.New<UtilityService>(new
         {
             PropertyId = property.Id,
             Name = name,
             Unit = "unit",
             BillingMethod = UtilityBillingMethod.Metered,
             CreatedBy = SentinelActors.System
-        };
+        });
         context.UtilityServices.Add(service);
         return service;
     }
 
     private static Room AddRoom(AppDbContext context, Property property, string roomNumber)
     {
-        var room = new Room { PropertyId = property.Id, RoomNumber = roomNumber, CreatedBy = SentinelActors.System };
+        var room = TestRooms.New(propertyId: property.Id, roomNumber: roomNumber);
         context.Rooms.Add(room);
         return room;
     }
 
     private static void AddReading(AppDbContext context, Room room, UtilityService service, DateOnly readingMonth) =>
-        context.UtilityReadings.Add(new UtilityReading
-        {
-            RoomId = room.Id,
-            ServiceId = service.Id,
-            ReadOn = readingMonth,
-            ReadingMonth = readingMonth,
-            CurrentValue = 10,
-            CreatedAt = DateTimeOffset.UtcNow,
-            CreatedBy = SentinelActors.System
-        });
+        context.UtilityReadings.Add(UtilityReading.Record(
+            room.Id, service.Id, readOn: readingMonth, BillingMonth.FromFirstDay(readingMonth),
+            latest: null, initialPreviousValue: null, currentValue: 10, billedLeaseId: null,
+            DateTimeOffset.UtcNow, SentinelActors.System));
 }

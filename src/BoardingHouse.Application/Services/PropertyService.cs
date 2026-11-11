@@ -1,15 +1,14 @@
 using Mapster;
 using System.Linq.Expressions;
-using BoardingHouse.Application.Repositories;
-using BoardingHouse.Application.Persistence;
-using BoardingHouse.Application.Common.CurrentOrganization;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.CurrentOrganization;
+using BoardingHouse.Application.Common.CurrentUser;
+using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.DTOs.Properties;
 using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Repositories;
 using BoardingHouse.Domain.Entities;
-using BoardingHouse.Application.Mappings;
-using BoardingHouse.Application.Common.Listing;
-using BoardingHouse.Application.Common.CurrentUser;
 
 namespace BoardingHouse.Application.Services;
 
@@ -94,21 +93,19 @@ public class PropertyService(
         await organizationScopeAccessor.EnsureScopeAsync(
             organizationId, PermissionResources.Property, PermissionActions.Create, cancellationToken: cancellationToken);
 
-        var property = new Property
-        {
-            OrganizationId = organizationId,
-            Name = request.Name,
-            Description = request.Description,
-            Province = request.Province,
-            District = request.District,
-            Ward = request.Ward,
-            Address = request.Address,
-            DefaultBillingDay = request.DefaultBillingDay,
-            LateFeeType = request.LateFeeType,
-            LateFeeValue = request.LateFeeValue,
-            LateFeeGraceDays = request.LateFeeGraceDays,
-            CreatedBy = currentUserAccessor.RequiredUser.Id
-        };
+        var property = Property.Create(
+            organizationId,
+            new PropertyDetails(
+                request.Name,
+                request.Description,
+                request.Province,
+                request.District,
+                request.Ward,
+                request.Address,
+                IsActive: true,
+                request.DefaultBillingDay,
+                new LateFeePolicy(request.LateFeeType, request.LateFeeValue, request.LateFeeGraceDays)),
+            currentUserAccessor.RequiredUser.Id);
 
         try
         {
@@ -138,11 +135,23 @@ public class PropertyService(
             NotFoundMessages.Property(id),
             cancellationToken);
 
-        request.Adapt(property, PropertyMappingConfig.UpdateConfig);
+        var current = property.Details;
+        property.Update(new PropertyDetails(
+            request.Name.OrKeep(current.Name)!,
+            request.Description.OrKeep(current.Description),
+            request.Province.OrKeep(current.Province),
+            request.District.OrKeep(current.District),
+            request.Ward.OrKeep(current.Ward),
+            request.Address.OrKeep(current.Address),
+            request.IsActive.OrKeep(current.IsActive),
+            request.DefaultBillingDay.OrKeep(current.DefaultBillingDay),
+            new LateFeePolicy(
+                request.LateFeeType.OrKeep(current.LateFee.Type),
+                request.LateFeeValue.OrKeep(current.LateFee.Value),
+                request.LateFeeGraceDays.OrKeep(current.LateFee.GraceDays))));
 
         try
         {
-            propertyRepository.Update(property);
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
         catch (UniqueConstraintViolationException)

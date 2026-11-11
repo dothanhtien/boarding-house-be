@@ -6,6 +6,7 @@ namespace BoardingHouse.Application.Repositories;
 
 public interface IOrganizationRepository : IRepository<Organization>
 {
+    Task<Organization?> GetAggregateForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Organization?> GetByIdWithMembersAsync(Guid id, CancellationToken cancellationToken = default);
     Task<PagedResult<Organization>> SearchAsync(
         bool? isActive,

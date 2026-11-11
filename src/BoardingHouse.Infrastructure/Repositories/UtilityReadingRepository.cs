@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.Repositories;
+using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Infrastructure.Persistence;
@@ -28,7 +29,7 @@ public class UtilityReadingRepository(AppDbContext context) : IUtilityReadingRep
 
     public void SoftDelete(UtilityReading reading) => context.UtilityReadings.Remove(reading);
 
-    public Task<List<EntityWithMedia<UtilityReading>>> ListByRoomAndMonthWithImageAsync(Guid roomId, DateOnly readingMonth, CancellationToken cancellationToken = default) =>
+    public Task<List<EntityWithMedia<UtilityReading>>> ListByRoomAndMonthWithImageAsync(Guid roomId, BillingMonth readingMonth, CancellationToken cancellationToken = default) =>
         context.UtilityReadings
             .AsNoTracking()
             .IgnoreQueryFilters()
@@ -50,10 +51,9 @@ public class UtilityReadingRepository(AppDbContext context) : IUtilityReadingRep
             .Select(g => g.OrderByDescending(r => r.ReadOn).ThenByDescending(r => r.CreatedAt).First())
             .ToListAsync(cancellationToken);
 
-    public async Task<List<UtilityReading>> ListLastBilledOfMonthByRoomIdsAsync(
-        IReadOnlyCollection<Guid> roomIds, DateOnly readingMonth, CancellationToken cancellationToken = default)
-    {
-        var rows = await context.UtilityReadings
+    public Task<List<Lease>> ListLastBilledLeasesOfMonthByRoomIdsAsync(
+        IReadOnlyCollection<Guid> roomIds, BillingMonth readingMonth, CancellationToken cancellationToken = default) =>
+        context.UtilityReadings
             .AsNoTracking()
             .IgnoreQueryFilters()
             .Where(r => roomIds.Contains(r.RoomId)
@@ -64,15 +64,7 @@ public class UtilityReadingRepository(AppDbContext context) : IUtilityReadingRep
             .Select(g => g
                 .OrderByDescending(r => r.CreatedAt)
                 .ThenBy(r => r.Id)
-                .Select(r => new { Reading = r, r.BilledLease })
+                .Select(r => r.BilledLease!)
                 .First())
             .ToListAsync(cancellationToken);
-
-        foreach (var row in rows)
-        {
-            row.Reading.BilledLease = row.BilledLease;
-        }
-
-        return rows.Select(row => row.Reading).ToList();
-    }
 }

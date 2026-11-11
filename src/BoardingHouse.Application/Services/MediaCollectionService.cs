@@ -40,7 +40,7 @@ public class MediaCollectionService(
                 .Select(async file =>
                 {
                     var asset = await mediaUploader.UploadAsync(file, folder, organizationId, CancellationToken.None);
-                    asset.EntityType = entityType;
+                    asset.AssignTo(entityType);
                     return asset;
                 })
                 .ToList();

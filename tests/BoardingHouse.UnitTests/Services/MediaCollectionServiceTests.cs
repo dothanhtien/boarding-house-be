@@ -1,3 +1,4 @@
+using BoardingHouse.UnitTests.Common;
 using System.Collections.Concurrent;
 using System.Text;
 using Microsoft.AspNetCore.Http;
@@ -48,7 +49,7 @@ public class MediaCollectionServiceTests
                 It.Is<IFileUpload>(f => f.FileName == fileName), "folder", _organizationId, It.IsAny<CancellationToken>()))
             .Returns(upload);
 
-    private static MediaAsset Asset(string storageKey) => new()
+    private static MediaAsset Asset(string storageKey) => TestEntities.New<MediaAsset>(new
     {
         FileName = $"{storageKey}.png",
         StorageProvider = StorageProvider.Cloudinary,
@@ -57,7 +58,7 @@ public class MediaCollectionServiceTests
         MimeType = "image/png",
         FileSize = 1,
         CreatedBy = SentinelActors.System
-    };
+    });
 
     [Fact]
     public async Task AddAsync_AllUploadsSucceed_AttachesUntrackedAssetsTaggedWithEntityTypeInFileOrder()

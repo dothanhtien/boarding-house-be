@@ -8,6 +8,6 @@ public class RolePermission
     public Guid PermissionId { get; set; }
     public Permission? Permission { get; set; }
 
-    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public required DateTimeOffset CreatedAt { get; set; }
     public required Guid CreatedBy { get; set; }
 }

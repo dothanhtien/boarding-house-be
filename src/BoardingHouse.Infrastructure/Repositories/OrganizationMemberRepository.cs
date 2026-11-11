@@ -8,23 +8,8 @@ using BoardingHouse.Infrastructure.Persistence.Listing;
 
 namespace BoardingHouse.Infrastructure.Repositories;
 
-public class OrganizationMemberRepository(AppDbContext context) : Repository<OrganizationMember>(context), IOrganizationMemberRepository
+public class OrganizationMemberRepository(AppDbContext context) : IOrganizationMemberRepository
 {
-    public Task<OrganizationMember?> GetByOrganizationAndUserIdAsync(Guid organizationId, Guid userId, CancellationToken cancellationToken = default) =>
-        Context.OrganizationMembers
-            .Include(m => m.Role)
-            .FirstOrDefaultAsync(m => m.OrganizationId == organizationId && m.UserId == userId, cancellationToken);
-
-    public Task<OrganizationMember?> GetByIdWithUserAsync(Guid memberId, CancellationToken cancellationToken = default) =>
-        Context.OrganizationMembers
-            .Include(m => m.User)
-            .FirstOrDefaultAsync(m => m.Id == memberId, cancellationToken);
-
-    public Task<List<OrganizationMember>> GetByOrganizationAndRoleIdAsync(Guid organizationId, Guid roleId, CancellationToken cancellationToken = default) =>
-        Context.OrganizationMembers
-            .Where(m => m.OrganizationId == organizationId && m.RoleId == roleId)
-            .ToListAsync(cancellationToken);
-
     public async Task<PagedResult<OrganizationMember>> SearchByOrganizationIdAsync(
         Guid organizationId,
         string? search,
@@ -33,7 +18,7 @@ public class OrganizationMemberRepository(AppDbContext context) : Repository<Org
         SortOrder sortOrder,
         CancellationToken cancellationToken = default)
     {
-        var members = Context.OrganizationMembers
+        var members = context.OrganizationMembers
             .Include(m => m.User)
             .Include(m => m.Role)
             .Where(m => m.OrganizationId == organizationId)
@@ -51,7 +36,7 @@ public class OrganizationMemberRepository(AppDbContext context) : Repository<Org
     }
 
     public Task<List<(Guid OrganizationId, Guid RoleId)>> GetActiveMembershipsByUserIdAsync(Guid userId, CancellationToken cancellationToken = default) =>
-        Context.OrganizationMembers
+        context.OrganizationMembers
             .Where(m => m.UserId == userId && m.Role!.IsActive)
             .Select(m => new ValueTuple<Guid, Guid>(m.OrganizationId, m.RoleId))
             .ToListAsync(cancellationToken);

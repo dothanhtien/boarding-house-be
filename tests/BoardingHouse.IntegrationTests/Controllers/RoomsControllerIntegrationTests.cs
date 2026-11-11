@@ -125,7 +125,7 @@ public class RoomsControllerIntegrationTests(PostgresApiFactory factory)
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await RbacSeeder.SeedAsync(context);
 
-        var organization = new Organization { Name = $"Member Org {Guid.NewGuid()}", CreatedBy = SentinelActors.System };
+        var organization = TestEntities.New<Organization>(new { Name = $"Member Org {Guid.NewGuid()}", CreatedBy = SentinelActors.System });
         context.Organizations.Add(organization);
         await context.SaveChangesAsync();
 
@@ -142,13 +142,7 @@ public class RoomsControllerIntegrationTests(PostgresApiFactory factory)
         var member = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())?.Data;
 
         var role = await context.Roles.SingleAsync(r => r.Slug == roleSlug);
-        context.OrganizationMembers.Add(new OrganizationMember
-        {
-            OrganizationId = organization.Id,
-            UserId = member!.Id,
-            RoleId = role.Id,
-            CreatedBy = SentinelActors.System
-        });
+        context.OrganizationMembers.Add(OrganizationMember.Create(organization.Id, member!.Id, role, SentinelActors.System));
         await context.SaveChangesAsync();
 
         var loginResponse = await memberClient.PostAsJsonAsync("/api/auth/login", new LoginRequest
@@ -561,7 +555,7 @@ public class RoomsControllerIntegrationTests(PostgresApiFactory factory)
         await using (var transaction = await context.Database.BeginTransactionAsync())
         {
             await context.Properties.FromSql($"SELECT * FROM properties WHERE id = {_propertyId} FOR SHARE").SingleAsync();
-            context.Rooms.Add(new Room { PropertyId = _propertyId, RoomNumber = "LOCK1", CreatedBy = _actorId });
+            context.Rooms.Add(TestRooms.New(propertyId: _propertyId, roomNumber: "LOCK1", createdBy: _actorId));
             await context.SaveChangesAsync();
 
             var deleteTask = _client.DeleteAsync($"/api/properties/{_propertyId}");

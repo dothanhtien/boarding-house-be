@@ -15,11 +15,11 @@ public class UnitOfWorkTests(PostgresApiFactory factory) : IClassFixture<Postgre
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    private static Organization NewOrganization(string name) => new()
+    private static Organization NewOrganization(string name) => TestEntities.New<Organization>(new
     {
         Name = name,
         CreatedBy = SentinelActors.System
-    };
+    });
 
     // Reads through a fresh scope so the assertion hits the database, not the change tracker of the context under test
     private async Task<int> CountOrganizationsAsync(string name)
@@ -126,13 +126,13 @@ public class UnitOfWorkTests(PostgresApiFactory factory) : IClassFixture<Postgre
         Assert.Equal(1, await CountOrganizationsAsync("uow-save"));
     }
 
-    private static User NewUser(string email) => new()
+    private static User NewUser(string email) => TestEntities.New<User>(new
     {
         Email = email,
         PasswordHash = "hash",
         FullName = "UoW User",
         CreatedBy = SentinelActors.System
-    };
+    });
 
     // Every service catch matches on ConstraintName, so the real Postgres index name must come through untouched
     [Fact]
@@ -180,12 +180,12 @@ public class UnitOfWorkTests(PostgresApiFactory factory) : IClassFixture<Postgre
         var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
         // Foreign key violation: the organization does not exist
-        await context.Properties.AddAsync(new Property
+        await context.Properties.AddAsync(TestEntities.New<Property>(new
         {
             OrganizationId = Guid.NewGuid(),
             Name = "uow-orphan",
             CreatedBy = SentinelActors.System
-        });
+        }));
 
         var exception = await Assert.ThrowsAsync<PersistenceException>(() => unitOfWork.SaveChangesAsync());
 

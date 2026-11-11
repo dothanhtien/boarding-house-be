@@ -5,7 +5,7 @@ namespace BoardingHouse.UnitTests.DTOs;
 public class UpdateLeaseRequestTests
 {
     [Fact]
-    public void Fields_AreAllHandledByHasContractChanges()
+    public void Fields_AreAllMappedToLeaseTermsOrTenantChanges()
     {
         string[] expected =
         [

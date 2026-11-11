@@ -68,13 +68,7 @@ public class AdminSeederTests(PostgresContainerFixture fixture) : IClassFixture<
     {
         await using var context = fixture.CreateContext();
         await RbacSeeder.SeedAsync(context);
-        context.Users.Add(new Domain.Entities.User
-        {
-            Email = Email,
-            PasswordHash = "hashed-password",
-            FullName = FullName,
-            CreatedBy = SentinelActors.System
-        });
+        context.Users.Add(Domain.Entities.User.Register(Email, phone: null, "hashed-password", FullName, SentinelActors.System));
         await context.SaveChangesAsync();
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(

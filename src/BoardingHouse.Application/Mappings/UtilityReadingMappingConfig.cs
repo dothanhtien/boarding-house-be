@@ -1,6 +1,7 @@
-using BoardingHouse.Application.DTOs.UtilityReadings;
-using BoardingHouse.Domain.Entities;
 using Mapster;
+using BoardingHouse.Application.DTOs.UtilityReadings;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Application.Mappings;
 
@@ -8,6 +9,8 @@ public class UtilityReadingMappingConfig : IRegister
 {
     public void Register(TypeAdapterConfig config)
     {
+        config.NewConfig<BillingMonth, DateOnly>().MapWith(month => month.FirstDay);
+
         config.NewConfig<UtilityReading, UtilityReadingResponse>()
             .Map(dest => dest.ServiceName, src => src.Service!.Name)
             .Map(dest => dest.Unit, src => src.Service!.Unit)

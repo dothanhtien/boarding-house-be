@@ -1,3 +1,4 @@
+using BoardingHouse.UnitTests.Common;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
@@ -28,7 +29,7 @@ public class UserCacheTests
     private UserCache CreateSut(IConfiguration? configuration = null) =>
         new(_cache.Object, configuration ?? ConfigurationWithTtl(), NullLogger<UserCache>.Instance);
 
-    private static User NewUser() => new()
+    private static User NewUser() => TestEntities.New<User>(new
     {
         Id = Guid.NewGuid(),
         Email = "user@test.com",
@@ -36,7 +37,7 @@ public class UserCacheTests
         FullName = "Test User",
         IsActive = true,
         CreatedBy = SentinelActors.System
-    };
+    });
 
     [Fact]
     public async Task GetAsync_CacheMiss_ReturnsNull()
@@ -94,8 +95,32 @@ public class UserCacheTests
         await CreateSut().SetAsync(NewUser());
 
         Assert.NotNull(capturedBytes);
-        var cached = JsonSerializer.Deserialize<User>(Encoding.UTF8.GetString(capturedBytes!));
-        Assert.Equal(string.Empty, cached!.PasswordHash);
+        Assert.DoesNotContain(nameof(User.PasswordHash), Encoding.UTF8.GetString(capturedBytes!));
+    }
+
+    [Fact]
+    public async Task SetAsyncThenGetAsync_RestoresThePrivateSetFields()
+    {
+        byte[]? capturedBytes = null;
+        _cache.Setup(c => c.SetAsync(
+                It.IsAny<string>(),
+                It.IsAny<byte[]>(),
+                It.IsAny<DistributedCacheEntryOptions>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<string, byte[], DistributedCacheEntryOptions, CancellationToken>((_, bytes, _, _) => capturedBytes = bytes)
+            .Returns(Task.CompletedTask);
+        var user = NewUser();
+        user.SetActive(false);
+        var sut = CreateSut();
+
+        await sut.SetAsync(user);
+        _cache.Setup(c => c.GetAsync($"user:{user.Id}", It.IsAny<CancellationToken>())).ReturnsAsync(capturedBytes);
+        var cached = await sut.GetAsync(user.Id);
+
+        Assert.NotNull(cached);
+        Assert.Equal(
+            (user.Id, user.Email, user.FullName, false, user.CreatedBy),
+            (cached!.Id, cached.Email, cached.FullName, cached.IsActive, cached.CreatedBy));
     }
 
     [Fact]

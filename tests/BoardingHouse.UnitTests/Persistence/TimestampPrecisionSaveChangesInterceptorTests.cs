@@ -24,15 +24,14 @@ public class TimestampPrecisionSaveChangesInterceptorTests
         return new AppDbContext(options);
     }
 
-    private static RoomAssetConditionHistory NewHistory() =>
-        new() { AssetId = Guid.NewGuid(), NewCondition = AssetCondition.Good };
+    private static RoomAssetConditionHistory NewHistory(DateTimeOffset changedAt) =>
+        new(Guid.NewGuid(), oldCondition: null, AssetCondition.Good, note: null, photos: [], Guid.NewGuid(), changedAt);
 
     [Fact]
     public async Task SaveChangesAsync_AddedEntity_TruncatesTimestampsToMicroseconds()
     {
         using var context = CreateContext();
-        var history = NewHistory();
-        history.ChangedAt = SubMicrosecond;
+        var history = NewHistory(SubMicrosecond);
         context.RoomAssetConditionHistories.Add(history);
 
         await context.SaveChangesAsync();
@@ -44,8 +43,7 @@ public class TimestampPrecisionSaveChangesInterceptorTests
     public async Task SaveChangesAsync_ModifiedEntity_TruncatesTimestamps()
     {
         using var context = CreateContext();
-        var history = NewHistory();
-        history.ChangedAt = Truncated;
+        var history = NewHistory(Truncated);
         context.RoomAssetConditionHistories.Add(history);
         await context.SaveChangesAsync();
 
@@ -61,7 +59,7 @@ public class TimestampPrecisionSaveChangesInterceptorTests
     public async Task SaveChangesAsync_TimestampStampedByOptionsInterceptor_IsTruncatedToo()
     {
         using var context = CreateContext(new StampChangedAtInterceptor());
-        var history = NewHistory();
+        var history = NewHistory(Truncated);
         context.RoomAssetConditionHistories.Add(history);
 
         await context.SaveChangesAsync();
@@ -73,8 +71,7 @@ public class TimestampPrecisionSaveChangesInterceptorTests
     public async Task SaveChangesAsync_WholeMicrosecondValue_IsUnchanged()
     {
         using var context = CreateContext();
-        var history = NewHistory();
-        history.ChangedAt = Truncated;
+        var history = NewHistory(Truncated);
         context.RoomAssetConditionHistories.Add(history);
 
         await context.SaveChangesAsync();
@@ -91,7 +88,7 @@ public class TimestampPrecisionSaveChangesInterceptorTests
         {
             foreach (var entry in eventData.Context!.ChangeTracker.Entries<RoomAssetConditionHistory>())
             {
-                entry.Entity.ChangedAt = SubMicrosecond;
+                entry.Property(h => h.ChangedAt).CurrentValue = SubMicrosecond;
             }
 
             return base.SavingChangesAsync(eventData, result, cancellationToken);
