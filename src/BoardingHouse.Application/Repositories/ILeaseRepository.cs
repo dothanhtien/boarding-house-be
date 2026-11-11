@@ -1,8 +1,8 @@
 using System.Linq.Expressions;
-using BoardingHouse.Domain.Entities;
-using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Application.Repositories;
 
@@ -44,4 +44,6 @@ public interface ILeaseRepository : IRepository<Lease>
     Task<bool> ExistsTenantInOrganizationsAsync(Guid userId, IReadOnlySet<Guid> organizationIds, CancellationToken cancellationToken = default);
     Task<List<Lease>> ListByTenantUserIdAsync(Guid userId, IReadOnlySet<Guid>? allowedOrganizationIds, CancellationToken cancellationToken = default);
     void AddTenant(Lease lease, LeaseTenant tenant);
+    Task<bool> ExistsUtilityServiceUsageAsync(Guid serviceId, CancellationToken cancellationToken = default);
+    Task<bool> ExistsActiveUtilityServiceInOpenLeaseAsync(Guid serviceId, CancellationToken cancellationToken = default);
 }

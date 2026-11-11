@@ -1,12 +1,11 @@
 using Mapster;
-using BoardingHouse.Domain.Entities;
-using BoardingHouse.Application.Repositories;
-using BoardingHouse.Application.Persistence;
 using BoardingHouse.Application.Common;
-using BoardingHouse.Application.DTOs.Organizations;
-using BoardingHouse.Application.Mappings;
-using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Application.Common.CurrentUser;
+using BoardingHouse.Application.DTOs.Organizations;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Application.Services;
 
@@ -24,7 +23,7 @@ public class OrganizationSettingsService(
         await EnsureOrganizationExistsAsync(organizationId, cancellationToken);
 
         var settings = await organizationSettingsRepository.GetByOrganizationIdAsync(organizationId, cancellationToken)
-            ?? new OrganizationSettings { OrganizationId = organizationId };
+            ?? OrganizationSettings.DefaultsFor(organizationId);
 
         return settings.Adapt<OrganizationSettingsResponse>();
     }
@@ -40,11 +39,9 @@ public class OrganizationSettingsService(
         var settings = await organizationSettingsRepository.GetByOrganizationIdAsync(organizationId, cancellationToken);
 
         var isNew = settings is null;
-        settings ??= new OrganizationSettings { OrganizationId = organizationId };
+        settings ??= OrganizationSettings.DefaultsFor(organizationId);
 
-        request.Adapt(settings, OrganizationSettingsMappingConfig.UpdateConfig);
-        settings.UpdatedAt = DateTimeOffset.UtcNow;
-        settings.UpdatedBy = currentUserAccessor.RequiredUser.Id;
+        Apply(request, settings);
 
         if (isNew)
         {
@@ -57,23 +54,38 @@ public class OrganizationSettingsService(
             }
             catch (UniqueConstraintViolationException)
             {
-                organizationSettingsRepository.Detach(settings);
+                unitOfWork.DiscardChanges();
                 logger.LogInformation("Organization settings creation raced with a concurrent write ({OrganizationId}); retrying as update", organizationId);
 
                 settings = await organizationSettingsRepository.GetByOrganizationIdAsync(organizationId, cancellationToken)
                     ?? throw new AppConflictException("Organization settings could not be saved, please retry");
 
-                request.Adapt(settings, OrganizationSettingsMappingConfig.UpdateConfig);
-                settings.UpdatedAt = DateTimeOffset.UtcNow;
-                settings.UpdatedBy = currentUserAccessor.RequiredUser.Id;
+                Apply(request, settings);
             }
         }
 
-        organizationSettingsRepository.Update(settings);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         logger.LogInformation("Organization settings updated ({OrganizationId})", organizationId);
 
         return settings.Adapt<OrganizationSettingsResponse>();
+    }
+
+    private void Apply(UpdateOrganizationSettingsRequest request, OrganizationSettings settings)
+    {
+        var current = settings.Details;
+        settings.Update(
+            new OrganizationSettingsDetails(
+                request.DefaultBillingDay.OrKeep(current.DefaultBillingDay),
+                new LateFeePolicy(
+                    request.LateFeeType.OrKeep(current.LateFee.Type),
+                    request.LateFeeValue.OrKeep(current.LateFee.Value),
+                    request.LateFeeGraceDays.OrKeep(current.LateFee.GraceDays)),
+                request.VatRate.OrKeep(current.VatRate),
+                request.BankAccountNumber.OrKeep(current.BankAccountNumber),
+                request.BankName.OrKeep(current.BankName),
+                request.BankAccountName.OrKeep(current.BankAccountName)),
+            currentUserAccessor.RequiredUser.Id,
+            DateTimeOffset.UtcNow);
     }
 
     private async Task EnsureOrganizationExistsAsync(Guid organizationId, CancellationToken cancellationToken)

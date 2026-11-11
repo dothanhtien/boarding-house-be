@@ -133,7 +133,7 @@ public class RoomAssetConditionHistoryRepositoryIntegrationTests(PostgresContain
     private static Room AddRoom(AppDbContext context, string roomNumber)
     {
         var organization = TestEntities.New<Organization>(new { Name = $"Org {roomNumber}", CreatedBy = SentinelActors.System });
-        var property = new Property { OrganizationId = organization.Id, Name = $"Property {roomNumber}", CreatedBy = SentinelActors.System };
+        var property = TestEntities.New<Property>(new { OrganizationId = organization.Id, Name = $"Property {roomNumber}", CreatedBy = SentinelActors.System });
         var room = new Room { PropertyId = property.Id, RoomNumber = roomNumber, CreatedBy = SentinelActors.System };
         context.AddRange(organization, property, room);
         return room;

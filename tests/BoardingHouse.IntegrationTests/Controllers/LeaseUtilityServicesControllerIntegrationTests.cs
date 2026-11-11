@@ -617,6 +617,20 @@ public class LeaseUtilityServicesControllerIntegrationTests(PostgresApiFactory f
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData(LeaseStatus.Terminated)]
+    [InlineData(LeaseStatus.Expired)]
+    public async Task UpdateBillingMethod_ServiceUsedByClosedLease_Returns409(LeaseStatus status)
+    {
+        var water = await CreateUtilityServiceAsync("Water", 15_000, UtilityBillingMethod.Metered);
+        var lease = await CreateLeaseAsync([water]);
+        await SetLeaseStatusAsync(lease.Id, status);
+
+        var response = await PatchUtilityServiceAsync(water.Id, new UpdateUtilityServiceRequest { BillingMethod = UtilityBillingMethod.PerTenant });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
     [Fact]
     public async Task UpdateBillingMethod_SameValueOnUsedService_Returns200()
     {

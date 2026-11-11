@@ -1,3 +1,4 @@
+using BoardingHouse.UnitTests.Common;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
@@ -10,7 +11,7 @@ public class LeaseUtilityServiceTests
     {
         CreatedBy = SentinelActors.System,
         UnitPriceOverride = unitPriceOverride,
-        Service = new UtilityService
+        Service = TestEntities.New<UtilityService>(new
         {
             Name = "Internet",
             Type = UtilityType.Internet,
@@ -18,7 +19,7 @@ public class LeaseUtilityServiceTests
             Unit = "month",
             DefaultUnitPrice = defaultUnitPrice,
             CreatedBy = SentinelActors.System
-        }
+        })
     };
 
     // decimal is not allowed in attributes, so InlineData passes double and the test casts
@@ -50,7 +51,7 @@ public class LeaseUtilityServiceTests
     public void SetQuantity_NonFixedService_OnlyAllowsOne(UtilityBillingMethod billingMethod)
     {
         var leaseUtilityService = NewLeaseUtilityService(100_000, unitPriceOverride: null);
-        leaseUtilityService.Service!.BillingMethod = billingMethod;
+        TestEntities.Set(leaseUtilityService.Service!, new { BillingMethod = billingMethod });
 
         leaseUtilityService.SetQuantity(1);
 

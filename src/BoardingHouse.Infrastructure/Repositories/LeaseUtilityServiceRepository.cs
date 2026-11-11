@@ -1,8 +1,7 @@
+using Microsoft.EntityFrameworkCore;
 using BoardingHouse.Application.Repositories;
 using BoardingHouse.Domain.Entities;
-using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 
 namespace BoardingHouse.Infrastructure.Repositories;
 
@@ -37,17 +36,4 @@ public class LeaseUtilityServiceRepository(AppDbContext context) : ILeaseUtility
 
     public void Remove(LeaseUtilityService leaseUtilityService) =>
         context.LeaseUtilityServices.Remove(leaseUtilityService);
-
-    public Task<bool> ExistsByServiceIdAsync(Guid serviceId, CancellationToken cancellationToken = default) =>
-        context.LeaseUtilityServices.AnyAsync(
-            s => s.ServiceId == serviceId && s.Lease!.DeletedAt == null,
-            cancellationToken);
-
-    public Task<bool> ExistsActiveInOpenLeaseByServiceIdAsync(Guid serviceId, CancellationToken cancellationToken = default) =>
-        context.LeaseUtilityServices.AnyAsync(
-            s => s.ServiceId == serviceId
-                && s.IsActive
-                && s.Lease!.DeletedAt == null
-                && (s.Lease.Status == LeaseStatus.Draft || s.Lease.Status == LeaseStatus.Active),
-            cancellationToken);
 }

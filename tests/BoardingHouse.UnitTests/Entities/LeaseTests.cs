@@ -1,6 +1,7 @@
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.UnitTests.Common;
 
 namespace BoardingHouse.UnitTests.Entities;
 
@@ -29,7 +30,7 @@ public class LeaseTests
         LeftDate = leftDate
     };
 
-    private static UtilityService NewService(decimal defaultUnitPrice, bool isActive = true) => new()
+    private static UtilityService NewService(decimal defaultUnitPrice, bool isActive = true) => TestEntities.New<UtilityService>(new
     {
         Name = "Service",
         Type = UtilityType.Other,
@@ -38,7 +39,7 @@ public class LeaseTests
         DefaultUnitPrice = defaultUnitPrice,
         IsActive = isActive,
         CreatedBy = SentinelActors.System
-    };
+    });
 
     public static TheoryData<LeaseStatus, LeaseStatus, bool> AllTransitions()
     {
@@ -207,7 +208,7 @@ public class LeaseTests
     {
         var lease = NewLease(LeaseStatus.Draft);
         var service = NewService(defaultUnitPrice: 15_000);
-        service.BillingMethod = billingMethod;
+        TestEntities.Set(service, new { BillingMethod = billingMethod });
 
         Assert.Throws<DomainException>(() => lease.AttachUtilityService(service, unitPriceOverride: null, quantity: 2, ActorId));
         Assert.Empty(lease.UtilityServices);
@@ -220,7 +221,7 @@ public class LeaseTests
     {
         var lease = NewLease(LeaseStatus.Draft);
         var service = NewService(defaultUnitPrice: 15_000);
-        service.BillingMethod = billingMethod;
+        TestEntities.Set(service, new { BillingMethod = billingMethod });
 
         lease.AttachUtilityService(service, unitPriceOverride: null, quantity: 1, ActorId);
 

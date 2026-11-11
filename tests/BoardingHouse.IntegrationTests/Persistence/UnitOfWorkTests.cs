@@ -180,12 +180,12 @@ public class UnitOfWorkTests(PostgresApiFactory factory) : IClassFixture<Postgre
         var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
         // Foreign key violation: the organization does not exist
-        await context.Properties.AddAsync(new Property
+        await context.Properties.AddAsync(TestEntities.New<Property>(new
         {
             OrganizationId = Guid.NewGuid(),
             Name = "uow-orphan",
             CreatedBy = SentinelActors.System
-        });
+        }));
 
         var exception = await Assert.ThrowsAsync<PersistenceException>(() => unitOfWork.SaveChangesAsync());
 

@@ -1,10 +1,10 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.Repositories;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
-using BoardingHouse.Application.Repositories;
-using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Infrastructure.Persistence;
 using BoardingHouse.Infrastructure.Persistence.Listing;
 
@@ -218,4 +218,17 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
         lease.Tenants.Add(tenant);
         Context.LeaseTenants.Add(tenant);
     }
+
+    public Task<bool> ExistsUtilityServiceUsageAsync(Guid serviceId, CancellationToken cancellationToken = default) =>
+        Context.LeaseUtilityServices.AnyAsync(
+            s => s.ServiceId == serviceId && s.Lease!.DeletedAt == null,
+            cancellationToken);
+
+    public Task<bool> ExistsActiveUtilityServiceInOpenLeaseAsync(Guid serviceId, CancellationToken cancellationToken = default) =>
+        Context.LeaseUtilityServices.AnyAsync(
+            s => s.ServiceId == serviceId
+                && s.IsActive
+                && s.Lease!.DeletedAt == null
+                && (s.Lease.Status == LeaseStatus.Draft || s.Lease.Status == LeaseStatus.Active),
+            cancellationToken);
 }

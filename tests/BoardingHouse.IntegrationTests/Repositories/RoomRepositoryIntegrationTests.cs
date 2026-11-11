@@ -58,13 +58,13 @@ public class RoomRepositoryIntegrationTests(PostgresContainerFixture fixture)
     {
         await using var context = fixture.CreateContext();
         var organization = TestEntities.New<Organization>(new { Name = "Org", CreatedBy = SentinelActors.System });
-        var property = new Property { OrganizationId = organization.Id, Name = "Property", CreatedBy = SentinelActors.System };
+        var property = TestEntities.New<Property>(new { OrganizationId = organization.Id, Name = "Property", CreatedBy = SentinelActors.System });
         context.AddRange(organization, property);
 
         var electricity = AddService(context, property, "Electricity");
         var water = AddService(context, property, "Water");
         var retired = AddService(context, property, "Gas");
-        retired.IsActive = false;
+        TestEntities.Set(retired, new { IsActive = false });
 
         var room101 = AddRoom(context, property, "101");
         var room102 = AddRoom(context, property, "102");
@@ -82,14 +82,14 @@ public class RoomRepositoryIntegrationTests(PostgresContainerFixture fixture)
 
     private static UtilityService AddService(AppDbContext context, Property property, string name)
     {
-        var service = new UtilityService
+        var service = TestEntities.New<UtilityService>(new
         {
             PropertyId = property.Id,
             Name = name,
             Unit = "unit",
             BillingMethod = UtilityBillingMethod.Metered,
             CreatedBy = SentinelActors.System
-        };
+        });
         context.UtilityServices.Add(service);
         return service;
     }
