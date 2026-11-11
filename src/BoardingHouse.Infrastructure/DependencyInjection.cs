@@ -60,8 +60,6 @@ public static class DependencyInjection
         services.AddScoped<IRoomAssetRepository, RoomAssetRepository>();
         services.AddScoped<IRoomAssetConditionHistoryRepository, RoomAssetConditionHistoryRepository>();
         services.AddScoped<ILeaseRepository, LeaseRepository>();
-        services.AddScoped<ILeaseStatusHistoryRepository, LeaseStatusHistoryRepository>();
-        services.AddScoped<ILeaseUtilityServiceRepository, LeaseUtilityServiceRepository>();
         services.AddScoped<IUtilityReadingRepository, UtilityReadingRepository>();
         services.AddScoped<ITenantProfileRepository, TenantProfileRepository>();
 

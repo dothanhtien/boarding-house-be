@@ -25,7 +25,7 @@ public class RoomAssetConditionHistory : Entity, IUpdateAuditable
 
     private RoomAssetConditionHistory() { }
 
-    internal RoomAssetConditionHistory(
+    public RoomAssetConditionHistory(
         Guid assetId,
         AssetCondition? oldCondition,
         AssetCondition newCondition,

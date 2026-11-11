@@ -14,7 +14,7 @@ public class RoomAssetConditionHistoryMedia : BaseEntity
 
     private RoomAssetConditionHistoryMedia() { }
 
-    internal RoomAssetConditionHistoryMedia(Guid conditionHistoryId, MediaAsset mediaAsset, int sortOrder, Guid createdBy)
+    public RoomAssetConditionHistoryMedia(Guid conditionHistoryId, MediaAsset mediaAsset, int sortOrder, Guid createdBy)
     {
         ConditionHistoryId = conditionHistoryId;
         MediaAssetId = mediaAsset.Id;

@@ -8,9 +8,9 @@ using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Application.Persistence;
 using BoardingHouse.Application.Repositories;
 using BoardingHouse.Application.Services.Storage;
+using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
-using BoardingHouse.Domain.Common;
 
 namespace BoardingHouse.Application.Services;
 
@@ -19,7 +19,6 @@ public class UtilityReadingService(
     IUtilityServiceRepository utilityServiceRepository,
     IRoomRepository roomRepository,
     ILeaseRepository leaseRepository,
-    ILeaseUtilityServiceRepository leaseUtilityServiceRepository,
     IUtilityReadingRepository utilityReadingRepository,
     IUnitOfWork unitOfWork,
     ICurrentUserAccessor currentUserAccessor,
@@ -244,9 +243,6 @@ public class UtilityReadingService(
         logger.LogInformation("Utility reading deleted (room {RoomId}, reading {UtilityReadingId})", roomId, readingId);
     }
 
-    private static bool IsActive(LeaseUtilityService leaseService) =>
-        leaseService.IsActive && leaseService.Service!.IsActive && !leaseService.Service.IsDeleted;
-
     private async Task<UtilityReadingRoomMetersResponse> BuildRoomMetersResponseAsync(
         Room room,
         IReadOnlyList<UtilityService> services,
@@ -268,7 +264,7 @@ public class UtilityReadingService(
             .OfType<Guid>()
             .Distinct()
             .ToList();
-        var leaseServices = (await leaseUtilityServiceRepository.ListByLeaseIdsIncludingInactiveAsync(leaseIds, cancellationToken))
+        var leaseServices = (await leaseRepository.ListUtilityServicesIncludingInactiveAsync(leaseIds, cancellationToken))
             .ToDictionary(s => (s.LeaseId, s.ServiceId));
 
         var tenantCount = lease is null
@@ -290,7 +286,7 @@ public class UtilityReadingService(
                 var leaseService = billedLeaseId is null
                     ? null
                     : leaseServices.GetValueOrDefault((billedLeaseId.Value, service.Id));
-                if (reading is null && leaseService is not null && !IsActive(leaseService))
+                if (reading is null && leaseService is not null && !leaseService.IsBillable)
                 {
                     leaseService = null;
                 }
@@ -325,24 +321,19 @@ public class UtilityReadingService(
                 ? []
                 : leaseServices.Values
                     .Where(s => s.LeaseId == lease.Id
-                        && IsActive(s)
+                        && s.IsBillable
                         && s.Service!.BillingMethod != UtilityBillingMethod.Metered
                         && !meterIds.Contains(s.ServiceId))
                     .OrderBy(s => s.Service!.Name)
-                    .Select(s =>
+                    .Select(s => new UtilityReadingRoomChargeResponse
                     {
-                        var quantity = s.Service!.BillingMethod == UtilityBillingMethod.PerTenant ? tenantCount : s.Quantity;
-
-                        return new UtilityReadingRoomChargeResponse
-                        {
-                            ServiceId = s.ServiceId,
-                            ServiceName = s.Service.Name,
-                            BillingMethod = s.Service.BillingMethod,
-                            Unit = s.Service.Unit,
-                            UnitPrice = s.EffectiveUnitPrice,
-                            Quantity = quantity,
-                            Amount = s.EffectiveUnitPrice * quantity
-                        };
+                        ServiceId = s.ServiceId,
+                        ServiceName = s.Service!.Name,
+                        BillingMethod = s.Service.BillingMethod,
+                        Unit = s.Service.Unit,
+                        UnitPrice = s.EffectiveUnitPrice,
+                        Quantity = s.BillableQuantity(tenantCount),
+                        Amount = s.ChargeFor(tenantCount)
                     })
                     .ToList()
         };

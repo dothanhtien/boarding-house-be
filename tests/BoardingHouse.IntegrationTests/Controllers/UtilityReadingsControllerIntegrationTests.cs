@@ -622,13 +622,11 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
         using (var scope = factory.Services.CreateScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            context.LeaseTenants.Add(new LeaseTenant
-            {
-                LeaseId = lease.Id,
-                UserId = leftTenantId,
-                LeftDate = Today,
-                CreatedBy = SentinelActors.System
-            });
+            var leftUser = await context.Users.SingleAsync(u => u.Id == leftTenantId);
+            var leftTenant = new LeaseTenant(
+                lease.Id, leftUser, isRepresentative: false, joinedDate: null, SentinelActors.System);
+            leftTenant.SetLeftDate(Today);
+            context.LeaseTenants.Add(leftTenant);
             await context.SaveChangesAsync();
         }
 
@@ -1234,7 +1232,6 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
         Assert.Empty(await GetHistoryAsync());
     }
 
-    // Known limitation until TICKET-054: a closed lease gets no final reading
     [Fact]
     public async Task Record_AfterTermination_BillsNobody()
     {
