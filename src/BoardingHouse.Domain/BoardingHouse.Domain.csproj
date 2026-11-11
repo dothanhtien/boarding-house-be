@@ -6,9 +6,4 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <ItemGroup>
-    <InternalsVisibleTo Include="BoardingHouse.UnitTests" />
-    <InternalsVisibleTo Include="BoardingHouse.IntegrationTests" />
-  </ItemGroup>
-
 </Project>
