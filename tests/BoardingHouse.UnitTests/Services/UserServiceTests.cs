@@ -408,7 +408,7 @@ public class UserServiceTests
     public async Task DeleteAsync_UserWithTenantProfile_SoftDeletesProfileInSameSave()
     {
         var user = NewUser();
-        var profile = new TenantProfile { UserId = user.Id, CreatedBy = user.Id };
+        var profile = TenantProfile.Create(user.Id, TenantProfileDetails.Empty with { Gender = Gender.Male }, user.Id);
         _userRepository.Setup(r => r.GetByIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _tenantProfileRepository.Setup(r => r.GetByUserIdAsync(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(profile);
 

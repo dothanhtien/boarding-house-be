@@ -1,12 +1,11 @@
 using Mapster;
-using BoardingHouse.Application.Repositories;
-using BoardingHouse.Application.Persistence;
-using BoardingHouse.Application.Services.Throttling;
-using BoardingHouse.Application.DTOs.TenantProfiles;
-using BoardingHouse.Application.Mappings;
-using BoardingHouse.Application.Exceptions;
-using BoardingHouse.Domain.Entities;
 using BoardingHouse.Application.Common.CurrentUser;
+using BoardingHouse.Application.DTOs.TenantProfiles;
+using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Repositories;
+using BoardingHouse.Application.Services.Throttling;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.Application.Services;
 
@@ -31,29 +30,16 @@ public class TenantProfileService(
         var profile = await tenantProfileRepository.GetByUserIdAsync(userId, cancellationToken);
 
         var isNew = profile is null;
-        profile ??= new TenantProfile
-        {
-            UserId = userId,
-            CreatedBy = currentUserAccessor.RequiredUser.Id
-        };
-        var previousIdentityNumber = profile.IdentityNumber;
+        var previousIdentityNumber = profile?.IdentityNumber;
+        var details = ToDetails(request, profile?.Details ?? TenantProfileDetails.Empty);
 
-        request.Adapt(profile, TenantProfileMappingConfig.UpdateConfig);
-
-        if (profile.IsEmpty())
+        if (profile is null)
         {
-            throw new AppValidationException("Tenant profile must contain at least one field");
+            profile = TenantProfile.Create(userId, details, currentUserAccessor.RequiredUser.Id);
         }
-
-        if (profile.IdentityNumber is null
-            && (profile.IdentityIssuedDate is not null || profile.IdentityIssuedPlace is not null || profile.IdentityExpiryDate is not null))
+        else
         {
-            throw new AppValidationException("Identity issued date, issued place and expiry date require an identity document");
-        }
-
-        if (profile is { IdentityIssuedDate: { } issued, IdentityExpiryDate: { } expiry } && expiry <= issued)
-        {
-            throw new AppValidationException("Identity expiry date must be after the identity issued date");
+            profile.Update(details);
         }
 
         if (profile.IdentityNumber is not null && profile.IdentityNumber != previousIdentityNumber
@@ -90,5 +76,24 @@ public class TenantProfileService(
         logger.LogInformation("Tenant profile {Action} ({UserId})", isNew ? "created" : "updated", userId);
 
         return profile.Adapt<TenantProfileResponse>();
+    }
+
+    private static TenantProfileDetails ToDetails(UpdateTenantProfileRequest request, TenantProfileDetails current)
+    {
+        var details = new TenantProfileDetails(
+            request.IdentityType.OrKeep(current.IdentityType),
+            request.IdentityNumber.OrKeep(current.IdentityNumber),
+            request.IdentityIssuedDate.OrKeep(current.IdentityIssuedDate),
+            request.IdentityIssuedPlace.OrKeep(current.IdentityIssuedPlace),
+            request.IdentityExpiryDate.OrKeep(current.IdentityExpiryDate),
+            request.DateOfBirth.OrKeep(current.DateOfBirth),
+            request.Gender.OrKeep(current.Gender),
+            request.PermanentAddress.OrKeep(current.PermanentAddress),
+            request.EmergencyContactName.OrKeep(current.EmergencyContactName),
+            request.EmergencyContactPhone.OrKeep(current.EmergencyContactPhone));
+
+        return request.IdentityNumber.IsSet && string.IsNullOrWhiteSpace(request.IdentityNumber.Value)
+            ? details with { IdentityIssuedDate = null, IdentityIssuedPlace = null, IdentityExpiryDate = null }
+            : details;
     }
 }
