@@ -93,7 +93,7 @@ public class RoomAssetConditionHistoryService(
         var (note, removeIds, files) = (input.Note, input.RemoveMediaIds, input.Files);
         var historyNotFoundMessage = NotFoundMessages.RoomAssetConditionHistory(historyId);
 
-        (RoomAssetConditionHistory History, List<MediaAsset> Removed) result;
+        (RoomAssetConditionHistory History, IReadOnlyList<MediaAsset> Removed) result;
         if (files.Count == 0)
         {
             result = await unitOfWork.ExecuteInTransactionAsync(
@@ -115,7 +115,9 @@ public class RoomAssetConditionHistoryService(
             var current = await roomAssetConditionHistoryRepository.GetByIdInAssetWithMediaAsync(
                     assetId, historyId, asNoTracking: true, cancellationToken)
                 ?? throw new AppNotFoundException(historyNotFoundMessage);
-            EnsureCanUpdate(current, removeIds, files.Count);
+
+            EnsureLatest(current);
+            current.History.EnsureCanUpdatePhotos(removeIds, files.Count);
 
             result = await mediaCollectionService.AddAsync(
                 MediaAssetEntityType.RoomAssetConditionPhoto,
@@ -152,36 +154,15 @@ public class RoomAssetConditionHistoryService(
             NotFoundMessages.RoomAsset(assetId),
             cancellationToken);
 
-        var userId = currentUserAccessor.RequiredUser.Id;
-        var created = new RoomAssetConditionHistory
-        {
-            AssetId = assetId,
-            OldCondition = asset.Condition,
-            NewCondition = input.NewCondition,
-            Note = input.Note,
-            ChangedBy = userId
-        };
+        var created = asset.ChangeCondition(
+            input.NewCondition, input.Note, uploaded, currentUserAccessor.RequiredUser.Id, DateTimeOffset.UtcNow);
 
-        for (var i = 0; i < uploaded.Count; i++)
-        {
-            created.Media.Add(new RoomAssetConditionHistoryMedia
-            {
-                ConditionHistoryId = created.Id,
-                MediaAssetId = uploaded[i].Id,
-                MediaAsset = uploaded[i],
-                SortOrder = i,
-                CreatedBy = userId
-            });
-        }
-
-        asset.Condition = input.NewCondition;
-        roomAssetRepository.Update(asset);
         await roomAssetConditionHistoryRepository.AddAsync(created, cancellationToken);
 
         return created;
     }
 
-    private async Task<(RoomAssetConditionHistory History, List<MediaAsset> Removed)> ApplyUpdateAsync(
+    private async Task<(RoomAssetConditionHistory History, IReadOnlyList<MediaAsset> Removed)> ApplyUpdateAsync(
         Guid roomId,
         Guid assetId,
         Guid historyId,
@@ -203,68 +184,24 @@ public class RoomAssetConditionHistoryService(
         var entry = await roomAssetConditionHistoryRepository.GetByIdInAssetWithMediaAsync(
                 assetId, historyId, asNoTracking: false, cancellationToken)
             ?? throw new AppNotFoundException(NotFoundMessages.RoomAssetConditionHistory(historyId));
-        EnsureCanUpdate(entry, removeIds, uploaded.Count);
+
+        EnsureLatest(entry);
         var history = entry.History;
 
-        note.ApplyIfSet(value => history.Note = value);
-
-        var removed = history.Media.Where(m => removeIds.Contains(m.MediaAssetId)).ToList();
-        foreach (var media in removed)
-        {
-            roomAssetConditionHistoryRepository.RemoveMedia(history, media);
-        }
-
-        var removedAssets = removed.Select(m => m.MediaAsset!).ToList();
+        var removedAssets = history.Update(
+            note.ToChange(), removeIds, uploaded, currentUserAccessor.RequiredUser.Id, DateTimeOffset.UtcNow);
         mediaCollectionService.StageRemove(removedAssets);
-
-        var userId = currentUserAccessor.RequiredUser.Id;
-        var nextSortOrder = MediaCollectionRules.NextSortOrder(history.Media.Select(m => m.SortOrder));
-        for (var i = 0; i < uploaded.Count; i++)
-        {
-            roomAssetConditionHistoryRepository.AddMedia(history, new RoomAssetConditionHistoryMedia
-            {
-                ConditionHistoryId = history.Id,
-                MediaAssetId = uploaded[i].Id,
-                MediaAsset = uploaded[i],
-                SortOrder = nextSortOrder + i,
-                CreatedBy = userId
-            });
-        }
-
-        if (removed.Count > 0 || uploaded.Count > 0)
-        {
-            roomAssetConditionHistoryRepository.MarkUpdated(history);
-        }
 
         return (history, removedAssets);
     }
 
-    private static void EnsureCanUpdate(
-        RoomAssetConditionHistoryEntry entry,
-        IReadOnlyCollection<Guid> removeIds,
-        int addedCount)
+    private static void EnsureLatest(RoomAssetConditionHistoryEntry entry)
     {
         if (!entry.IsLatest)
         {
             throw new AppConflictException(
                 "Only the latest condition entry of an asset can be updated; record a new condition entry instead");
         }
-
-        var currentMediaIds = entry.History.Media.Select(m => m.MediaAssetId).ToHashSet();
-        var unknown = removeIds.Where(id => !currentMediaIds.Contains(id)).Cast<Guid?>().FirstOrDefault();
-        if (unknown is not null)
-        {
-            throw new AppNotFoundException(NotFoundMessages.RoomAssetConditionPhoto(unknown.Value));
-        }
-
-        if (addedCount == 0)
-        {
-            return;
-        }
-
-        MediaCollectionRules.EnsureWithinLimit(
-            currentMediaIds.Count - removeIds.Count, addedCount, RoomAssetConditionHistory.MaxMedia,
-            $"A condition entry must not have more than {RoomAssetConditionHistory.MaxMedia} photos");
     }
 
     private RoomAssetConditionHistoryResponse ToResponse(RoomAssetConditionHistory history) =>

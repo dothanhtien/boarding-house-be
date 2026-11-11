@@ -22,7 +22,7 @@ public class RoomAssetConditionHistoryMediaConfiguration : IEntityTypeConfigurat
         builder.HasOne(m => m.ConditionHistory)
             .WithMany(h => h.Media)
             .HasForeignKey(m => m.ConditionHistoryId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasOne(m => m.MediaAsset)
             .WithMany()

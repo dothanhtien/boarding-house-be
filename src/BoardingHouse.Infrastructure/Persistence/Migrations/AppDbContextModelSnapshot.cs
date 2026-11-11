@@ -25,7 +25,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Lease", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -153,7 +152,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.LeaseStatusHistory", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -200,7 +198,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.LeaseTenant", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -330,7 +327,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.MediaAsset", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -433,7 +429,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Organization", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -518,7 +513,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.OrganizationMember", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -651,7 +645,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Permission", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -701,7 +694,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Property", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -806,7 +798,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -866,7 +857,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Role", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -971,7 +961,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Room", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -1070,7 +1059,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.RoomAmenity", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -1130,7 +1118,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.RoomAsset", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -1212,7 +1199,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.RoomAssetConditionHistory", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -1264,7 +1250,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.RoomAssetConditionHistoryMedia", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -1322,7 +1307,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.RoomMedia", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -1389,7 +1373,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.TenantProfile", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -1495,7 +1478,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -1579,7 +1561,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.UserRole", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -1633,7 +1614,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.UtilityReading", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
@@ -1720,7 +1700,6 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.UtilityService", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");

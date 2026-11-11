@@ -21,6 +21,15 @@ public class RoomAssetRepository(AppDbContext context) : Repository<RoomAsset>(c
             .Select(a => new EntityWithOrganizationId<RoomAsset>(a, a.Room!.Property!.OrganizationId))
             .FirstOrDefaultAsync(cancellationToken);
 
+    public Task<List<RoomAsset>> ListByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default) =>
+        Context.RoomAssets
+            .AsNoTracking()
+            .Where(a => a.RoomId == roomId)
+            .OrderBy(a => a.Name)
+            .ThenBy(a => a.CreatedAt)
+            .ThenBy(a => a.Id)
+            .ToListAsync(cancellationToken);
+
     public Task<List<RoomAsset>> ListByRoomIdForUpdateAsync(Guid roomId, CancellationToken cancellationToken = default) =>
         Context.RoomAssets
             .FromSql($"SELECT * FROM room_assets WHERE room_id = {roomId} FOR UPDATE")

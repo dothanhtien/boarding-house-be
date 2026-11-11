@@ -49,7 +49,7 @@ public class RoomAssetConditionHistoryRepository(AppDbContext context) : IRoomAs
         return current.ToDictionary(x => x.History.AssetId);
     }
 
-    public async Task<List<MediaAsset>> RemoveMediaByAssetIdsAsync(
+    public async Task<List<RoomAssetConditionHistory>> ListWithPhotosByAssetIdsAsync(
         IReadOnlyCollection<Guid> assetIds, CancellationToken cancellationToken = default)
     {
         if (assetIds.Count == 0)
@@ -57,29 +57,11 @@ public class RoomAssetConditionHistoryRepository(AppDbContext context) : IRoomAs
             return [];
         }
 
-        var media = await context.RoomAssetConditionHistoryMedia
-            .Include(m => m.MediaAsset)
-            .Where(m => assetIds.Contains(m.ConditionHistory!.AssetId))
+        return await context.RoomAssetConditionHistories
+            .Include(h => h.Media).ThenInclude(m => m.MediaAsset)
+            .Where(h => assetIds.Contains(h.AssetId) && h.Media.Any())
             .ToListAsync(cancellationToken);
-
-        context.RoomAssetConditionHistoryMedia.RemoveRange(media);
-        return media.Select(m => m.MediaAsset!).ToList();
     }
-
-    public void AddMedia(RoomAssetConditionHistory history, RoomAssetConditionHistoryMedia media)
-    {
-        history.Media.Add(media);
-        context.RoomAssetConditionHistoryMedia.Add(media);
-    }
-
-    public void RemoveMedia(RoomAssetConditionHistory history, RoomAssetConditionHistoryMedia media)
-    {
-        history.Media.Remove(media);
-        context.RoomAssetConditionHistoryMedia.Remove(media);
-    }
-
-    public void MarkUpdated(RoomAssetConditionHistory history) =>
-        context.Entry(history).Property(h => h.UpdatedAt).IsModified = true;
 
     private static IQueryable<RoomAssetConditionHistory> Latest(IQueryable<RoomAssetConditionHistory> source) =>
         source.Where(h => !source.Any(n =>

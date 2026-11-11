@@ -222,8 +222,9 @@ public class RoomService(
             }
 
             var mediaAssets = room.Media.Select(m => m.MediaAsset!).ToList();
-            mediaAssets.AddRange(await roomAssetConditionHistoryRepository.RemoveMediaByAssetIdsAsync(
-                assets.Select(a => a.Id).ToList(), ct));
+            var histories = await roomAssetConditionHistoryRepository.ListWithPhotosByAssetIdsAsync(
+                assets.Select(a => a.Id).ToList(), ct);
+            mediaAssets.AddRange(histories.SelectMany(h => h.RemoveAllPhotos()));
 
             roomRepository.SoftDelete(room);
             mediaCollectionService.StageRemove(mediaAssets);

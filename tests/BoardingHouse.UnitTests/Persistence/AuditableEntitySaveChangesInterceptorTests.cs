@@ -146,14 +146,15 @@ public class AuditableEntitySaveChangesInterceptorTests
     {
         var actor = TestEntities.New<User>(new { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System });
         using var context = CreateContext(actor);
-        var history = new RoomAssetConditionHistory { AssetId = Guid.NewGuid(), NewCondition = AssetCondition.Good };
+        var history = new RoomAssetConditionHistory(
+            Guid.NewGuid(), oldCondition: null, AssetCondition.Good, note: null, photos: [], actor.Id, DateTimeOffset.UtcNow);
         context.RoomAssetConditionHistories.Add(history);
         await context.SaveChangesAsync();
 
         Assert.Null(history.UpdatedAt);
         Assert.Null(history.UpdatedBy);
 
-        history.Note = "Fixed note";
+        history.Update(note: "Fixed note", removeMediaIds: [], addedPhotos: [], actor.Id, DateTimeOffset.UtcNow);
         await context.SaveChangesAsync();
 
         Assert.NotNull(history.UpdatedAt);
