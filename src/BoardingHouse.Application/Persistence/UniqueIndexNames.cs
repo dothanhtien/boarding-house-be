@@ -7,6 +7,8 @@ namespace BoardingHouse.Application.Persistence;
 /// </summary>
 public static class UniqueIndexNames
 {
+    public const string InvoiceLeaseIdBillingMonth = "ix_invoices_lease_id_billing_month";
+    public const string InvoiceOrganizationIdInvoiceNumber = "ix_invoices_organization_id_invoice_number";
     public const string LeaseOrganizationIdLeaseCode = "ix_leases_organization_id_lease_code";
     public const string LeasePreviousLeaseId = "ix_leases_previous_lease_id";
     public const string LeaseRoomIdActive = "ix_leases_room_id_active";

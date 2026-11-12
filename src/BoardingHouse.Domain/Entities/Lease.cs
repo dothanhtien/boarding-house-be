@@ -23,7 +23,7 @@ public class Lease : BaseEntity
     // Null = open-ended lease.
     public DateOnly? EndDate { get; private set; }
 
-    // 1–28; null = use the day of StartDate.
+    // 1–28; null = property / organization default, then the day of StartDate (InvoiceCalculator.ResolveBillingDay).
     public int? BillingDay { get; private set; }
 
     public decimal MonthlyRent { get; private set; }

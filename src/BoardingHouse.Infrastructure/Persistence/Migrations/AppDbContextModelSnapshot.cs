@@ -22,6 +22,251 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.Invoice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateOnly>("BillingMonth")
+                        .HasColumnType("date")
+                        .HasColumnName("billing_month");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid?>("DeletedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<decimal>("DiscountAmount")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("discount_amount");
+
+                    b.Property<string>("DiscountReason")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("discount_reason");
+
+                    b.Property<DateOnly>("DueDate")
+                        .HasColumnType("date")
+                        .HasColumnName("due_date");
+
+                    b.Property<string>("InvoiceNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("invoice_number");
+
+                    b.Property<decimal>("LateFeeAmount")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("late_fee_amount");
+
+                    b.Property<Guid>("LeaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_id");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<decimal>("PaidAmount")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("paid_amount");
+
+                    b.Property<DateTimeOffset?>("SentAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sent_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("PENDING")
+                        .HasColumnName("status");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("subtotal");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("total_amount");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<decimal>("VatAmount")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("vat_amount");
+
+                    b.Property<decimal>("VatRate")
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("vat_rate");
+
+                    b.HasKey("Id")
+                        .HasName("pk_invoices");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_invoices_status");
+
+                    b.HasIndex("LeaseId", "BillingMonth")
+                        .IsUnique()
+                        .HasDatabaseName("ix_invoices_lease_id_billing_month")
+                        .HasFilter("deleted_at IS NULL AND status <> 'CANCELLED'");
+
+                    b.HasIndex("OrganizationId", "BillingMonth")
+                        .HasDatabaseName("ix_invoices_organization_id_billing_month");
+
+                    b.HasIndex("OrganizationId", "InvoiceNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_invoices_organization_id_invoice_number")
+                        .HasFilter("deleted_at IS NULL");
+
+                    b.ToTable("invoices", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_invoices_amounts", "vat_amount >= 0 AND late_fee_amount >= 0 AND paid_amount >= 0 AND total_amount >= 0");
+
+                            t.HasCheckConstraint("ck_invoices_billing_month", "EXTRACT(DAY FROM billing_month) = 1");
+
+                            t.HasCheckConstraint("ck_invoices_discount", "discount_amount >= 0 AND (discount_amount = 0 OR discount_reason IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_invoices_total_amount", "total_amount = subtotal + vat_amount + late_fee_amount - discount_amount");
+
+                            t.HasCheckConstraint("ck_invoices_vat_rate", "vat_rate >= 0 AND vat_rate <= 100");
+                        });
+                });
+
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.InvoiceItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("description");
+
+                    b.Property<Guid>("InvoiceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("invoice_id");
+
+                    b.Property<decimal>("Quantity")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("quantity");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid?>("SourceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_id");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("source_type");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("unit_price");
+
+                    b.HasKey("Id")
+                        .HasName("pk_invoice_items");
+
+                    b.HasIndex("InvoiceId")
+                        .HasDatabaseName("ix_invoice_items_invoice_id");
+
+                    b.HasIndex("SourceType", "SourceId")
+                        .HasDatabaseName("ix_invoice_items_source_type_source_id");
+
+                    b.ToTable("invoice_items", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_invoice_items_quantity", "quantity >= 0");
+
+                            t.HasCheckConstraint("ck_invoice_items_source", "(source_type = 'CUSTOM') = (source_id IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.InvoiceStatusHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTimeOffset>("ChangedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("changed_at");
+
+                    b.Property<Guid?>("ChangedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("changed_by");
+
+                    b.Property<Guid>("InvoiceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("invoice_id");
+
+                    b.Property<string>("NewStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("new_status");
+
+                    b.Property<string>("OldStatus")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("old_status");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.HasKey("Id")
+                        .HasName("pk_invoice_status_histories");
+
+                    b.HasIndex("ChangedBy")
+                        .HasDatabaseName("ix_invoice_status_histories_changed_by");
+
+                    b.HasIndex("InvoiceId", "ChangedAt")
+                        .HasDatabaseName("ix_invoice_status_histories_invoice_id_changed_at");
+
+                    b.ToTable("invoice_status_histories", (string)null);
+                });
+
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Lease", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1780,6 +2025,82 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                     b.ToTable("utility_services", (string)null);
                 });
 
+            modelBuilder.Entity("BoardingHouse.Infrastructure.Persistence.InvoiceNumberSequence", b =>
+                {
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<DateOnly>("BillingMonth")
+                        .HasColumnType("date")
+                        .HasColumnName("billing_month");
+
+                    b.Property<int>("LastNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("last_number");
+
+                    b.HasKey("OrganizationId", "BillingMonth")
+                        .HasName("pk_invoice_number_sequences");
+
+                    b.ToTable("invoice_number_sequences", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_invoice_number_sequences_billing_month", "EXTRACT(DAY FROM billing_month) = 1");
+
+                            t.HasCheckConstraint("ck_invoice_number_sequences_last_number", "last_number > 0");
+                        });
+                });
+
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.Invoice", b =>
+                {
+                    b.HasOne("BoardingHouse.Domain.Entities.Lease", "Lease")
+                        .WithMany()
+                        .HasForeignKey("LeaseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_invoices_leases_lease_id");
+
+                    b.HasOne("BoardingHouse.Domain.Entities.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_invoices_organizations_organization_id");
+
+                    b.Navigation("Lease");
+
+                    b.Navigation("Organization");
+                });
+
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.InvoiceItem", b =>
+                {
+                    b.HasOne("BoardingHouse.Domain.Entities.Invoice", "Invoice")
+                        .WithMany("Items")
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_invoice_items_invoices_invoice_id");
+
+                    b.Navigation("Invoice");
+                });
+
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.InvoiceStatusHistory", b =>
+                {
+                    b.HasOne("BoardingHouse.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ChangedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_invoice_status_histories_users_changed_by");
+
+                    b.HasOne("BoardingHouse.Domain.Entities.Invoice", "Invoice")
+                        .WithMany("StatusHistories")
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_invoice_status_histories_invoices_invoice_id");
+
+                    b.Navigation("Invoice");
+                });
+
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Lease", b =>
                 {
                     b.HasOne("BoardingHouse.Domain.Entities.Organization", "Organization")
@@ -1818,7 +2139,7 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_lease_status_histories_users_changed_by");
 
                     b.HasOne("BoardingHouse.Domain.Entities.Lease", "Lease")
-                        .WithMany()
+                        .WithMany("StatusHistories")
                         .HasForeignKey("LeaseId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
@@ -2145,8 +2466,27 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                     b.Navigation("Property");
                 });
 
+            modelBuilder.Entity("BoardingHouse.Infrastructure.Persistence.InvoiceNumberSequence", b =>
+                {
+                    b.HasOne("BoardingHouse.Domain.Entities.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_invoice_number_sequences_organizations_organization_id");
+                });
+
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.Invoice", b =>
+                {
+                    b.Navigation("Items");
+
+                    b.Navigation("StatusHistories");
+                });
+
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Lease", b =>
                 {
+                    b.Navigation("StatusHistories");
+
                     b.Navigation("Tenants");
 
                     b.Navigation("UtilityServices");

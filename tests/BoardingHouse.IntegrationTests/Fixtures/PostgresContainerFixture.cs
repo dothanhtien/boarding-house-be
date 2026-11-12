@@ -49,6 +49,7 @@ public class PostgresContainerFixture : IAsyncLifetime
                 room_asset_condition_history_media,
                 utility_services, utility_readings,
                 leases, lease_tenants, lease_status_histories, lease_utility_services,
+                invoices, invoice_items, invoice_status_histories, invoice_number_sequences,
                 media_assets,
                 tenant_profiles
             CASCADE
