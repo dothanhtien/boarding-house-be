@@ -14,6 +14,8 @@ public interface IUtilityReadingRepository
         IReadOnlyCollection<Guid> roomIds, BillingMonth readingMonth, CancellationToken cancellationToken = default);
     Task<List<EntityWithMedia<UtilityReading>>> ListByRoomAndMonthWithImageAsync(
         Guid roomId, BillingMonth readingMonth, CancellationToken cancellationToken = default);
+    Task<List<UtilityReading>> ListUninvoicedByBilledLeaseIdAsync(
+        Guid leaseId, BillingMonth upToMonth, CancellationToken cancellationToken = default);
     Task AddRangeAsync(IEnumerable<UtilityReading> readings, CancellationToken cancellationToken = default);
     void SoftDelete(UtilityReading reading);
 }

@@ -1,3 +1,6 @@
+using Hangfire;
+using Hangfire.PostgreSql;
+using Microsoft.EntityFrameworkCore;
 using BoardingHouse.Application.Common.CurrentUser;
 using BoardingHouse.Application.Persistence;
 using BoardingHouse.Application.Repositories;
@@ -13,9 +16,6 @@ using BoardingHouse.Infrastructure.Services;
 using BoardingHouse.Infrastructure.Services.Caching;
 using BoardingHouse.Infrastructure.Services.Storage;
 using BoardingHouse.Infrastructure.Services.Throttling;
-using Hangfire;
-using Hangfire.PostgreSql;
-using Microsoft.EntityFrameworkCore;
 
 namespace BoardingHouse.Infrastructure;
 
@@ -62,6 +62,7 @@ public static class DependencyInjection
         services.AddScoped<ILeaseRepository, LeaseRepository>();
         services.AddScoped<IUtilityReadingRepository, UtilityReadingRepository>();
         services.AddScoped<ITenantProfileRepository, TenantProfileRepository>();
+        services.AddScoped<IInvoiceRepository, InvoiceRepository>();
 
         return services;
     }

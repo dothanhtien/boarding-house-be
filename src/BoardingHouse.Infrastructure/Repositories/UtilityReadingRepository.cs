@@ -67,4 +67,23 @@ public class UtilityReadingRepository(AppDbContext context) : IUtilityReadingRep
                 .Select(r => r.BilledLease!)
                 .First())
             .ToListAsync(cancellationToken);
+
+    public Task<List<UtilityReading>> ListUninvoicedByBilledLeaseIdAsync(
+        Guid leaseId, BillingMonth upToMonth, CancellationToken cancellationToken = default)
+    {
+        var liveUtilityItems = InvoiceItemQueries.Live(context)
+            .Where(i => i.SourceType == InvoiceItemSourceType.Utility);
+
+        return context.UtilityReadings
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Include(r => r.Service)
+            .Where(r => r.BilledLeaseId == leaseId
+                && r.ReadingMonth <= upToMonth
+                && r.DeletedAt == null
+                && !liveUtilityItems.Any(i => i.SourceId == r.Id))
+            .OrderBy(r => r.ReadingMonth)
+            .ThenBy(r => r.ServiceId)
+            .ToListAsync(cancellationToken);
+    }
 }

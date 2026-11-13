@@ -103,6 +103,25 @@ public class Lease : BaseEntity
 
     public bool IsDueToExpire(DateOnly today) => CanTransitionTo(LeaseStatus.Expired) && EndDate < today;
 
+    public DateOnly? LastDayOfStay
+    {
+        get
+        {
+            if (Status != LeaseStatus.Terminated)
+            {
+                return EndDate;
+            }
+
+            var leftOn = Tenants.Max(t => t.LeftDate) ?? DateOnly.FromDateTime(TerminatedAt!.Value.UtcDateTime);
+
+            return EndDate is { } end && end < leftOn ? end : leftOn;
+        }
+    }
+
+    public int CountTenantsIn(BillingMonth month) =>
+        Tenants.Count(t =>
+            (t.JoinedDate ?? StartDate) <= month.LastDay && (t.LeftDate is null || t.LeftDate >= month.FirstDay));
+
     public void Update(
         LeaseTerms terms,
         IReadOnlyList<TenantChange>? tenantChanges,

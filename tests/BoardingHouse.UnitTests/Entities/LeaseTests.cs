@@ -892,4 +892,65 @@ public class LeaseTests
 
         Assert.Equal(DomainErrorKind.NotFound, ex.Kind);
     }
+
+    private static readonly DateOnly May1 = new(2026, 5, 1);
+    private static readonly BillingMonth June = BillingMonth.FromFirstDay(new DateOnly(2026, 6, 1));
+
+    [Fact]
+    public void LastDayOfStay_ActiveLease_IsTheEndDate()
+    {
+        var lease = TestLeases.Active(May1, endDate: new DateOnly(2027, 5, 1));
+
+        Assert.Equal(new DateOnly(2027, 5, 1), lease.LastDayOfStay);
+    }
+
+    [Fact]
+    public void LastDayOfStay_OpenEndedActiveLease_IsNull()
+    {
+        Assert.Null(TestLeases.Active(May1).LastDayOfStay);
+    }
+
+    [Fact]
+    public void LastDayOfStay_ExpiredLease_IsTheEndDate()
+    {
+        var lease = TestLeases.Active(May1, endDate: new DateOnly(2026, 6, 10));
+        TestLeases.Expire(lease);
+
+        Assert.Equal(new DateOnly(2026, 6, 10), lease.LastDayOfStay);
+    }
+
+    [Fact]
+    public void LastDayOfStay_TerminatedLease_IsTheDayItWasTerminated()
+    {
+        var lease = TestLeases.Active(May1, endDate: new DateOnly(2027, 1, 1));
+        TestLeases.Terminate(lease, new DateOnly(2026, 6, 10));
+
+        Assert.Equal(new DateOnly(2026, 6, 10), lease.LastDayOfStay);
+    }
+
+    [Fact]
+    public void LastDayOfStay_TenantLeftBeforeTermination_IsStillTheDayItWasTerminated()
+    {
+        var lease = TestLeases.Active(
+            May1, endDate: new DateOnly(2027, 1, 1), tenants: [new(), new(LeftDate: new DateOnly(2026, 5, 20))]);
+        TestLeases.Terminate(lease, new DateOnly(2026, 6, 10));
+
+        Assert.Equal(new DateOnly(2026, 6, 10), lease.LastDayOfStay);
+    }
+
+    [Theory]
+    [InlineData("2026-06-20", null, true)]
+    [InlineData("2026-07-01", null, false)]
+    [InlineData(null, "2026-05-31", false)]
+    [InlineData(null, "2026-06-01", true)]
+    public void CountTenantsIn_CountsTenantsWhoLiveThereAtLeastOneDayOfTheMonth(
+        string? joinedDate, string? leftDate, bool counted)
+    {
+        var tenant = new TestLeases.TenantSpec(
+            joinedDate is null ? null : DateOnly.Parse(joinedDate),
+            leftDate is null ? null : DateOnly.Parse(leftDate));
+        var lease = TestLeases.Active(May1, tenants: [new(), tenant]);
+
+        Assert.Equal(counted ? 2 : 1, lease.CountTenantsIn(June));
+    }
 }

@@ -1,9 +1,9 @@
 using FluentValidation;
 using Mapster;
 using Microsoft.Extensions.DependencyInjection;
-using BoardingHouse.Application.Services.Storage;
-using BoardingHouse.Application.Services;
 using BoardingHouse.Application.Jobs;
+using BoardingHouse.Application.Services;
+using BoardingHouse.Application.Services.Storage;
 
 namespace BoardingHouse.Application;
 
@@ -27,12 +27,14 @@ public static class DependencyInjection
         services.AddScoped<IUtilityReadingService, UtilityReadingService>();
         services.AddScoped<ITenantProfileService, TenantProfileService>();
         services.AddScoped<ITenantService, TenantService>();
+        services.AddScoped<IInvoiceService, InvoiceService>();
 
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IOrganizationScopeAccessor, OrganizationScopeAccessor>();
         services.AddScoped<IMediaAttachmentService, MediaAttachmentService>();
         services.AddScoped<IMediaCollectionService, MediaCollectionService>();
         services.AddScoped<IMediaUploader, MediaUploader>();
+        services.AddScoped<InvoiceBillingInputLoader>();
 
         services.AddScoped<ExpireLeasesJob>();
 

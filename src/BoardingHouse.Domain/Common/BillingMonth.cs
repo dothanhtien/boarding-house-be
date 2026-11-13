@@ -23,6 +23,8 @@ public readonly record struct BillingMonth
 
     public static bool operator >=(BillingMonth left, BillingMonth right) => left.FirstDay >= right.FirstDay;
     public static bool operator <=(BillingMonth left, BillingMonth right) => left.FirstDay <= right.FirstDay;
+    public static bool operator >(BillingMonth left, BillingMonth right) => left.FirstDay > right.FirstDay;
+    public static bool operator <(BillingMonth left, BillingMonth right) => left.FirstDay < right.FirstDay;
 
     public override string ToString() => FirstDay.ToString("yyyy-MM");
 }
