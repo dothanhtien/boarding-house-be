@@ -21,4 +21,21 @@ public class InvoicesController(IInvoiceService invoiceService) : ControllerBase
         var preview = await invoiceService.PreviewAsync(request, cancellationToken);
         return Ok(new ApiResponse<InvoicePreviewResponse> { Data = preview });
     }
+
+    [HttpGet("{id:guid}")]
+    [RequireOrganizationScopedPermission(PermissionResources.Invoice, PermissionActions.Read)]
+    public async Task<ActionResult<ApiResponse<InvoiceDetailResponse>>> GetById(Guid id, CancellationToken cancellationToken)
+    {
+        var invoice = await invoiceService.GetByIdAsync(id, cancellationToken);
+        return Ok(new ApiResponse<InvoiceDetailResponse> { Data = invoice });
+    }
+
+    [HttpPost]
+    [RequireOrganizationScopedPermission(PermissionResources.Invoice, PermissionActions.Create)]
+    public async Task<ActionResult<ApiResponse<InvoiceDetailResponse>>> Create(
+        CreateInvoiceRequest request, CancellationToken cancellationToken)
+    {
+        var invoice = await invoiceService.CreateAsync(request, cancellationToken);
+        return CreatedAtAction(nameof(GetById), new { id = invoice.Id }, new ApiResponse<InvoiceDetailResponse> { Data = invoice });
+    }
 }
