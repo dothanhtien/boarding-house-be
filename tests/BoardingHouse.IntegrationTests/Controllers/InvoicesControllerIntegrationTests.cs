@@ -14,6 +14,7 @@ using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Domain.Invoicing;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.DTOs.Auth;
 using BoardingHouse.Application.DTOs.Invoices;
 using BoardingHouse.Application.DTOs.Leases;
@@ -320,6 +321,75 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
         }
 
         return await LoginAsync(email);
+    }
+
+    private async Task<HttpClient> CreateOrganizationMemberClientAsync(Guid organizationId, string roleSlug = RoleSlugs.OrganizationStaff)
+    {
+        var (memberId, email) = await RegisterUserAsync("Organization Member");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await RbacSeeder.SeedAsync(context);
+
+            var role = await context.Roles.SingleAsync(r => r.Slug == roleSlug);
+            context.OrganizationMembers.Add(OrganizationMember.Create(organizationId, memberId, role, SentinelActors.System));
+            await context.SaveChangesAsync();
+        }
+
+        return await LoginAsync(email);
+    }
+
+    private Task<HttpResponseMessage> ListAsync(string queryString = "", HttpClient? client = null) =>
+        (client ?? _client).GetAsync($"/api/invoices{queryString}");
+
+    private async Task<PagedResult<InvoiceResponse>> ListOkAsync(string queryString = "", HttpClient? client = null)
+    {
+        var response = await ListAsync(queryString, client);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ReadDataAsync<PagedResult<InvoiceResponse>>(response);
+    }
+
+    private async Task SoftDeleteInvoiceAsync(Guid id)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var invoice = await context.Invoices.SingleAsync(i => i.Id == id);
+        TestEntities.Set(invoice, new { DeletedAt = (DateTimeOffset?)DateTimeOffset.UtcNow, DeletedBy = (Guid?)SentinelActors.System });
+        await context.SaveChangesAsync();
+    }
+
+    private sealed record ListData(
+        Guid OtherOrganizationId,
+        Guid OtherPropertyId,
+        LeaseResponse Lease101,
+        LeaseResponse Lease102,
+        LeaseResponse Lease201,
+        InvoiceDetailResponse Current101,   // INV-<current>-0001, 3_000_000
+        InvoiceDetailResponse Current102,   // INV-<current>-0002, 2_000_000
+        InvoiceDetailResponse Current201,   // INV-<current>-0003, 4_000_000 (second property)
+        InvoiceDetailResponse Previous101,  // INV-<previous>-0001, 3_000_000
+        InvoiceDetailResponse OtherOrg);    // INV-<current>-0001 of another organization, 1_000_000
+
+    private async Task<ListData> CreateListDataAsync()
+    {
+        var secondPropertyId = await CreatePropertyAsync(_organizationId, "Second Property");
+        var lease101 = await CreateActiveLeaseAsync(monthlyRent: 3_000_000);
+        var lease102 = await CreateActiveLeaseAsync(monthlyRent: 2_000_000, roomId: await CreateRoomAsync(_propertyId, "102"));
+        var lease201 = await CreateActiveLeaseAsync(monthlyRent: 4_000_000, roomId: await CreateRoomAsync(secondPropertyId, "201"));
+
+        var otherOrganizationId = await CreateOrganizationAsync("Other Invoice Org");
+        var otherPropertyId = await CreatePropertyAsync(otherOrganizationId, "Other Invoice Property");
+        var otherLease = await CreateActiveLeaseAsync(monthlyRent: 1_000_000, roomId: await CreateRoomAsync(otherPropertyId, "301"));
+
+        var current101 = await CreateOkAsync(Request(lease101.Id));
+        var current102 = await CreateOkAsync(Request(lease102.Id));
+        var current201 = await CreateOkAsync(Request(lease201.Id));
+        var previous101 = await CreateOkAsync(Request(lease101.Id, PreviousMonth));
+        var otherOrg = await CreateOkAsync(Request(otherLease.Id));
+
+        return new ListData(otherOrganizationId, otherPropertyId, lease101, lease102, lease201,
+            current101, current102, current201, previous101, otherOrg);
     }
 
     private async Task<HttpClient> CreatePlatformStaffClientAsync()
@@ -827,5 +897,427 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
         var response = await GetAsync(invoice.Id, staffClient);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetAll_PlatformAdmin_ReturnsInvoicesOfEveryOrganizationByBillingMonthDesc()
+    {
+        var data = await CreateListDataAsync();
+
+        var page = await ListOkAsync();
+
+        Assert.Equal(5, page.TotalItems);
+        Assert.Equal(1, page.Page);
+        Assert.Equal(20, page.PageSize);
+        Assert.Equal(1, page.TotalPages);
+        Assert.Equal(
+            new[] { data.Current101.Id, data.Current102.Id, data.Current201.Id, data.OtherOrg.Id }.Order(),
+            page.Items.Take(4).Select(i => i.Id).Order());
+        Assert.Equal(data.Previous101.Id, page.Items[4].Id);
+    }
+
+    [Fact]
+    public async Task GetAll_ReturnsTheSummaryWithLeaseRoomAndProperty()
+    {
+        var lease = await CreateActiveLeaseAsync(depositAmount: 3_000_000);
+        var created = await CreateOkAsync(Request(lease.Id) with { Notes = "First month" });
+
+        var invoice = Assert.Single((await ListOkAsync()).Items);
+
+        Assert.Equal(created.Id, invoice.Id);
+        Assert.Equal(_organizationId, invoice.OrganizationId);
+        Assert.Equal(_propertyId, invoice.PropertyId);
+        Assert.Equal("Invoice Property", invoice.PropertyName);
+        Assert.Equal(_roomId, invoice.RoomId);
+        Assert.Equal("101", invoice.RoomNumber);
+        Assert.Equal(lease.Id, invoice.LeaseId);
+        Assert.Equal(lease.LeaseCode, invoice.LeaseCode);
+        Assert.Equal(created.InvoiceNumber, invoice.InvoiceNumber);
+        Assert.Equal(CurrentMonth, invoice.BillingMonth);
+        Assert.Equal(created.DueDate, invoice.DueDate);
+        Assert.Equal(6_000_000, invoice.Subtotal);
+        Assert.Equal(6_000_000, invoice.TotalAmount);
+        Assert.Equal(0, invoice.PaidAmount);
+        Assert.Equal(6_000_000, invoice.RemainingAmount);
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Equal("First month", invoice.Notes);
+    }
+
+    [Fact]
+    public async Task GetAll_NoInvoices_ReturnsEmptyPage()
+    {
+        var page = await ListOkAsync();
+
+        Assert.Empty(page.Items);
+        Assert.Equal(0, page.TotalItems);
+    }
+
+    [Fact]
+    public async Task GetAll_FilterByOrganizationId_ReturnsOnlyThatOrganization()
+    {
+        var data = await CreateListDataAsync();
+
+        var own = await ListOkAsync($"?organizationId={_organizationId}");
+        var other = await ListOkAsync($"?organizationId={data.OtherOrganizationId}");
+
+        Assert.Equal(4, own.TotalItems);
+        Assert.All(own.Items, i => Assert.Equal(_organizationId, i.OrganizationId));
+        Assert.Equal([data.OtherOrg.Id], other.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetAll_OrganizationHeader_IsUsedWhenTheQueryHasNoOrganization()
+    {
+        var data = await CreateListDataAsync();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/invoices");
+        request.Headers.Add("X-Organization-Id", data.OtherOrganizationId.ToString());
+
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var page = await ReadDataAsync<PagedResult<InvoiceResponse>>(response);
+        Assert.Equal([data.OtherOrg.Id], page.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetAll_OrganizationQuery_WinsOverTheHeader()
+    {
+        var data = await CreateListDataAsync();
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/invoices?organizationId={_organizationId}");
+        request.Headers.Add("X-Organization-Id", data.OtherOrganizationId.ToString());
+
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var page = await ReadDataAsync<PagedResult<InvoiceResponse>>(response);
+        Assert.Equal(4, page.TotalItems);
+        Assert.All(page.Items, i => Assert.Equal(_organizationId, i.OrganizationId));
+    }
+
+    [Fact]
+    public async Task GetAll_FilterByPropertyId_ReturnsOnlyThatProperty()
+    {
+        var data = await CreateListDataAsync();
+
+        var page = await ListOkAsync($"?propertyId={_propertyId}");
+
+        Assert.Equal(
+            new[] { data.Current101.Id, data.Current102.Id, data.Previous101.Id }.Order(),
+            page.Items.Select(i => i.Id).Order());
+        Assert.All(page.Items, i => Assert.Equal(_propertyId, i.PropertyId));
+    }
+
+    [Fact]
+    public async Task GetAll_FilterByRoomId_ReturnsOnlyThatRoom()
+    {
+        var data = await CreateListDataAsync();
+
+        var page = await ListOkAsync($"?roomId={_roomId}");
+
+        Assert.Equal([data.Current101.Id, data.Previous101.Id], page.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetAll_FilterByLeaseId_ReturnsOnlyThatLease()
+    {
+        var data = await CreateListDataAsync();
+
+        var page = await ListOkAsync($"?leaseId={data.Lease102.Id}");
+
+        Assert.Equal([data.Current102.Id], page.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetAll_FilterByStatus_ReturnsOnlyThatStatus()
+    {
+        var data = await CreateListDataAsync();
+        await SetInvoiceStateAsync(data.Current102.Id, InvoiceStatus.Paid, paidAmount: 2_000_000);
+
+        var paid = await ListOkAsync("?status=paid");
+        var pending = await ListOkAsync("?status=pending");
+
+        var paidInvoice = Assert.Single(paid.Items);
+        Assert.Equal(data.Current102.Id, paidInvoice.Id);
+        Assert.Equal(InvoiceStatus.Paid, paidInvoice.Status);
+        Assert.Equal(2_000_000, paidInvoice.PaidAmount);
+        Assert.Equal(0, paidInvoice.RemainingAmount);
+        Assert.Equal(4, pending.TotalItems);
+        Assert.DoesNotContain(pending.Items, i => i.Id == data.Current102.Id);
+    }
+
+    [Fact]
+    public async Task GetAll_FilterByBillingMonth_ReturnsOnlyThatMonth()
+    {
+        var data = await CreateListDataAsync();
+
+        var previous = await ListOkAsync($"?billingMonth={PreviousMonth:yyyy-MM-dd}");
+        var current = await ListOkAsync($"?billingMonth={CurrentMonth:yyyy-MM-dd}");
+        var next = await ListOkAsync($"?billingMonth={CurrentMonth.AddMonths(1):yyyy-MM-dd}");
+
+        Assert.Equal([data.Previous101.Id], previous.Items.Select(i => i.Id));
+        Assert.Equal(4, current.TotalItems);
+        Assert.All(current.Items, i => Assert.Equal(CurrentMonth, i.BillingMonth));
+        Assert.Empty(next.Items);
+    }
+
+    [Fact]
+    public async Task GetAll_CombinedFilters_AreAppliedTogether()
+    {
+        var data = await CreateListDataAsync();
+
+        var page = await ListOkAsync($"?propertyId={_propertyId}&billingMonth={CurrentMonth:yyyy-MM-dd}&status=pending");
+
+        Assert.Equal(
+            new[] { data.Current101.Id, data.Current102.Id }.Order(),
+            page.Items.Select(i => i.Id).Order());
+    }
+
+    [Fact]
+    public async Task GetAll_SearchByInvoiceNumber_IsCaseInsensitive()
+    {
+        var data = await CreateListDataAsync();
+
+        var page = await ListOkAsync($"?organizationId={_organizationId}&search={data.Current102.InvoiceNumber.ToLowerInvariant()}");
+
+        Assert.Equal([data.Current102.Id], page.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetAll_SearchByInvoiceNumberPrefix_ReturnsEveryMatch()
+    {
+        var data = await CreateListDataAsync();
+
+        var page = await ListOkAsync($"?search=INV-{PreviousMonth:yyyyMM}");
+
+        Assert.Equal([data.Previous101.Id], page.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetAll_SearchByLeaseCode_ReturnsTheInvoicesOfThatLease()
+    {
+        var data = await CreateListDataAsync();
+
+        var page = await ListOkAsync($"?search={Uri.EscapeDataString($"  {data.Lease201.LeaseCode}  ")}");
+
+        Assert.Equal([data.Current201.Id], page.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetAll_SearchWithLikeWildcards_IsMatchedLiterally()
+    {
+        await CreateListDataAsync();
+
+        var page = await ListOkAsync($"?search={Uri.EscapeDataString("INV%")}");
+
+        Assert.Empty(page.Items);
+    }
+
+    [Fact]
+    public async Task GetAll_SortByTotalAmountAsc_OrdersByTotal()
+    {
+        var data = await CreateListDataAsync();
+
+        var page = await ListOkAsync($"?billingMonth={CurrentMonth:yyyy-MM-dd}&sortBy=totalAmount&sortOrder=asc");
+
+        Assert.Equal(
+            [data.OtherOrg.Id, data.Current102.Id, data.Current101.Id, data.Current201.Id],
+            page.Items.Select(i => i.Id));
+        Assert.Equal([1_000_000m, 2_000_000m, 3_000_000m, 4_000_000m], page.Items.Select(i => i.TotalAmount));
+    }
+
+    [Fact]
+    public async Task GetAll_SortByTotalAmountDesc_OrdersByTotal()
+    {
+        var data = await CreateListDataAsync();
+
+        var page = await ListOkAsync($"?billingMonth={CurrentMonth:yyyy-MM-dd}&sortBy=totalAmount&sortOrder=desc");
+
+        Assert.Equal(
+            [data.Current201.Id, data.Current101.Id, data.Current102.Id, data.OtherOrg.Id],
+            page.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetAll_SortByInvoiceNumberAsc_OrdersByNumber()
+    {
+        var data = await CreateListDataAsync();
+
+        var page = await ListOkAsync($"?organizationId={_organizationId}&sortBy=invoiceNumber&sortOrder=asc");
+
+        Assert.Equal(
+            [data.Previous101.Id, data.Current101.Id, data.Current102.Id, data.Current201.Id],
+            page.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetAll_SortByBillingMonthAsc_PutsTheEarlierMonthFirst()
+    {
+        var data = await CreateListDataAsync();
+
+        var page = await ListOkAsync("?sortBy=billingMonth&sortOrder=asc");
+
+        Assert.Equal(data.Previous101.Id, page.Items[0].Id);
+    }
+
+    [Fact]
+    public async Task GetAll_UnknownSortBy_FallsBackToBillingMonth()
+    {
+        var data = await CreateListDataAsync();
+
+        var page = await ListOkAsync("?sortBy=unknown&sortOrder=asc");
+
+        Assert.Equal(5, page.TotalItems);
+        Assert.Equal(data.Previous101.Id, page.Items[0].Id);
+    }
+
+    [Fact]
+    public async Task GetAll_Paging_ReturnsTheRequestedPage()
+    {
+        var data = await CreateListDataAsync();
+
+        var first = await ListOkAsync($"?organizationId={_organizationId}&sortBy=invoiceNumber&sortOrder=asc&page=1&pageSize=3");
+        var second = await ListOkAsync($"?organizationId={_organizationId}&sortBy=invoiceNumber&sortOrder=asc&page=2&pageSize=3");
+
+        Assert.Equal(4, first.TotalItems);
+        Assert.Equal(2, first.TotalPages);
+        Assert.Equal(3, first.Items.Count);
+        Assert.Equal(2, second.Page);
+        Assert.Equal(3, second.PageSize);
+        Assert.Equal([data.Current201.Id], second.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetAll_SoftDeletedInvoice_IsNotListed()
+    {
+        var data = await CreateListDataAsync();
+        await SoftDeleteInvoiceAsync(data.Current102.Id);
+
+        var page = await ListOkAsync();
+
+        Assert.Equal(4, page.TotalItems);
+        Assert.DoesNotContain(page.Items, i => i.Id == data.Current102.Id);
+    }
+
+    [Fact]
+    public async Task GetAll_InvoiceOfATerminatedLease_IsStillListed()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        var invoice = await CreateOkAsync(Request(lease.Id));
+        await TerminateAsync(lease.Id);
+
+        var page = await ListOkAsync($"?leaseId={lease.Id}");
+
+        Assert.Equal([invoice.Id], page.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetAll_OrganizationMember_SeesOnlyItsOrganization()
+    {
+        var data = await CreateListDataAsync();
+        var memberClient = await CreateOrganizationMemberClientAsync(_organizationId);
+
+        var page = await ListOkAsync(client: memberClient);
+
+        Assert.Equal(4, page.TotalItems);
+        Assert.DoesNotContain(page.Items, i => i.Id == data.OtherOrg.Id);
+        Assert.All(page.Items, i => Assert.Equal(_organizationId, i.OrganizationId));
+    }
+
+    [Fact]
+    public async Task GetAll_OrganizationMember_FilterByItsOrganization_ReturnsOk()
+    {
+        await CreateListDataAsync();
+        var memberClient = await CreateOrganizationMemberClientAsync(_organizationId, RoleSlugs.OrganizationAdmin);
+
+        var page = await ListOkAsync($"?organizationId={_organizationId}", memberClient);
+
+        Assert.Equal(4, page.TotalItems);
+    }
+
+    [Fact]
+    public async Task GetAll_MemberOfAnotherOrganization_SeesNoneOfThisOrganizationInvoices()
+    {
+        await CreateListDataAsync();
+        var otherClient = await CreateOtherOrganizationMemberClientAsync();
+
+        var page = await ListOkAsync(client: otherClient);
+
+        Assert.Empty(page.Items);
+        Assert.Equal(0, page.TotalItems);
+    }
+
+    [Fact]
+    public async Task GetAll_OrganizationIdOfAnotherOrganization_ReturnsNotFound()
+    {
+        await CreateListDataAsync();
+        var otherClient = await CreateOtherOrganizationMemberClientAsync();
+
+        var response = await ListAsync($"?organizationId={_organizationId}", otherClient);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetAll_OrganizationHeaderOfAnotherOrganization_ReturnsNotFound()
+    {
+        await CreateListDataAsync();
+        var otherClient = await CreateOtherOrganizationMemberClientAsync();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/invoices");
+        request.Headers.Add("X-Organization-Id", _organizationId.ToString());
+
+        var response = await otherClient.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetAll_OrganizationMember_FilterByPropertyOfAnotherOrganization_ReturnsEmpty()
+    {
+        var data = await CreateListDataAsync();
+        var memberClient = await CreateOrganizationMemberClientAsync(_organizationId);
+
+        var page = await ListOkAsync($"?propertyId={data.OtherPropertyId}", memberClient);
+
+        Assert.Empty(page.Items);
+    }
+
+    [Fact]
+    public async Task GetAll_PlatformStaff_ReturnsOk()
+    {
+        await CreateListDataAsync();
+        var staffClient = await CreatePlatformStaffClientAsync();
+
+        var page = await ListOkAsync(client: staffClient);
+
+        Assert.Equal(5, page.TotalItems);
+    }
+
+    [Fact]
+    public async Task GetAll_WithoutInvoiceReadPermission_ReturnsForbidden()
+    {
+        var (_, email) = await RegisterUserAsync("No Role");
+        var client = await LoginAsync(email);
+
+        var response = await ListAsync(client: client);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetAll_Unauthenticated_ReturnsUnauthorized()
+    {
+        var response = await ListAsync(client: factory.CreateClient());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetAll_BillingMonthNotFirstDay_ReturnsBadRequest()
+    {
+        var response = await ListAsync($"?billingMonth={CurrentMonth.AddDays(1):yyyy-MM-dd}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var errors = await ReadErrorsAsync(response);
+        Assert.True(errors.TryGetProperty("BillingMonth", out _) || errors.TryGetProperty("billingMonth", out _));
     }
 }

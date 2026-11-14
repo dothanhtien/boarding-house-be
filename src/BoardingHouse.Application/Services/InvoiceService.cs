@@ -1,7 +1,10 @@
 using Mapster;
 using System.Text.Json;
+using System.Linq.Expressions;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.CurrentOrganization;
 using BoardingHouse.Application.Common.CurrentUser;
+using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.DTOs.Invoices;
 using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Application.Persistence;
@@ -20,9 +23,58 @@ public class InvoiceService(
     IUnitOfWork unitOfWork,
     IOrganizationScopeAccessor organizationScopeAccessor,
     ICurrentUserAccessor currentUserAccessor,
+    ICurrentOrganizationAccessor currentOrganizationAccessor,
     ILogger<InvoiceService> logger) : IInvoiceService
 {
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
+
+    private static readonly Dictionary<string, Expression<Func<Invoice, object>>> SortableFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [""] = i => i.BillingMonth,
+        ["billingMonth"] = i => i.BillingMonth,
+        ["dueDate"] = i => i.DueDate,
+        ["createdAt"] = i => i.CreatedAt,
+        ["invoiceNumber"] = i => i.InvoiceNumber,
+        ["totalAmount"] = i => i.TotalAmount
+    };
+
+    public async Task<PagedResult<InvoiceResponse>> GetAllAsync(InvoiceListQuery query, CancellationToken cancellationToken = default)
+    {
+        var organizationId = query.OrganizationId ?? currentOrganizationAccessor.OrganizationId;
+
+        var scope = await organizationScopeAccessor.GetScopeAsync(
+            PermissionResources.Invoice, PermissionActions.Read, cancellationToken);
+
+        if (organizationId is not null && !scope.Allows(organizationId.Value))
+        {
+            throw new AppNotFoundException(NotFoundMessages.Organization(organizationId.Value));
+        }
+
+        var allowedOrganizationIds = organizationId is null && !scope.IsUnrestricted ? scope.OrganizationIds : null;
+        var sortField = SortableFields.GetValueOrDefault(query.SortBy ?? "", SortableFields[""]);
+
+        var paged = await invoiceRepository.SearchAsync(
+            organizationId,
+            allowedOrganizationIds,
+            query.PropertyId,
+            query.RoomId,
+            query.LeaseId,
+            query.Status,
+            query.BillingMonth is { } month ? BillingMonth.FromFirstDay(month) : null,
+            query.Search,
+            query,
+            sortField,
+            query.SortOrder,
+            cancellationToken);
+
+        return new PagedResult<InvoiceResponse>
+        {
+            Items = paged.Items.Adapt<List<InvoiceResponse>>(),
+            Page = paged.Page,
+            PageSize = paged.PageSize,
+            TotalItems = paged.TotalItems
+        };
+    }
 
     public async Task<InvoicePreviewResponse> PreviewAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default)
     {

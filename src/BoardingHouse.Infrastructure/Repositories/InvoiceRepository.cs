@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
+using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.Repositories;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Infrastructure.Persistence;
+using BoardingHouse.Infrastructure.Persistence.Listing;
 
 namespace BoardingHouse.Infrastructure.Repositories;
 
@@ -42,6 +45,68 @@ public class InvoiceRepository(AppDbContext context) : Repository<Invoice>(conte
             .ToListAsync(cancellationToken);
 
         return numbers.Single();
+    }
+
+    public async Task<PagedResult<Invoice>> SearchAsync(
+        Guid? organizationId,
+        IReadOnlySet<Guid>? allowedOrganizationIds,
+        Guid? propertyId,
+        Guid? roomId,
+        Guid? leaseId,
+        InvoiceStatus? status,
+        BillingMonth? billingMonth,
+        string? search,
+        PageRequest pageRequest,
+        Expression<Func<Invoice, object>> sortField,
+        SortOrder sortOrder,
+        CancellationToken cancellationToken = default)
+    {
+        var invoices = WithLeaseDetails(Context.Invoices.IgnoreQueryFilters().Where(i => i.DeletedAt == null))
+            .AsNoTracking();
+
+        if (organizationId is not null)
+        {
+            invoices = invoices.Where(i => i.OrganizationId == organizationId);
+        }
+        else if (allowedOrganizationIds is not null)
+        {
+            invoices = invoices.Where(i => allowedOrganizationIds.Contains(i.OrganizationId));
+        }
+
+        if (propertyId is not null)
+        {
+            invoices = invoices.Where(i => i.Lease!.Room!.PropertyId == propertyId);
+        }
+
+        if (roomId is not null)
+        {
+            invoices = invoices.Where(i => i.Lease!.RoomId == roomId);
+        }
+
+        if (leaseId is not null)
+        {
+            invoices = invoices.Where(i => i.LeaseId == leaseId);
+        }
+
+        if (status is not null)
+        {
+            invoices = invoices.Where(i => i.Status == status);
+        }
+
+        if (billingMonth is { } month)
+        {
+            invoices = invoices.Where(i => i.BillingMonth == month);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = LikePattern.Contains(search.Trim());
+            invoices = invoices.Where(i =>
+                EF.Functions.ILike(i.InvoiceNumber, pattern, LikePattern.EscapeCharacter)
+                || EF.Functions.ILike(i.Lease!.LeaseCode, pattern, LikePattern.EscapeCharacter));
+        }
+
+        return await invoices.ToPagedResultAsync(pageRequest, sortField, sortOrder, cancellationToken);
     }
 
     private static IQueryable<Invoice> WithLeaseDetails(IQueryable<Invoice> invoices) =>
