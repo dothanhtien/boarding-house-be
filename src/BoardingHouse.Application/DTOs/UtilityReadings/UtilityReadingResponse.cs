@@ -17,4 +17,6 @@ public record UtilityReadingResponse
     public string? ImageUrl { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
     public required Guid CreatedBy { get; init; }
+    public Guid? InvoiceId { get; init; }
+    public string? InvoiceNumber { get; init; }
 }

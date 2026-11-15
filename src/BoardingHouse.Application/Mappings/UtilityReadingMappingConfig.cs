@@ -15,7 +15,7 @@ public class UtilityReadingMappingConfig : IRegister
             .Map(dest => dest.ServiceName, src => src.Service!.Name)
             .Map(dest => dest.Unit, src => src.Service!.Unit)
             .Map(dest => dest.BilledLeaseCode, src => src.BilledLease == null ? null : src.BilledLease.LeaseCode)
-            .Ignore(dest => dest.ImageUrl!);
+            .Ignore(dest => dest.ImageUrl!, dest => dest.InvoiceId!, dest => dest.InvoiceNumber!);
 
         config.NewConfig<Lease, UtilityReadingRoomLeaseResponse>()
             .Map(dest => dest.LeaseId, src => src.Id);

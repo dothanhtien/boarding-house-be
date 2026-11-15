@@ -47,4 +47,13 @@ public class UtilityReadingsController(IUtilityReadingService utilityReadingServ
         await utilityReadingService.DeleteAsync(roomId, readingId, cancellationToken);
         return NoContent();
     }
+
+    [HttpGet("api/leases/{leaseId:guid}/utility-readings")]
+    [RequireOrganizationScopedPermission(PermissionResources.UtilityReading, PermissionActions.Read)]
+    public async Task<ActionResult<ApiResponse<PagedResult<UtilityReadingResponse>>>> GetByLease(
+        Guid leaseId, [FromQuery] LeaseUtilityReadingListQuery query, CancellationToken cancellationToken)
+    {
+        var readings = await utilityReadingService.GetByLeaseAsync(leaseId, query, cancellationToken);
+        return Ok(new ApiResponse<PagedResult<UtilityReadingResponse>> { Data = readings });
+    }
 }

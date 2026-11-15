@@ -15,6 +15,7 @@ using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.DTOs.Auth;
+using BoardingHouse.Application.DTOs.Invoices;
 using BoardingHouse.Application.DTOs.Leases;
 using BoardingHouse.Application.DTOs.Organizations;
 using BoardingHouse.Application.DTOs.Properties;
@@ -312,6 +313,49 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
         memberClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));
 
         return memberClient;
+    }
+
+    private Task<HttpResponseMessage> GetByLeaseAsync(Guid leaseId, string queryString = "", HttpClient? client = null) =>
+        (client ?? _client).GetAsync($"/api/leases/{leaseId}/utility-readings{queryString}");
+
+    private async Task<PagedResult<UtilityReadingResponse>> GetByLeaseOkAsync(Guid leaseId, string queryString = "")
+    {
+        var response = await GetByLeaseAsync(leaseId, queryString);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ReadDataAsync<PagedResult<UtilityReadingResponse>>(response);
+    }
+
+    private async Task<InvoiceDetailResponse> CreateInvoiceAsync(Guid leaseId, DateOnly billingMonth)
+    {
+        var response = await _client.PostAsJsonAsync(
+            "/api/invoices", new CreateInvoiceRequest { LeaseId = leaseId, BillingMonth = billingMonth }, JsonOptions);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return await ReadDataAsync<InvoiceDetailResponse>(response);
+    }
+
+    // No cancel endpoint yet (TICKET-050): the status is written directly
+    private async Task CancelInvoiceAsync(Guid invoiceId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var invoice = await context.Invoices.SingleAsync(i => i.Id == invoiceId);
+        TestEntities.Set(invoice, new { Status = InvoiceStatus.Cancelled });
+        await context.SaveChangesAsync();
+    }
+
+    // Electricity + water on an active lease, recorded for CurrentMonth and the month after
+    private async Task<(LeaseResponse Lease, Guid ElectricityId, Guid WaterId)> CreateLeaseWithTwoMonthsOfReadingsAsync()
+    {
+        var electricity = await CreateUtilityServiceAsync("Electricity", 3_500, UtilityBillingMethod.Metered, "kWh");
+        var water = await CreateUtilityServiceAsync("Water", 15_000, UtilityBillingMethod.Metered, "m3");
+        var lease = await CreateActiveLeaseAsync(
+        [
+            new CreateLeaseUtilityServiceRequest { ServiceId = electricity.Id },
+            new CreateLeaseUtilityServiceRequest { ServiceId = water.Id }
+        ]);
+        await PostReadingsOkAsync(Readings(CurrentMonth, Item(electricity.Id, 150, 100), Item(water.Id, 20, 10)));
+        await PostReadingsOkAsync(Readings(CurrentMonth.AddMonths(1), Item(electricity.Id, 200), Item(water.Id, 30)));
+        return (lease, electricity.Id, water.Id);
     }
 
     [Fact]
@@ -1399,6 +1443,226 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
     public async Task Delete_Unauthenticated_ReturnsUnauthorized()
     {
         var response = await factory.CreateClient().DeleteAsync($"/api/rooms/{_roomId}/utility-readings/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetByLease_ListsOnlyReadingsBilledToTheLease()
+    {
+        var electricity = await CreateUtilityServiceAsync("Electricity", 3_500, UtilityBillingMethod.Metered, "kWh");
+        var first = await CreateActiveLeaseAsync([new CreateLeaseUtilityServiceRequest { ServiceId = electricity.Id }]);
+        await PostReadingsOkAsync(Readings(CurrentMonth, Item(electricity.Id, 150, 100)));
+        await TerminateAsync(first.Id);
+        var second = await CreateActiveLeaseAsync([new CreateLeaseUtilityServiceRequest { ServiceId = electricity.Id }]);
+        await PostReadingsOkAsync(Readings(CurrentMonth.AddMonths(1), Item(electricity.Id, 200)));
+
+        var firstReading = Assert.Single((await GetByLeaseOkAsync(first.Id)).Items);
+        var secondReading = Assert.Single((await GetByLeaseOkAsync(second.Id)).Items);
+
+        Assert.Equal(CurrentMonth, firstReading.ReadingMonth);
+        Assert.Equal(first.Id, firstReading.BilledLeaseId);
+        Assert.Equal(first.LeaseCode, firstReading.BilledLeaseCode);
+        Assert.Equal(CurrentMonth.AddMonths(1), secondReading.ReadingMonth);
+        Assert.Equal(second.Id, secondReading.BilledLeaseId);
+        Assert.Equal(50, secondReading.Consumption);
+    }
+
+    [Fact]
+    public async Task GetByLease_ReadingFields_AreMappedWithItsImage()
+    {
+        var electricity = await CreateUtilityServiceAsync("Electricity", 3_500, UtilityBillingMethod.Metered, "kWh");
+        var lease = await CreateActiveLeaseAsync([new CreateLeaseUtilityServiceRequest { ServiceId = electricity.Id }]);
+        await PostReadingsOkAsync(Readings(CurrentMonth, Item(electricity.Id, 150, 100)));
+        var image = await AttachImageAsync((await GetHistoryAsync())[0].Id);
+
+        var reading = Assert.Single((await GetByLeaseOkAsync(lease.Id)).Items);
+
+        Assert.Equal(electricity.Id, reading.ServiceId);
+        Assert.Equal("Electricity", reading.ServiceName);
+        Assert.Equal("kWh", reading.Unit);
+        Assert.Equal(100, reading.PreviousValue);
+        Assert.Equal(150, reading.CurrentValue);
+        Assert.Equal(50, reading.Consumption);
+        Assert.Equal(_actorId, reading.CreatedBy);
+        Assert.Equal(factory.Storage.GetUrl(image.StorageKey, image.MimeType), reading.ImageUrl);
+        Assert.Null(reading.InvoiceId);
+        Assert.Null(reading.InvoiceNumber);
+    }
+
+    [Fact]
+    public async Task GetByLease_DeletedReading_IsNotListed()
+    {
+        var electricity = await CreateUtilityServiceAsync("Electricity", 3_500, UtilityBillingMethod.Metered, "kWh");
+        var lease = await CreateActiveLeaseAsync([new CreateLeaseUtilityServiceRequest { ServiceId = electricity.Id }]);
+        await PostReadingsOkAsync(Readings(CurrentMonth, Item(electricity.Id, 150, 100)));
+        await PostReadingsOkAsync(Readings(CurrentMonth.AddMonths(1), Item(electricity.Id, 200)));
+        Assert.Equal(HttpStatusCode.NoContent, (await DeleteReadingAsync((await GetHistoryAsync())[0].Id)).StatusCode);
+
+        var page = await GetByLeaseOkAsync(lease.Id);
+
+        Assert.Equal(1, page.TotalItems);
+        Assert.Equal(CurrentMonth, Assert.Single(page.Items).ReadingMonth);
+    }
+
+    [Fact]
+    public async Task GetByLease_InvoicedReading_HasInvoiceIdAndNumber()
+    {
+        var (lease, electricityId, waterId) = await CreateLeaseWithTwoMonthsOfReadingsAsync();
+
+        var invoice = await CreateInvoiceAsync(lease.Id, CurrentMonth);
+        var items = (await GetByLeaseOkAsync(lease.Id)).Items;
+
+        var invoiced = items.Where(r => r.ReadingMonth == CurrentMonth).ToList();
+        Assert.Equal(new[] { electricityId, waterId }.Order(), invoiced.Select(r => r.ServiceId).Order());
+        Assert.All(invoiced, r =>
+        {
+            Assert.Equal(invoice.Id, r.InvoiceId);
+            Assert.Equal(invoice.InvoiceNumber, r.InvoiceNumber);
+        });
+        Assert.All(items.Where(r => r.ReadingMonth == CurrentMonth.AddMonths(1)), r =>
+        {
+            Assert.Null(r.InvoiceId);
+            Assert.Null(r.InvoiceNumber);
+        });
+    }
+
+    [Fact]
+    public async Task GetByLease_ReadingOfACancelledInvoice_IsNotInvoiced()
+    {
+        var electricity = await CreateUtilityServiceAsync("Electricity", 3_500, UtilityBillingMethod.Metered, "kWh");
+        var lease = await CreateActiveLeaseAsync([new CreateLeaseUtilityServiceRequest { ServiceId = electricity.Id }]);
+        await PostReadingsOkAsync(Readings(CurrentMonth, Item(electricity.Id, 150, 100)));
+        var cancelled = await CreateInvoiceAsync(lease.Id, CurrentMonth);
+        await CancelInvoiceAsync(cancelled.Id);
+
+        var reading = Assert.Single((await GetByLeaseOkAsync(lease.Id)).Items);
+        Assert.Null(reading.InvoiceId);
+        Assert.Null(reading.InvoiceNumber);
+        Assert.Single((await GetByLeaseOkAsync(lease.Id, "?invoiced=false")).Items);
+        Assert.Empty((await GetByLeaseOkAsync(lease.Id, "?invoiced=true")).Items);
+
+        var reissued = await CreateInvoiceAsync(lease.Id, CurrentMonth);
+
+        reading = Assert.Single((await GetByLeaseOkAsync(lease.Id)).Items);
+        Assert.Equal(reissued.Id, reading.InvoiceId);
+        Assert.Equal(reissued.InvoiceNumber, reading.InvoiceNumber);
+    }
+
+    [Fact]
+    public async Task GetByLease_InvoicedFilter_SplitsInvoicedFromTheRest()
+    {
+        var (lease, _, _) = await CreateLeaseWithTwoMonthsOfReadingsAsync();
+        await CreateInvoiceAsync(lease.Id, CurrentMonth);
+
+        var invoiced = await GetByLeaseOkAsync(lease.Id, "?invoiced=true");
+        var notInvoiced = await GetByLeaseOkAsync(lease.Id, "?invoiced=false");
+
+        Assert.Equal(2, invoiced.TotalItems);
+        Assert.All(invoiced.Items, r =>
+        {
+            Assert.Equal(CurrentMonth, r.ReadingMonth);
+            Assert.NotNull(r.InvoiceId);
+        });
+        Assert.Equal(2, notInvoiced.TotalItems);
+        Assert.All(notInvoiced.Items, r =>
+        {
+            Assert.Equal(CurrentMonth.AddMonths(1), r.ReadingMonth);
+            Assert.Null(r.InvoiceId);
+        });
+        Assert.Equal(4, (await GetByLeaseOkAsync(lease.Id)).TotalItems);
+    }
+
+    [Fact]
+    public async Task GetByLease_ServiceAndMonthFilters()
+    {
+        var (lease, electricityId, waterId) = await CreateLeaseWithTwoMonthsOfReadingsAsync();
+        var nextMonth = CurrentMonth.AddMonths(1);
+
+        var electricity = await GetByLeaseOkAsync(lease.Id, $"?serviceId={electricityId}");
+        var fromNextMonth = await GetByLeaseOkAsync(lease.Id, $"?from={nextMonth:yyyy-MM-dd}");
+        var toCurrentMonth = await GetByLeaseOkAsync(lease.Id, $"?to={CurrentMonth:yyyy-MM-dd}");
+        var waterOfCurrentMonth = await GetByLeaseOkAsync(
+            lease.Id, $"?serviceId={waterId}&from={CurrentMonth:yyyy-MM-dd}&to={CurrentMonth:yyyy-MM-dd}");
+
+        Assert.Equal(2, electricity.TotalItems);
+        Assert.All(electricity.Items, r => Assert.Equal(electricityId, r.ServiceId));
+        Assert.Equal(2, fromNextMonth.TotalItems);
+        Assert.All(fromNextMonth.Items, r => Assert.Equal(nextMonth, r.ReadingMonth));
+        Assert.Equal(2, toCurrentMonth.TotalItems);
+        Assert.All(toCurrentMonth.Items, r => Assert.Equal(CurrentMonth, r.ReadingMonth));
+        var water = Assert.Single(waterOfCurrentMonth.Items);
+        Assert.Equal(waterId, water.ServiceId);
+        Assert.Equal(CurrentMonth, water.ReadingMonth);
+    }
+
+    [Fact]
+    public async Task GetByLease_PagesNewestFirst()
+    {
+        var (lease, _, _) = await CreateLeaseWithTwoMonthsOfReadingsAsync();
+        var nextMonth = CurrentMonth.AddMonths(1);
+
+        var firstPage = await GetByLeaseOkAsync(lease.Id, "?pageSize=3");
+        var secondPage = await GetByLeaseOkAsync(lease.Id, "?pageSize=3&page=2");
+        var oldestFirst = await GetByLeaseOkAsync(lease.Id, "?sortBy=readingMonth&sortOrder=asc");
+
+        Assert.Equal(4, firstPage.TotalItems);
+        Assert.Equal([nextMonth, nextMonth, CurrentMonth], firstPage.Items.Select(r => r.ReadingMonth));
+        Assert.Equal([CurrentMonth], secondPage.Items.Select(r => r.ReadingMonth));
+        Assert.Empty(firstPage.Items.Select(r => r.Id).Intersect(secondPage.Items.Select(r => r.Id)));
+        Assert.Equal([CurrentMonth, CurrentMonth, nextMonth, nextMonth], oldestFirst.Items.Select(r => r.ReadingMonth));
+    }
+
+    [Fact]
+    public async Task GetByLease_LeaseWithoutReadings_ReturnsEmptyPage()
+    {
+        var lease = await CreateActiveLeaseAsync([]);
+
+        var page = await GetByLeaseOkAsync(lease.Id);
+
+        Assert.Empty(page.Items);
+        Assert.Equal(0, page.TotalItems);
+    }
+
+    [Theory]
+    [InlineData("?from=2026-06-02")]
+    [InlineData("?to=2026-06-15")]
+    [InlineData("?from=2026-07-01&to=2026-06-01")]
+    [InlineData("?invoiced=maybe")]
+    public async Task GetByLease_InvalidQuery_ReturnsBadRequest(string queryString)
+    {
+        var lease = await CreateActiveLeaseAsync([]);
+
+        var response = await GetByLeaseAsync(lease.Id, queryString);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetByLease_UnknownLease_ReturnsNotFound()
+    {
+        var response = await GetByLeaseAsync(Guid.NewGuid());
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetByLease_LeaseOfAnotherOrganization_ReturnsNotFound()
+    {
+        var electricity = await CreateUtilityServiceAsync("Electricity", 3_500, UtilityBillingMethod.Metered, "kWh");
+        var lease = await CreateActiveLeaseAsync([new CreateLeaseUtilityServiceRequest { ServiceId = electricity.Id }]);
+        await PostReadingsOkAsync(Readings(CurrentMonth, Item(electricity.Id, 150, 100)));
+        var otherMemberClient = await CreateOtherOrganizationMemberClientAsync();
+
+        var response = await GetByLeaseAsync(lease.Id, client: otherMemberClient);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetByLease_Unauthenticated_ReturnsUnauthorized()
+    {
+        var response = await GetByLeaseAsync(Guid.NewGuid(), client: factory.CreateClient());
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }

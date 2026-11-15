@@ -32,6 +32,14 @@ public class UtilityReadingService(
         ["roomNumber"] = r => r.Room.RoomNumber
     };
 
+    private static readonly Dictionary<string, Expression<Func<UtilityReading, object>>> LeaseReadingSortableFields =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            [""] = r => r.ReadingMonth,
+            ["readingMonth"] = r => r.ReadingMonth,
+            ["readOn"] = r => r.ReadOn
+        };
+
     public async Task<PagedResult<UtilityReadingRoomListItemResponse>> GetRoomsAsync(
         Guid propertyId, UtilityReadingRoomListQuery query, CancellationToken cancellationToken = default)
     {
@@ -110,6 +118,47 @@ public class UtilityReadingService(
 
         return await BuildRoomMetersResponseAsync(
             room, services, activeLease, latestByService, readingMonth, cancellationToken);
+    }
+
+    public async Task<PagedResult<UtilityReadingResponse>> GetByLeaseAsync(
+        Guid leaseId, LeaseUtilityReadingListQuery query, CancellationToken cancellationToken = default)
+    {
+        var organizationId = await leaseRepository.GetOrganizationIdAsync(leaseId, cancellationToken)
+            ?? throw new AppNotFoundException(NotFoundMessages.Lease(leaseId));
+
+        await organizationScopeAccessor.EnsureScopeAsync(
+            organizationId,
+            PermissionResources.UtilityReading,
+            PermissionActions.Read,
+            NotFoundMessages.Lease(leaseId),
+            cancellationToken);
+
+        var sortField = LeaseReadingSortableFields.GetValueOrDefault(query.SortBy ?? "", LeaseReadingSortableFields[""]);
+        var paged = await utilityReadingRepository.SearchByBilledLeaseIdAsync(
+            leaseId,
+            query.ServiceId,
+            query.From is { } from ? BillingMonth.FromFirstDay(from) : null,
+            query.To is { } to ? BillingMonth.FromFirstDay(to) : null,
+            query.Invoiced,
+            query,
+            sortField,
+            query.SortOrder,
+            cancellationToken);
+
+        return new PagedResult<UtilityReadingResponse>
+        {
+            Items = paged.Items
+                .Select(row => row.Reading.Adapt<UtilityReadingResponse>() with
+                {
+                    ImageUrl = row.Media is null ? null : storageProvider.GetUrl(row.Media.StorageKey, row.Media.MimeType),
+                    InvoiceId = row.InvoiceId,
+                    InvoiceNumber = row.InvoiceNumber
+                })
+                .ToList(),
+            Page = paged.Page,
+            PageSize = paged.PageSize,
+            TotalItems = paged.TotalItems
+        };
     }
 
     public async Task<UtilityReadingRoomMetersResponse> RecordAsync(
