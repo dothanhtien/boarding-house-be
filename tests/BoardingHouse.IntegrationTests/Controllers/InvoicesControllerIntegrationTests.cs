@@ -392,6 +392,45 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
             current101, current102, current201, previous101, otherOrg);
     }
 
+    private Task<HttpResponseMessage> PatchAsync(Guid id, UpdateInvoiceRequest request, HttpClient? client = null) =>
+        (client ?? _client).PatchAsJsonAsync($"/api/invoices/{id}", request, JsonOptions);
+
+    private async Task<InvoiceDetailResponse> PatchOkAsync(Guid id, UpdateInvoiceRequest request)
+    {
+        var response = await PatchAsync(id, request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ReadDataAsync<InvoiceDetailResponse>(response);
+    }
+
+    private static async Task<string?> ReadTitleAsync(HttpResponseMessage response)
+    {
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.GetProperty("title").GetString();
+    }
+
+    private async Task<InvoiceDetailResponse> GetOkAsync(Guid id)
+    {
+        var response = await GetAsync(id);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ReadDataAsync<InvoiceDetailResponse>(response);
+    }
+
+    // Rent 3,000,000 (sortOrder 0) + "Faucet repair" 50,000 (sortOrder 1), no VAT, no discount
+    private async Task<InvoiceDetailResponse> CreateEditableInvoiceAsync()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        return await CreateOkAsync(Request(lease.Id) with
+        {
+            CustomItems = [new CreateInvoiceCustomItemRequest { Description = "Faucet repair", UnitPrice = 50_000 }]
+        });
+    }
+
+    private async Task<int> CountInvoiceItemsAsync(Guid invoiceId)
+    {
+        using var scope = factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().InvoiceItems.CountAsync(i => i.InvoiceId == invoiceId);
+    }
+
     private async Task<HttpClient> CreatePlatformStaffClientAsync()
     {
         var (userId, email) = await RegisterUserAsync("Platform Staff");
@@ -1319,5 +1358,438 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var errors = await ReadErrorsAsync(response);
         Assert.True(errors.TryGetProperty("BillingMonth", out _) || errors.TryGetProperty("billingMonth", out _));
+    }
+
+    [Fact]
+    public async Task Patch_Discount_RecalculatesTheTotalAndSetsUpdatedAt()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        Assert.Null(created.UpdatedAt);
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest
+        {
+            DiscountAmount = 20_000m,
+            DiscountReason = "  Regular tenant  "
+        });
+
+        Assert.Equal(20_000, invoice.DiscountAmount);
+        Assert.Equal("Regular tenant", invoice.DiscountReason);
+        Assert.Equal(3_050_000, invoice.Subtotal);
+        Assert.Equal(3_030_000, invoice.TotalAmount);
+        Assert.Equal(3_030_000, invoice.RemainingAmount);
+        Assert.NotNull(invoice.UpdatedAt);
+        Assert.Equal(created.Items, invoice.Items);
+        Assert.Equal(invoice, await GetOkAsync(created.Id) with { Items = invoice.Items });
+    }
+
+    [Fact]
+    public async Task Patch_EmptyBody_LeavesTheInvoiceUnchanged()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest());
+
+        Assert.Equal(created.TotalAmount, invoice.TotalAmount);
+        Assert.Equal(created.Items, invoice.Items);
+        Assert.Equal(created.DueDate, invoice.DueDate);
+    }
+
+    [Fact]
+    public async Task Patch_NotesAndDueDate_AreSavedAndNullClearsNotes()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var dueDate = CurrentMonth.AddDays(20);
+
+        var updated = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { Notes = "Pay by transfer", DueDate = dueDate });
+        Assert.Equal("Pay by transfer", updated.Notes);
+        Assert.Equal(dueDate, updated.DueDate);
+
+        var cleared = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { Notes = null });
+        Assert.Null(cleared.Notes);
+        Assert.Equal(dueDate, cleared.DueDate);
+    }
+
+    [Fact]
+    public async Task Patch_DiscountWithoutReason_ReturnsBadRequest()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest { DiscountAmount = 20_000m });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("DiscountReason is required when DiscountAmount is greater than 0", await ReadTitleAsync(response));
+        Assert.Equal(0, (await GetOkAsync(created.Id)).DiscountAmount);
+    }
+
+    [Fact]
+    public async Task Patch_DiscountRemovingTheStoredReason_ReturnsBadRequest()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id) with { DiscountAmount = 10_000, DiscountReason = "Loyal" });
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest { DiscountReason = null });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Patch_DiscountAmountOnly_KeepsTheStoredReason()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id) with { DiscountAmount = 10_000, DiscountReason = "Loyal" });
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { DiscountAmount = 30_000m });
+
+        Assert.Equal(30_000, invoice.DiscountAmount);
+        Assert.Equal("Loyal", invoice.DiscountReason);
+        Assert.Equal(2_970_000, invoice.TotalAmount);
+    }
+
+    [Fact]
+    public async Task Patch_ZeroDiscount_DropsTheReason()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id) with { DiscountAmount = 10_000, DiscountReason = "Loyal" });
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { DiscountAmount = 0m });
+
+        Assert.Equal(0, invoice.DiscountAmount);
+        Assert.Null(invoice.DiscountReason);
+        Assert.Equal(3_000_000, invoice.TotalAmount);
+    }
+
+    [Fact]
+    public async Task Patch_AddsCustomItemsAfterTheLastSortOrder()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest
+        {
+            CustomItems = new List<UpdateInvoiceCustomItemRequest>
+            {
+                new() { Description = "Cleaning", Quantity = 2, UnitPrice = 25_000 },
+                new() { Description = "Refund", Quantity = 1, UnitPrice = -10_000 }
+            }
+        });
+
+        Assert.Equal([$"Rent {CurrentMonth:MM/yyyy}", "Faucet repair", "Cleaning", "Refund"], invoice.Items.Select(i => i.Description));
+        Assert.Equal([0, 1, 2, 3], invoice.Items.Select(i => i.SortOrder));
+        Assert.Equal([3_000_000m, 50_000m, 50_000m, -10_000m], invoice.Items.Select(i => i.Amount));
+        Assert.Equal(3_090_000, invoice.Subtotal);
+        Assert.Equal(3_090_000, invoice.TotalAmount);
+        Assert.Equal(4, await CountInvoiceItemsAsync(created.Id));
+    }
+
+    [Fact]
+    public async Task Patch_EditsCustomItem_RecomputesItsAmount()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var faucet = ItemsOf(created, InvoiceItemSourceType.Custom).Single();
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest
+        {
+            CustomItems = new List<UpdateInvoiceCustomItemRequest> { new() { Id = faucet.Id, Quantity = 3 } }
+        });
+
+        var edited = invoice.Items.Single(i => i.Id == faucet.Id);
+        Assert.Equal("Faucet repair", edited.Description);
+        Assert.Equal(3, edited.Quantity);
+        Assert.Equal(50_000, edited.UnitPrice);
+        Assert.Equal(150_000, edited.Amount);
+        Assert.Equal(faucet.SortOrder, edited.SortOrder);
+        Assert.Equal(3_150_000, invoice.TotalAmount);
+        Assert.Equal(invoice.Items, (await GetOkAsync(created.Id)).Items);
+    }
+
+    [Fact]
+    public async Task Patch_DeletesCustomItem()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var faucet = ItemsOf(created, InvoiceItemSourceType.Custom).Single();
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest
+        {
+            CustomItems = new List<UpdateInvoiceCustomItemRequest> { new() { Id = faucet.Id, IsDeleted = true } }
+        });
+
+        Assert.DoesNotContain(invoice.Items, i => i.Id == faucet.Id);
+        Assert.Equal(3_000_000, invoice.TotalAmount);
+        Assert.Equal(1, await CountInvoiceItemsAsync(created.Id));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Patch_GeneratedItem_ReturnsConflict(bool delete)
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var rent = ItemsOf(created, InvoiceItemSourceType.Rent).Single();
+        UpdateInvoiceCustomItemRequest change = delete ? new() { Id = rent.Id, IsDeleted = true } : new() { Id = rent.Id, UnitPrice = 1 };
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest { CustomItems = new List<UpdateInvoiceCustomItemRequest> { change } });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(created.Items, (await GetOkAsync(created.Id)).Items);
+    }
+
+    [Fact]
+    public async Task Patch_InvalidChange_LeavesTheInvoiceUnchanged()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var faucet = ItemsOf(created, InvoiceItemSourceType.Custom).Single();
+        var rent = ItemsOf(created, InvoiceItemSourceType.Rent).Single();
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest
+        {
+            Notes = "Changed",
+            CustomItems = new List<UpdateInvoiceCustomItemRequest>
+            {
+                new() { Id = faucet.Id, Quantity = 5 },
+                new() { Description = "Cleaning", Quantity = 1, UnitPrice = 25_000 },
+                new() { Id = rent.Id, IsDeleted = true }
+            }
+        });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(created.Items, invoice.Items);
+        Assert.Null(invoice.Notes);
+        Assert.Equal(created.TotalAmount, invoice.TotalAmount);
+        Assert.Equal(2, await CountInvoiceItemsAsync(created.Id));
+    }
+
+    [Fact]
+    public async Task Patch_ItemOfAnotherInvoice_ReturnsNotFound()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var otherLease = await CreateActiveLeaseAsync(roomId: await CreateRoomAsync(_propertyId, "102"));
+        var other = await CreateOkAsync(Request(otherLease.Id) with
+        {
+            CustomItems = [new CreateInvoiceCustomItemRequest { Description = "Other", UnitPrice = 10_000 }]
+        });
+        var otherItem = ItemsOf(other, InvoiceItemSourceType.Custom).Single();
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest
+        {
+            CustomItems = new List<UpdateInvoiceCustomItemRequest> { new() { Id = otherItem.Id, IsDeleted = true } }
+        });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(2, await CountInvoiceItemsAsync(other.Id));
+    }
+
+    [Fact]
+    public async Task Patch_UnknownItem_ReturnsNotFound()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest
+        {
+            CustomItems = new List<UpdateInvoiceCustomItemRequest> { new() { Id = Guid.NewGuid(), Quantity = 2 } }
+        });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Patch_DueDateBeforeTheBillingMonth_ReturnsBadRequest()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest { DueDate = CurrentMonth.AddDays(-1) });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("DueDate must not be before the billing month", await ReadTitleAsync(response));
+    }
+
+    [Fact]
+    public async Task Patch_RemovingEveryItem_ReturnsBadRequest()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        // A generated invoice always has a rent line: turn it into a custom one so every line can be deleted
+        using (var scope = factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var rent = await context.InvoiceItems.SingleAsync(i => i.InvoiceId == created.Id && i.SourceType == InvoiceItemSourceType.Rent);
+            TestEntities.Set(rent, new { SourceType = InvoiceItemSourceType.Custom, SourceId = (Guid?)null });
+            await context.SaveChangesAsync();
+        }
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest
+        {
+            CustomItems = created.Items.Select(i => new UpdateInvoiceCustomItemRequest { Id = i.Id, IsDeleted = true }).ToList()
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("An invoice must keep at least one item", await ReadTitleAsync(response));
+        Assert.Equal(2, await CountInvoiceItemsAsync(created.Id));
+    }
+
+    [Fact]
+    public async Task Patch_NegativeTotal_ReturnsBadRequest()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest
+        {
+            DiscountAmount = 3_050_001m,
+            DiscountReason = "Too much"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("The invoice total must not be negative", await ReadTitleAsync(response));
+    }
+
+    [Fact]
+    public async Task Patch_TooManyCustomItems_ReturnsBadRequest()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest
+        {
+            CustomItems = Enumerable.Range(0, Invoice.MaxCustomItems)
+                .Select(i => new UpdateInvoiceCustomItemRequest { Description = $"Item {i}", Quantity = 1, UnitPrice = 1_000 })
+                .ToList()
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal($"At most {Invoice.MaxCustomItems} custom items are allowed", await ReadTitleAsync(response));
+    }
+
+    [Fact]
+    public async Task Patch_NewItemMissingFields_ReturnsValidationErrors()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest
+        {
+            CustomItems = new List<UpdateInvoiceCustomItemRequest> { new() { Description = "Cleaning" } }
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var errors = await ReadErrorsAsync(response);
+        Assert.Contains(errors.EnumerateObject(), p => p.Name.EndsWith("Quantity", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(errors.EnumerateObject(), p => p.Name.EndsWith("UnitPrice", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Patch_CustomItemsNull_ReturnsBadRequest()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest { CustomItems = null });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Patch_NegativeDiscount_ReturnsBadRequest()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest { DiscountAmount = -1m, DiscountReason = "x" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(InvoiceStatus.Pending, 1)]
+    [InlineData(InvoiceStatus.Partial, 1_000)]
+    [InlineData(InvoiceStatus.Paid, 3_050_000)]
+    [InlineData(InvoiceStatus.Cancelled, 0)]
+    public async Task Patch_NotEditable_ReturnsConflict(InvoiceStatus status, int paidAmount)
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await SetInvoiceStateAsync(created.Id, status, paidAmount);
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest { Notes = "Changed" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("Only unpaid pending or overdue invoices can be edited", await ReadTitleAsync(response));
+        Assert.Null((await GetOkAsync(created.Id)).Notes);
+    }
+
+    [Fact]
+    public async Task Patch_OverdueUnpaid_ReturnsOk()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await SetInvoiceStateAsync(created.Id, InvoiceStatus.Overdue);
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { Notes = "Reminder sent" });
+
+        Assert.Equal("Reminder sent", invoice.Notes);
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+    }
+
+    [Fact]
+    public async Task Patch_DoesNotAddStatusHistory()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        await PatchOkAsync(created.Id, new UpdateInvoiceRequest { Notes = "Changed" });
+
+        Assert.Single(await GetStatusHistoriesAsync(created.Id));
+    }
+
+    [Fact]
+    public async Task Patch_UnknownInvoice_ReturnsNotFound()
+    {
+        var response = await PatchAsync(Guid.NewGuid(), new UpdateInvoiceRequest { Notes = "x" });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Patch_SoftDeletedInvoice_ReturnsNotFound()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await SoftDeleteInvoiceAsync(created.Id);
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest { Notes = "x" });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Patch_InvoiceOfAnotherOrganization_ReturnsNotFound()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var otherClient = await CreateOtherOrganizationMemberClientAsync();
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest { Notes = "Hacked" }, otherClient);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Null((await GetOkAsync(created.Id)).Notes);
+    }
+
+    [Fact]
+    public async Task Patch_OrganizationStaff_ReturnsOk()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var memberClient = await CreateOrganizationMemberClientAsync(_organizationId);
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest { Notes = "By staff" }, memberClient);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("By staff", (await ReadDataAsync<InvoiceDetailResponse>(response)).Notes);
+    }
+
+    [Fact]
+    public async Task Patch_PlatformStaff_ReturnsForbidden()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var staffClient = await CreatePlatformStaffClientAsync();
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest { Notes = "x" }, staffClient);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Patch_Unauthenticated_ReturnsUnauthorized()
+    {
+        var response = await PatchAsync(Guid.NewGuid(), new UpdateInvoiceRequest(), factory.CreateClient());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 }

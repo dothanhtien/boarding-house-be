@@ -9,4 +9,5 @@ public interface IInvoiceService
     Task<InvoiceDetailResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<InvoiceDetailResponse> CreateAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<InvoicePreviewResponse> PreviewAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
+    Task<InvoiceDetailResponse> UpdateAsync(Guid id, UpdateInvoiceRequest request, CancellationToken cancellationToken = default);
 }

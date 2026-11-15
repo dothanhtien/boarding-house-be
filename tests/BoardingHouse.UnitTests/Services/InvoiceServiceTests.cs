@@ -105,7 +105,7 @@ public class InvoiceServiceTests
         return ((MemberExpression)body).Member.Name;
     }
 
-    private static Invoice NewInvoice(string invoiceNumber = "INV-202606-0001")
+    private static Invoice NewInvoice(string invoiceNumber = "INV-202606-0001", params InvoiceLine[] extraLines)
     {
         var property = Property.Create(
             Guid.NewGuid(),
@@ -115,7 +115,7 @@ public class InvoiceServiceTests
         TestEntities.Set(room, new { Property = property });
         var lease = TestLeases.Active(new DateOnly(2026, 5, 1), room: room);
 
-        InvoiceLine[] lines = [new("Rent 06/2026", 1, 3_000_000, 3_000_000, InvoiceItemSourceType.Rent, Guid.NewGuid())];
+        InvoiceLine[] lines = [new("Rent 06/2026", 1, 3_000_000, 3_000_000, InvoiceItemSourceType.Rent, Guid.NewGuid()), .. extraLines];
         var calculation = new InvoiceCalculation
         {
             BillingMonth = June,
@@ -360,6 +360,207 @@ public class InvoiceServiceTests
 
         Assert.Empty(result.Items);
         Assert.Equal(0, result.TotalItems);
+    }
+
+    private Invoice SetupInvoiceForUpdate(OrganizationScope? scope = null)
+    {
+        var invoice = NewInvoice("INV-202606-0001", InvoiceLine.Custom("Faucet repair", 1, 50_000));
+        TestEntities.Set(invoice, new { DiscountAmount = 10_000m, DiscountReason = "Old reason", Notes = "Old note" });
+
+        _unitOfWork
+            .Setup(u => u.ExecuteInTransactionAsync(It.IsAny<Func<CancellationToken, Task>>(), It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task> operation, CancellationToken ct) => operation(ct));
+        _invoiceRepository
+            .Setup(r => r.GetAggregateForUpdateAsync(invoice.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invoice);
+        _invoiceRepository
+            .Setup(r => r.GetByIdWithDetailsAsync(invoice.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invoice);
+        _organizationScopeAccessor
+            .Setup(a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Update, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(scope ?? Unrestricted());
+
+        return invoice;
+    }
+
+    [Fact]
+    public async Task UpdateAsync_UnknownInvoice_ThrowsNotFound()
+    {
+        SetupInvoiceForUpdate();
+        var id = Guid.NewGuid();
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(() => _invoiceService.UpdateAsync(id, new UpdateInvoiceRequest()));
+
+        Assert.Equal(NotFoundMessages.Invoice(id), ex.Message);
+        _invoiceRepository.Verify(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_InvoiceOfAnotherOrganization_ThrowsNotFoundAndLeavesItUnchanged()
+    {
+        var invoice = SetupInvoiceForUpdate(Restricted(Guid.NewGuid()));
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(
+            () => _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest { Notes = "Hacked" }));
+
+        Assert.Equal(NotFoundMessages.Invoice(invoice.Id), ex.Message);
+        Assert.Equal("Old note", invoice.Notes);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_MemberOfTheInvoiceOrganization_Updates()
+    {
+        var invoice = SetupInvoiceForUpdate();
+        _organizationScopeAccessor
+            .Setup(a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Update, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Restricted(invoice.OrganizationId));
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest { Notes = "New" });
+
+        Assert.Equal("New", invoice.Notes);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ChecksInvoiceUpdateScopeInsideTheTransaction()
+    {
+        var invoice = SetupInvoiceForUpdate();
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest());
+
+        _unitOfWork.Verify(
+            u => u.ExecuteInTransactionAsync(It.IsAny<Func<CancellationToken, Task>>(), It.IsAny<CancellationToken>()), Times.Once);
+        _organizationScopeAccessor.Verify(
+            a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Update, It.IsAny<CancellationToken>()), Times.Once);
+        _invoiceRepository.Verify(r => r.GetAggregateForUpdateAsync(invoice.Id, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_OmittedFields_KeepTheirCurrentValues()
+    {
+        var invoice = SetupInvoiceForUpdate();
+        var dueDate = invoice.DueDate;
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest { Notes = "New note" });
+
+        Assert.Equal("New note", invoice.Notes);
+        Assert.Equal(10_000, invoice.DiscountAmount);
+        Assert.Equal("Old reason", invoice.DiscountReason);
+        Assert.Equal(dueDate, invoice.DueDate);
+        Assert.Equal(2, invoice.Items.Count);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_FieldsSentAsNull_ClearThem()
+    {
+        var invoice = SetupInvoiceForUpdate();
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest
+        {
+            DiscountAmount = 0m,
+            DiscountReason = null,
+            Notes = null
+        });
+
+        Assert.Equal(0, invoice.DiscountAmount);
+        Assert.Null(invoice.DiscountReason);
+        Assert.Null(invoice.Notes);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_EveryDetail_IsApplied()
+    {
+        var invoice = SetupInvoiceForUpdate();
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest
+        {
+            DiscountAmount = 20_000m,
+            DiscountReason = "Regular tenant",
+            Notes = "Pay by transfer",
+            DueDate = new DateOnly(2026, 6, 20)
+        });
+
+        Assert.Equal(new InvoiceDetails(20_000, "Regular tenant", "Pay by transfer", new DateOnly(2026, 6, 20)), invoice.Details);
+        Assert.Equal(3_030_000, invoice.TotalAmount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_CustomItems_AreAddedEditedAndDeleted()
+    {
+        var invoice = SetupInvoiceForUpdate();
+        var faucet = invoice.Items.Single(i => i.IsCustom);
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest
+        {
+            CustomItems = new List<UpdateInvoiceCustomItemRequest>
+            {
+                new() { Id = faucet.Id, Quantity = 2 },
+                new() { Description = "Cleaning", Quantity = 1, UnitPrice = 100_000 }
+            }
+        });
+
+        Assert.Equal(100_000, faucet.Amount);
+        Assert.Contains(invoice.Items, i => i is { Description: "Cleaning", Amount: 100_000 });
+        Assert.Equal(3_200_000, invoice.Subtotal);
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest
+        {
+            CustomItems = new List<UpdateInvoiceCustomItemRequest> { new() { Id = faucet.Id, IsDeleted = true } }
+        });
+
+        Assert.DoesNotContain(invoice.Items, i => i.Id == faucet.Id);
+        Assert.Equal(3_100_000, invoice.Subtotal);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ReturnsTheReloadedDetail()
+    {
+        var invoice = SetupInvoiceForUpdate();
+
+        var response = await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest { Notes = "New" });
+
+        Assert.Equal(invoice.Id, response.Id);
+        Assert.Equal("New", response.Notes);
+        Assert.Equal("Sunrise House", response.PropertyName);
+        Assert.Equal(2, response.Items.Count);
+        _invoiceRepository.Verify(r => r.GetByIdWithDetailsAsync(invoice.Id, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DomainRuleBroken_PropagatesWithoutReloading()
+    {
+        var invoice = SetupInvoiceForUpdate();
+        var rent = invoice.Items.Single(i => i.SourceType == InvoiceItemSourceType.Rent);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() => _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest
+        {
+            CustomItems = new List<UpdateInvoiceCustomItemRequest> { new() { Id = rent.Id, IsDeleted = true } }
+        }));
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        _invoiceRepository.Verify(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DiscountWithoutReasonAfterMerge_Throws()
+    {
+        var invoice = SetupInvoiceForUpdate();
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() => _invoiceService.UpdateAsync(
+            invoice.Id, new UpdateInvoiceRequest { DiscountAmount = 30_000m, DiscountReason = null }));
+
+        Assert.Equal("DiscountReason is required when DiscountAmount is greater than 0", ex.Message);
+        Assert.Equal(10_000, invoice.DiscountAmount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DiscountWithTheCurrentReason_IsAllowed()
+    {
+        var invoice = SetupInvoiceForUpdate();
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest { DiscountAmount = 30_000m });
+
+        Assert.Equal(30_000, invoice.DiscountAmount);
+        Assert.Equal("Old reason", invoice.DiscountReason);
     }
 
     [Fact]

@@ -76,6 +76,21 @@ public class InvoiceService(
         };
     }
 
+    public async Task<InvoiceDetailResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var invoice = await invoiceRepository.GetByIdWithDetailsAsync(id, cancellationToken)
+            ?? throw new AppNotFoundException(NotFoundMessages.Invoice(id));
+
+        await organizationScopeAccessor.EnsureScopeAsync(
+            invoice.OrganizationId,
+            PermissionResources.Invoice,
+            PermissionActions.Read,
+            NotFoundMessages.Invoice(id),
+            cancellationToken);
+
+        return invoice.Adapt<InvoiceDetailResponse>();
+    }
+
     public async Task<InvoicePreviewResponse> PreviewAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default)
     {
         var lease = await leaseRepository.GetByIdForBillingAsync(request.LeaseId, forUpdate: false, cancellationToken)
@@ -91,21 +106,6 @@ public class InvoiceService(
         var calculation = await CalculateAsync(lease, request, cancellationToken);
 
         return ToPreviewResponse(lease, request, calculation);
-    }
-
-    public async Task<InvoiceDetailResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
-    {
-        var invoice = await invoiceRepository.GetByIdWithDetailsAsync(id, cancellationToken)
-            ?? throw new AppNotFoundException(NotFoundMessages.Invoice(id));
-
-        await organizationScopeAccessor.EnsureScopeAsync(
-            invoice.OrganizationId,
-            PermissionResources.Invoice,
-            PermissionActions.Read,
-            NotFoundMessages.Invoice(id),
-            cancellationToken);
-
-        return invoice.Adapt<InvoiceDetailResponse>();
     }
 
     public async Task<InvoiceDetailResponse> CreateAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default)
@@ -178,6 +178,41 @@ public class InvoiceService(
             "Invoice created ({InvoiceId}, lease {LeaseId}, month {BillingMonth})", invoiceId, request.LeaseId, billingMonth);
 
         return await GetDetailAsync(invoiceId, cancellationToken);
+    }
+
+    public async Task<InvoiceDetailResponse> UpdateAsync(Guid id, UpdateInvoiceRequest request, CancellationToken cancellationToken = default)
+    {
+        await unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var invoice = await invoiceRepository.GetAggregateForUpdateAsync(id, ct)
+                ?? throw new AppNotFoundException(NotFoundMessages.Invoice(id));
+
+            await organizationScopeAccessor.EnsureScopeAsync(
+                invoice.OrganizationId,
+                PermissionResources.Invoice,
+                PermissionActions.Update,
+                NotFoundMessages.Invoice(id),
+                ct);
+
+            var current = invoice.Details;
+            var details = new InvoiceDetails(
+                request.DiscountAmount.OrKeep(current.DiscountAmount),
+                request.DiscountReason.OrKeep(current.DiscountReason),
+                request.Notes.OrKeep(current.Notes),
+                request.DueDate.OrKeep(current.DueDate));
+
+            var customItemChanges = request.CustomItems.IsSet
+                ? request.CustomItems.Value!
+                    .Select(c => new InvoiceCustomItemChange(c.Id, c.Description, c.Quantity, c.UnitPrice, c.IsDeleted))
+                    .ToList()
+                : [];
+
+            invoice.Update(details, customItemChanges, DateTimeOffset.UtcNow);
+        }, cancellationToken);
+
+        logger.LogInformation("Invoice updated ({InvoiceId})", id);
+
+        return await GetDetailAsync(id, cancellationToken);
     }
 
     private async Task<InvoiceCalculation> CalculateAsync(

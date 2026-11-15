@@ -66,4 +66,14 @@ public class InvoiceItem : Entity
             throw new DomainException(unitPrice is null ? "UnitPrice is required" : "UnitPrice must not be 0");
         }
     }
+
+    public void ChangeCustom(string description, decimal quantity, decimal unitPrice)
+    {
+        var line = InvoiceLine.Custom(description, quantity, unitPrice);
+
+        Description = line.Description;
+        Quantity = line.Quantity;
+        UnitPrice = line.UnitPrice;
+        Amount = line.Amount;
+    }
 }
