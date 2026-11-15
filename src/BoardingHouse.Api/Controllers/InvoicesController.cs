@@ -57,4 +57,13 @@ public class InvoicesController(IInvoiceService invoiceService) : ControllerBase
         var invoice = await invoiceService.UpdateAsync(id, request, cancellationToken);
         return Ok(new ApiResponse<InvoiceDetailResponse> { Data = invoice });
     }
+
+    [HttpPost("{id:guid}/cancel")]
+    [RequireOrganizationScopedPermission(PermissionResources.Invoice, PermissionActions.Cancel)]
+    public async Task<ActionResult<ApiResponse<InvoiceDetailResponse>>> Cancel(
+        Guid id, CancelInvoiceRequest request, CancellationToken cancellationToken)
+    {
+        var invoice = await invoiceService.CancelAsync(id, request, cancellationToken);
+        return Ok(new ApiResponse<InvoiceDetailResponse> { Data = invoice });
+    }
 }

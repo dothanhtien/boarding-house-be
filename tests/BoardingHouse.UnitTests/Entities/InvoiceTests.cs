@@ -916,4 +916,108 @@ public class InvoiceTests
         Assert.Equal(InvoiceStatus.Paid, invoice.Status);
         Assert.Equal(0, invoice.LateFeeAmount);
     }
+
+    [Theory]
+    [InlineData(InvoiceStatus.Pending)]
+    [InlineData(InvoiceStatus.Overdue)]
+    public void Cancel_UnpaidInvoice_CancelsWithTheTrimmedReason(InvoiceStatus status)
+    {
+        var invoice = Create();
+        TestEntities.Set(invoice, new { Status = status });
+
+        invoice.Cancel("  Wrong meter reading  ", ActorId, Later);
+
+        Assert.Equal(InvoiceStatus.Cancelled, invoice.Status);
+        var history = invoice.StatusHistories.Last();
+        Assert.Equal(invoice.Id, history.InvoiceId);
+        Assert.Equal(status, history.OldStatus);
+        Assert.Equal(InvoiceStatus.Cancelled, history.NewStatus);
+        Assert.Equal("Wrong meter reading", history.Reason);
+        Assert.Equal(ActorId, history.ChangedBy);
+        Assert.Equal(Later, history.ChangedAt);
+    }
+
+    [Fact]
+    public void Cancel_KeepsTheNumberAmountsAndItems()
+    {
+        var invoice = Create();
+        invoice.RefreshStatus(InvoiceDueDate.AddDays(1), FivePercent, changedBy: null, Later);
+
+        invoice.Cancel("Wrong meter reading", ActorId, Later);
+
+        Assert.Equal("INV-202606-0001", invoice.InvoiceNumber);
+        Assert.Equal(267_750, invoice.LateFeeAmount);
+        Assert.Equal(5_622_750, invoice.TotalAmount);
+        Assert.Equal(3, invoice.Items.Count);
+        Assert.False(invoice.IsEditable);
+    }
+
+    [Fact]
+    public void Cancel_AlreadyCancelled_ThrowsConflict()
+    {
+        var invoice = Create();
+        invoice.Cancel("Wrong meter reading", ActorId, Later);
+
+        var ex = Assert.Throws<DomainException>(() => invoice.Cancel("Again", ActorId, Later));
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal("The invoice is already cancelled", ex.Message);
+        Assert.Equal(2, invoice.StatusHistories.Count);
+    }
+
+    [Theory]
+    [InlineData(InvoiceStatus.Partial, 1_000)]
+    [InlineData(InvoiceStatus.Overdue, 1_000)]
+    [InlineData(InvoiceStatus.Paid, 5_355_000)]
+    public void Cancel_WithConfirmedPayments_ThrowsConflict(InvoiceStatus status, int paidAmount)
+    {
+        var invoice = Create();
+        TestEntities.Set(invoice, new { Status = status, PaidAmount = (decimal)paidAmount });
+
+        var ex = Assert.Throws<DomainException>(() => invoice.Cancel("Wrong meter reading", ActorId, Later));
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal("An invoice with confirmed payments cannot be cancelled", ex.Message);
+        Assert.Equal(status, invoice.Status);
+        Assert.Single(invoice.StatusHistories);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Cancel_BlankReason_Throws(string reason)
+    {
+        var invoice = Create();
+
+        var ex = Assert.Throws<DomainException>(() => invoice.Cancel(reason, ActorId, Later));
+
+        Assert.Equal(DomainErrorKind.Validation, ex.Kind);
+        Assert.Equal("Reason is required", ex.Message);
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Single(invoice.StatusHistories);
+    }
+
+    [Fact]
+    public void Cancel_ReasonTooLong_Throws()
+    {
+        var invoice = Create();
+
+        var ex = Assert.Throws<DomainException>(
+            () => invoice.Cancel(new string('a', Invoice.CancelReasonMaxLength + 1), ActorId, Later));
+
+        Assert.Equal(DomainErrorKind.Validation, ex.Kind);
+        Assert.Equal($"Reason must not exceed {Invoice.CancelReasonMaxLength} characters", ex.Message);
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+    }
+
+    [Fact]
+    public void Cancel_ReasonAtMaxLengthAfterTrim_IsAllowed()
+    {
+        var invoice = Create();
+
+        invoice.Cancel($"  {new string('a', Invoice.CancelReasonMaxLength)}  ", ActorId, Later);
+
+        Assert.Equal(InvoiceStatus.Cancelled, invoice.Status);
+        Assert.Equal(Invoice.CancelReasonMaxLength, invoice.StatusHistories.Last().Reason!.Length);
+    }
 }

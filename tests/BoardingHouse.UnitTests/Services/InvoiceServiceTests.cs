@@ -29,6 +29,13 @@ public class InvoiceServiceTests
     private readonly Mock<IOrganizationScopeAccessor> _organizationScopeAccessor = new();
     private readonly Mock<ICurrentUserAccessor> _currentUserAccessor = new();
     private readonly Mock<ICurrentOrganizationAccessor> _currentOrganizationAccessor = new();
+    private readonly User _actor = TestEntities.New<User>(new
+    {
+        Email = "actor@test.com",
+        PasswordHash = "hashed-password",
+        FullName = "Actor",
+        CreatedBy = SentinelActors.System
+    });
     private readonly InvoiceService _invoiceService;
 
     private SearchCall? _search;
@@ -49,6 +56,7 @@ public class InvoiceServiceTests
     public InvoiceServiceTests()
     {
         MapsterTestSupport.EnsureUserMappingRegistered();
+        _currentUserAccessor.SetupGet(a => a.RequiredUser).Returns(_actor);
 
         var billingInputLoader = new InvoiceBillingInputLoader(
             _leaseRepository.Object,
@@ -362,7 +370,7 @@ public class InvoiceServiceTests
         Assert.Equal(0, result.TotalItems);
     }
 
-    private Invoice SetupInvoiceForUpdate(OrganizationScope? scope = null)
+    private Invoice SetupInvoiceForUpdate(OrganizationScope? scope = null, string action = PermissionActions.Update)
     {
         var invoice = NewInvoice("INV-202606-0001", InvoiceLine.Custom("Faucet repair", 1, 50_000));
         TestEntities.Set(invoice, new { DiscountAmount = 10_000m, DiscountReason = "Old reason", Notes = "Old note" });
@@ -377,7 +385,7 @@ public class InvoiceServiceTests
             .Setup(r => r.GetByIdWithDetailsAsync(invoice.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(invoice);
         _organizationScopeAccessor
-            .Setup(a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Update, It.IsAny<CancellationToken>()))
+            .Setup(a => a.GetScopeAsync(PermissionResources.Invoice, action, It.IsAny<CancellationToken>()))
             .ReturnsAsync(scope ?? Unrestricted());
 
         return invoice;
@@ -574,5 +582,76 @@ public class InvoiceServiceTests
             a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Read, It.IsAny<CancellationToken>()),
             Times.Once);
         _unitOfWork.VerifyNoOtherCalls();
+    }
+
+    private static CancelInvoiceRequest CancelRequest => new() { Reason = "Wrong meter reading" };
+
+    [Fact]
+    public async Task CancelAsync_UnknownInvoice_ThrowsNotFound()
+    {
+        SetupInvoiceForUpdate(action: PermissionActions.Cancel);
+        var id = Guid.NewGuid();
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(() => _invoiceService.CancelAsync(id, CancelRequest));
+
+        Assert.Equal(NotFoundMessages.Invoice(id), ex.Message);
+        _invoiceRepository.Verify(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CancelAsync_InvoiceOfAnotherOrganization_ThrowsNotFoundAndLeavesItUnchanged()
+    {
+        var invoice = SetupInvoiceForUpdate(Restricted(Guid.NewGuid()), PermissionActions.Cancel);
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(() => _invoiceService.CancelAsync(invoice.Id, CancelRequest));
+
+        Assert.Equal(NotFoundMessages.Invoice(invoice.Id), ex.Message);
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Single(invoice.StatusHistories);
+    }
+
+    [Fact]
+    public async Task CancelAsync_InvoiceOfAnAllowedOrganization_Cancels()
+    {
+        var invoice = SetupInvoiceForUpdate(action: PermissionActions.Cancel);
+        _organizationScopeAccessor
+            .Setup(a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Cancel, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Restricted(invoice.OrganizationId));
+
+        await _invoiceService.CancelAsync(invoice.Id, CancelRequest);
+
+        Assert.Equal(InvoiceStatus.Cancelled, invoice.Status);
+    }
+
+    [Fact]
+    public async Task CancelAsync_ChecksInvoiceCancelScopeAndCancelsAsTheCurrentUser()
+    {
+        var invoice = SetupInvoiceForUpdate(action: PermissionActions.Cancel);
+
+        var result = await _invoiceService.CancelAsync(invoice.Id, CancelRequest);
+
+        Assert.Equal(InvoiceStatus.Cancelled, invoice.Status);
+        Assert.Equal(InvoiceStatus.Cancelled, result.Status);
+        var history = invoice.StatusHistories.Last();
+        Assert.Equal(_actor.Id, history.ChangedBy);
+        Assert.Equal("Wrong meter reading", history.Reason);
+        _organizationScopeAccessor.Verify(
+            a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Cancel, It.IsAny<CancellationToken>()), Times.Once);
+        _invoiceRepository.Verify(r => r.GetAggregateForUpdateAsync(invoice.Id, It.IsAny<CancellationToken>()), Times.Once);
+        _unitOfWork.Verify(
+            u => u.ExecuteInTransactionAsync(It.IsAny<Func<CancellationToken, Task>>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CancelAsync_PaidInvoice_ThrowsConflictAndDoesNotReloadIt()
+    {
+        var invoice = SetupInvoiceForUpdate(action: PermissionActions.Cancel);
+        TestEntities.Set(invoice, new { Status = InvoiceStatus.Partial, PaidAmount = 1_000m });
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() => _invoiceService.CancelAsync(invoice.Id, CancelRequest));
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal(InvoiceStatus.Partial, invoice.Status);
+        _invoiceRepository.Verify(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

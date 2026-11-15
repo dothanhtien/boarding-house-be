@@ -192,6 +192,31 @@ public class Invoice : BaseEntity
         return true;
     }
 
+    public void Cancel(string reason, Guid changedBy, DateTimeOffset now)
+    {
+        if (Status == InvoiceStatus.Cancelled)
+        {
+            throw DomainException.Conflict("The invoice is already cancelled");
+        }
+
+        if (PaidAmount > 0)
+        {
+            throw DomainException.Conflict("An invoice with confirmed payments cannot be cancelled");
+        }
+
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new DomainException("Reason is required");
+        }
+
+        if (reason.Trim().Length > CancelReasonMaxLength)
+        {
+            throw new DomainException($"Reason must not exceed {CancelReasonMaxLength} characters");
+        }
+
+        TransitionTo(InvoiceStatus.Cancelled, changedBy, now, reason.Trim());
+    }
+
     public static string FormatNumber(BillingMonth month, int number) =>
         string.Create(CultureInfo.InvariantCulture, $"INV-{month.FirstDay:yyyyMM}-{number:D4}");
 

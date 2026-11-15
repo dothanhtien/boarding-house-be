@@ -215,6 +215,29 @@ public class InvoiceService(
         return await GetDetailAsync(id, cancellationToken);
     }
 
+    public async Task<InvoiceDetailResponse> CancelAsync(Guid id, CancelInvoiceRequest request, CancellationToken cancellationToken = default)
+    {
+        await unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var invoice = await invoiceRepository.GetAggregateForUpdateAsync(id, ct)
+                ?? throw new AppNotFoundException(NotFoundMessages.Invoice(id));
+
+            await organizationScopeAccessor.EnsureScopeAsync(
+                invoice.OrganizationId,
+                PermissionResources.Invoice,
+                PermissionActions.Cancel,
+                NotFoundMessages.Invoice(id),
+                ct);
+
+            // TODO: void the invoice's PENDING payments in this transaction
+            invoice.Cancel(request.Reason, currentUserAccessor.RequiredUser.Id, DateTimeOffset.UtcNow);
+        }, cancellationToken);
+
+        logger.LogInformation("Invoice cancelled ({InvoiceId})", id);
+
+        return await GetDetailAsync(id, cancellationToken);
+    }
+
     private async Task<InvoiceCalculation> CalculateAsync(
         Lease lease, CreateInvoiceRequest request, CancellationToken cancellationToken)
     {
