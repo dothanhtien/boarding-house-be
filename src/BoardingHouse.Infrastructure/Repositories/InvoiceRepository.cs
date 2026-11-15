@@ -23,17 +23,27 @@ public class InvoiceRepository(AppDbContext context) : Repository<Invoice>(conte
             i => i.SourceType == InvoiceItemSourceType.Deposit && i.SourceId == leaseId,
             cancellationToken);
 
-    public Task<Invoice?> GetAggregateForUpdateAsync(Guid id, CancellationToken cancellationToken = default) =>
-        Context.Invoices
+    public async Task<Invoice?> GetAggregateForUpdateAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var invoice = await Context.Invoices
             .FromSql($"SELECT * FROM invoices WHERE id = {id} FOR UPDATE")
-            .Include(i => i.Items)
             .FirstOrDefaultAsync(cancellationToken);
+
+        if (invoice is null)
+        {
+            return null;
+        }
+
+        await Context.Entry(invoice).Collection(i => i.Items).LoadAsync(cancellationToken);
+
+        return invoice;
+    }
 
     public Task<Invoice?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default) =>
         WithLeaseDetails(Context.Invoices.IgnoreQueryFilters().Where(i => i.DeletedAt == null))
             .AsNoTracking()
             .Include(i => i.Items)
-            .AsSplitQuery()
+            .AsSingleQuery()
             .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
 
     public async Task<int> NextNumberAsync(

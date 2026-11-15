@@ -209,6 +209,22 @@ public class InvoiceTests
     }
 
     [Theory]
+    [InlineData(1_000_000_000_000_000L, 1_000_000_000_000_000L)] // product overflows decimal
+    [InlineData(100_000_000L, -100_000_000L)] // 10^16: one digit over the column
+    public void EnsureCustomValid_AmountOutOfRange_Throws(long quantity, long unitPrice)
+    {
+        var ex = Assert.Throws<DomainException>(() => InvoiceItem.EnsureCustomValid("Repair", quantity, unitPrice));
+
+        Assert.Equal(InvoiceItem.AmountOutOfRangeMessage, ex.Message);
+    }
+
+    [Fact]
+    public void EnsureCustomValid_AmountAtLimit_DoesNotThrow()
+    {
+        InvoiceItem.EnsureCustomValid("Repair", 1, -InvoiceItem.MaxAmount);
+    }
+
+    [Theory]
     [InlineData(100)]
     [InlineData(-100)]
     public void EnsureCustomValid_ValidValues_DoesNotThrow(int unitPrice)

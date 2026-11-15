@@ -130,6 +130,20 @@ public class UpdateInvoiceCustomItemRequestValidatorTests
     }
 
     [Fact]
+    public void Validate_NewItemAmountOverflowsDecimal_HasError()
+    {
+        _validator.TestValidate(NewItem(quantity: 1_000_000_000_000_000m, unitPrice: 1_000_000_000_000_000m))
+            .ShouldHaveValidationErrorFor(x => x.UnitPrice)
+            .WithErrorMessage(InvoiceItem.AmountOutOfRangeMessage);
+    }
+
+    [Fact]
+    public void Validate_ExistingItemOnlyUnitPrice_SkipsAmountCheck()
+    {
+        _validator.TestValidate(Existing() with { UnitPrice = 1_000_000_000_000_000m }).ShouldNotHaveAnyValidationErrors();
+    }
+
+    [Fact]
     public void Validate_UnitPriceWithTooManyDecimals_HasError()
     {
         _validator.TestValidate(Existing() with { UnitPrice = 1.234m }).ShouldHaveValidationErrorFor(x => x.UnitPrice);

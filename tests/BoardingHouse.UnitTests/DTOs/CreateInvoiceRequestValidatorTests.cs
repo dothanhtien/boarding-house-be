@@ -1,6 +1,7 @@
 using FluentValidation.TestHelper;
 using BoardingHouse.Application.DTOs.Invoices;
 using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
 
 namespace BoardingHouse.UnitTests.DTOs;
 
@@ -125,6 +126,22 @@ public class CreateInvoiceRequestValidatorTests
         _validator.TestValidate(Request([Item(new string('a', 256))]))
             .ShouldHaveValidationErrorFor("CustomItems[0].Description")
             .WithErrorMessage("Description must not exceed 255 characters");
+    }
+
+    [Fact]
+    public void Validate_CustomItemAmountOverflowsDecimal_HasError()
+    {
+        _validator.TestValidate(Request([Item(quantity: 1_000_000_000_000_000m, unitPrice: 1_000_000_000_000_000m)]))
+            .ShouldHaveValidationErrorFor("CustomItems[0].UnitPrice")
+            .WithErrorMessage(InvoiceItem.AmountOutOfRangeMessage);
+    }
+
+    [Fact]
+    public void Validate_CustomItemAmountExceedsColumn_HasError()
+    {
+        _validator.TestValidate(Request([Item(quantity: 100_000_000m, unitPrice: -100_000_000m)]))
+            .ShouldHaveValidationErrorFor("CustomItems[0].UnitPrice")
+            .WithErrorMessage(InvoiceItem.AmountOutOfRangeMessage);
     }
 
     [Fact]

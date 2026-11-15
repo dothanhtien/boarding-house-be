@@ -21,6 +21,8 @@ public class CreateInvoiceCustomItemRequestValidator : AbstractValidator<CreateI
             .NotNull().WithMessage("UnitPrice is required")
             .NotEqual(0).WithMessage("UnitPrice must not be 0")
             .PrecisionScale(18, 2, ignoreTrailingZeros: true)
-            .WithMessage("UnitPrice must not exceed 18 digits in total, with at most 2 decimal places");
+            .WithMessage("UnitPrice must not exceed 18 digits in total, with at most 2 decimal places")
+            .Must((x, unitPrice) => x.Quantity <= 0 || InvoiceItem.IsCustomAmountInRange(x.Quantity, unitPrice!.Value))
+            .WithMessage(InvoiceItem.AmountOutOfRangeMessage);
     }
 }

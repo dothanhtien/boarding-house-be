@@ -29,6 +29,9 @@ public class UpdateInvoiceCustomItemRequestValidator : AbstractValidator<UpdateI
             .NotEqual(0).WithMessage("UnitPrice must not be 0")
             .PrecisionScale(18, 2, ignoreTrailingZeros: true)
             .WithMessage("UnitPrice must not exceed 18 digits in total, with at most 2 decimal places")
+            .Must((x, unitPrice) => x.Quantity is not > 0
+                || InvoiceItem.IsCustomAmountInRange(x.Quantity.Value, unitPrice!.Value))
+            .WithMessage(InvoiceItem.AmountOutOfRangeMessage)
             .When(x => x.Id is null || x.UnitPrice is not null);
     }
 }

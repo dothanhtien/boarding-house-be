@@ -8,6 +8,9 @@ public class InvoiceItem : Entity
 {
     public const int DescriptionMaxLength = 255;
 
+    public const decimal MaxAmount = 9_999_999_999_999_999m;
+    public const string AmountOutOfRangeMessage = "Quantity multiplied by UnitPrice must not exceed 16 digits";
+
     public Guid InvoiceId { get; private set; }
     public Invoice? Invoice { get; private set; }
 
@@ -64,6 +67,23 @@ public class InvoiceItem : Entity
         if (unitPrice is null or 0)
         {
             throw new DomainException(unitPrice is null ? "UnitPrice is required" : "UnitPrice must not be 0");
+        }
+
+        if (!IsCustomAmountInRange(quantity.Value, unitPrice.Value))
+        {
+            throw new DomainException(AmountOutOfRangeMessage);
+        }
+    }
+
+    public static bool IsCustomAmountInRange(decimal quantity, decimal unitPrice)
+    {
+        try
+        {
+            return Math.Abs(Money.Round(quantity * unitPrice)) <= MaxAmount;
+        }
+        catch (OverflowException)
+        {
+            return false;
         }
     }
 
