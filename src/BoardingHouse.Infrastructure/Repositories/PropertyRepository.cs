@@ -16,6 +16,13 @@ public class PropertyRepository(AppDbContext context) : Repository<Property>(con
     public Task<Property?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default) =>
         Context.Properties.FromSql($"SELECT * FROM properties WHERE id = {id} FOR UPDATE").FirstOrDefaultAsync(cancellationToken);
 
+    public Task<Property?> GetByLeaseIdAsync(Guid leaseId, CancellationToken cancellationToken = default) =>
+        Context.Leases
+            .AsNoTracking()
+            .Where(l => l.Id == leaseId)
+            .Select(l => l.Room!.Property)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public Task<Guid?> GetOrganizationIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         Context.Properties
             .Where(p => p.Id == id)

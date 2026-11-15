@@ -717,4 +717,203 @@ public class InvoiceTests
 
         Assert.Single(invoice.StatusHistories);
     }
+
+    // Create(): total 5,355,000, due 2026-06-08
+    private static readonly DateOnly InvoiceDueDate = new(2026, 6, 8);
+    private static readonly LateFeePolicy FivePercent = new(LateFeeType.Percent, 5, graceDays: null);
+
+    [Theory]
+    [InlineData(0, "2026-06-08", InvoiceStatus.Pending)]
+    [InlineData(0, "2026-06-09", InvoiceStatus.Overdue)]
+    [InlineData(1_000, "2026-06-08", InvoiceStatus.Partial)]
+    [InlineData(1_000, "2026-06-09", InvoiceStatus.Overdue)]
+    [InlineData(5_355_000, "2026-06-09", InvoiceStatus.Paid)]
+    [InlineData(6_000_000, "2026-06-08", InvoiceStatus.Paid)]
+    public void RefreshStatus_DerivesTheStatusFromPaidTotalAndDueDate(int paidAmount, string today, InvoiceStatus expected)
+    {
+        var invoice = Create();
+        TestEntities.Set(invoice, new { PaidAmount = (decimal)paidAmount });
+
+        invoice.RefreshStatus(DateOnly.Parse(today), LateFeePolicy.None, ActorId, Later);
+
+        Assert.Equal(expected, invoice.Status);
+    }
+
+    [Fact]
+    public void RefreshStatus_BecomingOverdue_AddsTheLateFeeAndRecordsTheChange()
+    {
+        var invoice = Create();
+
+        var changed = invoice.RefreshStatus(InvoiceDueDate.AddDays(1), FivePercent, changedBy: null, Later);
+
+        Assert.True(changed);
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(267_750, invoice.LateFeeAmount);
+        Assert.Equal(5_622_750, invoice.TotalAmount);
+        Assert.Equal(5_622_750, invoice.RemainingAmount);
+        // Only the fee moves: total = subtotal + vat + late fee - discount still holds (DB CHECK)
+        Assert.Equal(5_050_000, invoice.Subtotal);
+        Assert.Equal(invoice.Subtotal + invoice.VatAmount + invoice.LateFeeAmount - invoice.DiscountAmount, invoice.TotalAmount);
+
+        var history = invoice.StatusHistories.Last();
+        Assert.Equal(invoice.Id, history.InvoiceId);
+        Assert.Equal(InvoiceStatus.Pending, history.OldStatus);
+        Assert.Equal(InvoiceStatus.Overdue, history.NewStatus);
+        Assert.Equal(Invoice.OverdueReason, history.Reason);
+        Assert.Null(history.ChangedBy);
+        Assert.Equal(Later, history.ChangedAt);
+    }
+
+    [Fact]
+    public void RefreshStatus_BecomingOverdueWithFixedFee_AddsTheFixedAmount()
+    {
+        var invoice = Create();
+
+        invoice.RefreshStatus(
+            InvoiceDueDate.AddDays(1), new LateFeePolicy(LateFeeType.Fixed, 100_000, graceDays: null), changedBy: null, Later);
+
+        Assert.Equal(100_000, invoice.LateFeeAmount);
+        Assert.Equal(5_455_000, invoice.TotalAmount);
+    }
+
+    [Fact]
+    public void RefreshStatus_PartialBecomingOverdue_ChargesTheFeeOnTheWholeTotal()
+    {
+        var invoice = Create();
+        TestEntities.Set(invoice, new { Status = InvoiceStatus.Partial, PaidAmount = 1_000_000m });
+
+        invoice.RefreshStatus(InvoiceDueDate.AddDays(1), FivePercent, changedBy: null, Later);
+
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(267_750, invoice.LateFeeAmount);
+        Assert.Equal(4_622_750, invoice.RemainingAmount);
+        Assert.Equal(InvoiceStatus.Partial, invoice.StatusHistories.Last().OldStatus);
+    }
+
+    [Fact]
+    public void RefreshStatus_WithoutLateFeePolicy_BecomesOverdueWithoutAFee()
+    {
+        var invoice = Create();
+
+        invoice.RefreshStatus(InvoiceDueDate.AddDays(1), LateFeePolicy.None, changedBy: null, Later);
+
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(0, invoice.LateFeeAmount);
+        Assert.Equal(5_355_000, invoice.TotalAmount);
+    }
+
+    [Fact]
+    public void RefreshStatus_LeavingAndReturningToOverdue_AddsTheLateFeeOnlyOnce()
+    {
+        var invoice = Create();
+        invoice.RefreshStatus(InvoiceDueDate.AddDays(1), FivePercent, changedBy: null, Later);
+
+        invoice.RefreshStatus(InvoiceDueDate, FivePercent, ActorId, Later);
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+
+        invoice.RefreshStatus(InvoiceDueDate.AddDays(1), FivePercent, changedBy: null, Later);
+
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(267_750, invoice.LateFeeAmount);
+        Assert.Equal(5_622_750, invoice.TotalAmount);
+        Assert.Equal(
+            new[] { InvoiceStatus.Pending, InvoiceStatus.Overdue, InvoiceStatus.Pending, InvoiceStatus.Overdue },
+            invoice.StatusHistories.Select(h => h.NewStatus));
+        Assert.Null(invoice.StatusHistories.ElementAt(2).Reason);
+        Assert.Equal(ActorId, invoice.StatusHistories.ElementAt(2).ChangedBy);
+    }
+
+    [Fact]
+    public void RefreshStatus_OverduePaidInFull_BecomesPaidAndKeepsTheFee()
+    {
+        var invoice = Create();
+        invoice.RefreshStatus(InvoiceDueDate.AddDays(1), FivePercent, changedBy: null, Later);
+        TestEntities.Set(invoice, new { PaidAmount = invoice.TotalAmount });
+
+        Assert.True(invoice.RefreshStatus(InvoiceDueDate.AddDays(2), FivePercent, ActorId, Later));
+
+        Assert.Equal(InvoiceStatus.Paid, invoice.Status);
+        Assert.Equal(267_750, invoice.LateFeeAmount);
+        var history = invoice.StatusHistories.Last();
+        Assert.Equal(InvoiceStatus.Overdue, history.OldStatus);
+        Assert.Equal(InvoiceStatus.Paid, history.NewStatus);
+        Assert.Null(history.Reason);
+        Assert.Equal(ActorId, history.ChangedBy);
+    }
+
+    [Fact]
+    public void RefreshStatus_OverduePaidOnlyTheTotalBeforeTheFee_StaysOverdue()
+    {
+        var invoice = Create();
+        invoice.RefreshStatus(InvoiceDueDate.AddDays(1), FivePercent, changedBy: null, Later);
+        TestEntities.Set(invoice, new { PaidAmount = 5_355_000m });
+
+        Assert.False(invoice.RefreshStatus(InvoiceDueDate.AddDays(2), FivePercent, ActorId, Later));
+
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(267_750, invoice.RemainingAmount);
+    }
+
+    [Fact]
+    public void RefreshStatus_PaidThenPaymentVoided_GoesBackToPartial()
+    {
+        var invoice = Create();
+        TestEntities.Set(invoice, new { Status = InvoiceStatus.Paid, PaidAmount = 1_000_000m });
+
+        Assert.True(invoice.RefreshStatus(InvoiceDueDate, FivePercent, ActorId, Later));
+
+        Assert.Equal(InvoiceStatus.Partial, invoice.Status);
+        Assert.Equal(0, invoice.LateFeeAmount);
+        var history = invoice.StatusHistories.Last();
+        Assert.Equal(InvoiceStatus.Paid, history.OldStatus);
+        Assert.Null(history.Reason);
+    }
+
+    [Fact]
+    public void RefreshStatus_SameStatus_ReturnsFalseWithoutHistory()
+    {
+        var invoice = Create();
+
+        Assert.False(invoice.RefreshStatus(InvoiceDueDate, FivePercent, ActorId, Later));
+
+        Assert.Single(invoice.StatusHistories);
+        Assert.Equal(0, invoice.LateFeeAmount);
+    }
+
+    [Fact]
+    public void RefreshStatus_AlreadyOverdue_DoesNotAddTheFee()
+    {
+        var invoice = Create();
+        TestEntities.Set(invoice, new { Status = InvoiceStatus.Overdue });
+
+        Assert.False(invoice.RefreshStatus(InvoiceDueDate.AddDays(1), FivePercent, changedBy: null, Later));
+
+        Assert.Equal(0, invoice.LateFeeAmount);
+        Assert.Single(invoice.StatusHistories);
+    }
+
+    [Fact]
+    public void RefreshStatus_CancelledInvoice_NeverChanges()
+    {
+        var invoice = Create();
+        TestEntities.Set(invoice, new { Status = InvoiceStatus.Cancelled });
+
+        Assert.False(invoice.RefreshStatus(InvoiceDueDate.AddDays(1), FivePercent, changedBy: null, Later));
+
+        Assert.Equal(InvoiceStatus.Cancelled, invoice.Status);
+        Assert.Equal(0, invoice.LateFeeAmount);
+        Assert.Single(invoice.StatusHistories);
+    }
+
+    [Fact]
+    public void RefreshStatus_ZeroTotal_IsPaid()
+    {
+        var invoice = Create();
+        invoice.Update(invoice.Details with { DiscountAmount = 5_355_000, DiscountReason = "Free month" }, [], Later);
+
+        invoice.RefreshStatus(InvoiceDueDate.AddDays(1), FivePercent, ActorId, Later);
+
+        Assert.Equal(InvoiceStatus.Paid, invoice.Status);
+        Assert.Equal(0, invoice.LateFeeAmount);
+    }
 }

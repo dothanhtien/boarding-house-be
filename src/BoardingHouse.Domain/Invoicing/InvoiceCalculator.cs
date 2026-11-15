@@ -126,6 +126,9 @@ public static class InvoiceCalculator
         return (billingDate > today ? billingDate : today).AddDays(graceDays);
     }
 
+    public static LateFeePolicy ResolveLateFee(Property? property, OrganizationSettings? settings) =>
+        property?.LateFee.Type is not null ? property.LateFee : settings?.LateFee ?? LateFeePolicy.None;
+
     private static void AddMeteredLines(
         InvoiceCalculationInput input, List<InvoiceLine> lines, List<InvoiceIssue> warnings)
     {
