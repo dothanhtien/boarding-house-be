@@ -20,6 +20,7 @@ public class UtilityReadingService(
     IRoomRepository roomRepository,
     ILeaseRepository leaseRepository,
     IUtilityReadingRepository utilityReadingRepository,
+    IInvoiceRepository invoiceRepository,
     IUnitOfWork unitOfWork,
     ICurrentUserAccessor currentUserAccessor,
     IOrganizationScopeAccessor organizationScopeAccessor,
@@ -284,6 +285,14 @@ public class UtilityReadingService(
             if (await utilityReadingRepository.GetLatestIdOfMeterAsync(roomId, reading.ServiceId, ct) != reading.Id)
             {
                 throw new AppConflictException("Only the latest reading of a meter can be deleted");
+            }
+
+            var invoiceNumber = await invoiceRepository.FindLiveInvoiceNumberBySourceAsync(
+                InvoiceItemSourceType.Utility, reading.Id, ct);
+            if (invoiceNumber is not null)
+            {
+                throw new AppConflictException(
+                    $"The reading is billed on invoice {invoiceNumber} — cancel that invoice before deleting the reading");
             }
 
             utilityReadingRepository.SoftDelete(reading);

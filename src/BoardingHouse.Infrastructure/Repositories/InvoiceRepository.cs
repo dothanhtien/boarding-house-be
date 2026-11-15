@@ -115,6 +115,13 @@ public class InvoiceRepository(AppDbContext context) : Repository<Invoice>(conte
         return await invoices.ToPagedResultAsync(pageRequest, sortField, sortOrder, cancellationToken);
     }
 
+    public Task<string?> FindLiveInvoiceNumberBySourceAsync(
+        InvoiceItemSourceType sourceType, Guid sourceId, CancellationToken cancellationToken = default) =>
+        InvoiceItemQueries.Live(Context)
+            .Where(i => i.SourceType == sourceType && i.SourceId == sourceId)
+            .Select(i => i.Invoice!.InvoiceNumber)
+            .FirstOrDefaultAsync(cancellationToken);
+
     private static IQueryable<Invoice> WithLeaseDetails(IQueryable<Invoice> invoices) =>
         invoices.Include(i => i.Lease!).ThenInclude(l => l.Room!).ThenInclude(r => r.Property);
 }

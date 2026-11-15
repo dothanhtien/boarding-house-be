@@ -26,4 +26,6 @@ public interface IInvoiceRepository : IRepository<Invoice>
         Expression<Func<Invoice, object>> sortField,
         SortOrder sortOrder,
         CancellationToken cancellationToken = default);
+    Task<string?> FindLiveInvoiceNumberBySourceAsync(
+        InvoiceItemSourceType sourceType, Guid sourceId, CancellationToken cancellationToken = default);
 }

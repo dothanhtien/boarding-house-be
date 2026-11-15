@@ -333,17 +333,40 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
         return await ReadDataAsync<InvoiceDetailResponse>(response);
     }
 
-    // No cancel endpoint yet (TICKET-050): the status is written directly
-    private async Task CancelInvoiceAsync(Guid invoiceId)
+    private Task CancelInvoiceAsync(Guid invoiceId) => SetInvoiceStatusAsync(invoiceId, InvoiceStatus.Cancelled);
+
+    private async Task SetInvoiceStatusAsync(Guid invoiceId, InvoiceStatus status)
     {
         using var scope = factory.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var invoice = await context.Invoices.SingleAsync(i => i.Id == invoiceId);
-        TestEntities.Set(invoice, new { Status = InvoiceStatus.Cancelled });
+        TestEntities.Set(invoice, new { Status = status });
         await context.SaveChangesAsync();
     }
 
-    // Electricity + water on an active lease, recorded for CurrentMonth and the month after
+    private async Task SoftDeleteInvoiceAsync(Guid invoiceId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var invoice = await context.Invoices.SingleAsync(i => i.Id == invoiceId);
+        TestEntities.Set(invoice, new { DeletedAt = (DateTimeOffset?)DateTimeOffset.UtcNow, DeletedBy = (Guid?)SentinelActors.System });
+        await context.SaveChangesAsync();
+    }
+
+    private static async Task<string?> ReadTitleAsync(HttpResponseMessage response)
+    {
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.GetProperty("title").GetString();
+    }
+
+    private async Task<(Guid ElectricityId, InvoiceDetailResponse Invoice)> CreateInvoicedReadingAsync()
+    {
+        var electricity = await CreateUtilityServiceAsync("Electricity", 3_500, UtilityBillingMethod.Metered, "kWh");
+        var lease = await CreateActiveLeaseAsync([new CreateLeaseUtilityServiceRequest { ServiceId = electricity.Id }]);
+        await PostReadingsOkAsync(Readings(CurrentMonth, Item(electricity.Id, 150, 100)));
+        return (electricity.Id, await CreateInvoiceAsync(lease.Id, CurrentMonth));
+    }
+
     private async Task<(LeaseResponse Lease, Guid ElectricityId, Guid WaterId)> CreateLeaseWithTwoMonthsOfReadingsAsync()
     {
         var electricity = await CreateUtilityServiceAsync("Electricity", 3_500, UtilityBillingMethod.Metered, "kWh");
@@ -1382,6 +1405,65 @@ public class UtilityReadingsControllerIntegrationTests(PostgresApiFactory factor
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal(2, (await GetHistoryAsync()).Count);
+    }
+
+    [Theory]
+    [InlineData(InvoiceStatus.Pending)]
+    [InlineData(InvoiceStatus.Partial)]
+    [InlineData(InvoiceStatus.Paid)]
+    [InlineData(InvoiceStatus.Overdue)]
+    public async Task Delete_ReadingOnALiveInvoice_ReturnsConflict(InvoiceStatus status)
+    {
+        var (_, invoice) = await CreateInvoicedReadingAsync();
+        await SetInvoiceStatusAsync(invoice.Id, status);
+        var reading = Assert.Single(await GetHistoryAsync());
+
+        var response = await DeleteReadingAsync(reading.Id);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(
+            $"The reading is billed on invoice {invoice.InvoiceNumber} — cancel that invoice before deleting the reading",
+            await ReadTitleAsync(response));
+        Assert.Single(await GetHistoryAsync());
+    }
+
+    [Fact]
+    public async Task Delete_ReadingOnACancelledInvoice_Deletes()
+    {
+        var (_, invoice) = await CreateInvoicedReadingAsync();
+        await CancelInvoiceAsync(invoice.Id);
+        var reading = Assert.Single(await GetHistoryAsync());
+
+        var response = await DeleteReadingAsync(reading.Id);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Empty(await GetHistoryAsync());
+    }
+
+    [Fact]
+    public async Task Delete_ReadingOnADeletedInvoice_Deletes()
+    {
+        var (_, invoice) = await CreateInvoicedReadingAsync();
+        await SoftDeleteInvoiceAsync(invoice.Id);
+        var reading = Assert.Single(await GetHistoryAsync());
+
+        var response = await DeleteReadingAsync(reading.Id);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Empty(await GetHistoryAsync());
+    }
+
+    [Fact]
+    public async Task Delete_ReadingAfterTheInvoicedOne_Deletes()
+    {
+        var (electricityId, _) = await CreateInvoicedReadingAsync();
+        await PostReadingsOkAsync(Readings(CurrentMonth.AddMonths(1), Item(electricityId, 200)));
+        var latest = (await GetHistoryAsync())[0];
+
+        var response = await DeleteReadingAsync(latest.Id);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([150m], (await GetHistoryAsync()).Select(r => r.CurrentValue));
     }
 
     [Fact]
