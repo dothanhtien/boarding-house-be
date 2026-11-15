@@ -23,7 +23,7 @@ public class Lease : BaseEntity
     // Null = open-ended lease.
     public DateOnly? EndDate { get; private set; }
 
-    // 1–28; null = use the day of StartDate.
+    // 1–28; null = property / organization default, then the day of StartDate (InvoiceCalculator.ResolveBillingDay).
     public int? BillingDay { get; private set; }
 
     public decimal MonthlyRent { get; private set; }
@@ -102,6 +102,25 @@ public class Lease : BaseEntity
         AllowedTransitions[Status].Contains(next) && (next != LeaseStatus.Expired || EndDate is not null);
 
     public bool IsDueToExpire(DateOnly today) => CanTransitionTo(LeaseStatus.Expired) && EndDate < today;
+
+    public DateOnly? LastDayOfStay
+    {
+        get
+        {
+            if (Status != LeaseStatus.Terminated)
+            {
+                return EndDate;
+            }
+
+            var leftOn = Tenants.Max(t => t.LeftDate) ?? DateOnly.FromDateTime(TerminatedAt!.Value.UtcDateTime);
+
+            return EndDate is { } end && end < leftOn ? end : leftOn;
+        }
+    }
+
+    public int CountTenantsIn(BillingMonth month) =>
+        Tenants.Count(t =>
+            (t.JoinedDate ?? StartDate) <= month.LastDay && (t.LeftDate is null || t.LeftDate >= month.FirstDay));
 
     public void Update(
         LeaseTerms terms,

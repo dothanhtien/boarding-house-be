@@ -122,6 +122,23 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
         return lease;
     }
 
+    public async Task<Lease?> GetByIdForBillingAsync(Guid id, bool forUpdate, CancellationToken cancellationToken = default)
+    {
+        if (forUpdate && !await Context.Leases
+                .FromSql($"SELECT * FROM leases WHERE id = {id} FOR UPDATE")
+                .AnyAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return await Context.Leases
+            .Where(l => l.Id == id)
+            .AsNoTracking()
+            .Include(l => l.Room!).ThenInclude(r => r.Property)
+            .Include(l => l.Tenants)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<Lease?> GetByIdWithTenantsForDeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var lease = await Context.Leases

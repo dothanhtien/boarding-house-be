@@ -1,10 +1,13 @@
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.Repositories;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Infrastructure.Persistence;
+using BoardingHouse.Infrastructure.Persistence.Listing;
 
 namespace BoardingHouse.Infrastructure.Repositories;
 
@@ -67,4 +70,80 @@ public class UtilityReadingRepository(AppDbContext context) : IUtilityReadingRep
                 .Select(r => r.BilledLease!)
                 .First())
             .ToListAsync(cancellationToken);
+
+    public Task<List<UtilityReading>> ListUninvoicedByBilledLeaseIdAsync(
+        Guid leaseId, BillingMonth upToMonth, CancellationToken cancellationToken = default)
+    {
+        var liveUtilityItems = InvoiceItemQueries.Live(context)
+            .Where(i => i.SourceType == InvoiceItemSourceType.Utility);
+
+        return context.UtilityReadings
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Include(r => r.Service)
+            .Where(r => r.BilledLeaseId == leaseId
+                && r.ReadingMonth <= upToMonth
+                && r.DeletedAt == null
+                && !liveUtilityItems.Any(i => i.SourceId == r.Id))
+            .OrderBy(r => r.ReadingMonth)
+            .ThenBy(r => r.ServiceId)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<PagedResult<UtilityReadingWithInvoice>> SearchByBilledLeaseIdAsync(
+        Guid leaseId,
+        Guid? serviceId,
+        BillingMonth? from,
+        BillingMonth? to,
+        bool? invoiced,
+        PageRequest pageRequest,
+        Expression<Func<UtilityReading, object>> sortField,
+        SortOrder sortOrder,
+        CancellationToken cancellationToken = default)
+    {
+        var liveUtilityItems = InvoiceItemQueries.Live(context)
+            .Where(i => i.SourceType == InvoiceItemSourceType.Utility);
+        var images = context.MediaAssets
+            .Where(m => m.EntityType == MediaAssetEntityType.UtilityReadingImage && m.DeletedAt == null);
+
+        var readings = context.UtilityReadings
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Include(r => r.Service)
+            .Include(r => r.BilledLease)
+            .Where(r => r.BilledLeaseId == leaseId && r.DeletedAt == null);
+
+        if (serviceId is not null)
+        {
+            readings = readings.Where(r => r.ServiceId == serviceId);
+        }
+
+        if (from is { } fromMonth)
+        {
+            readings = readings.Where(r => r.ReadingMonth >= fromMonth);
+        }
+
+        if (to is { } toMonth)
+        {
+            readings = readings.Where(r => r.ReadingMonth <= toMonth);
+        }
+
+        if (invoiced is not null)
+        {
+            readings = readings.Where(r => liveUtilityItems.Any(i => i.SourceId == r.Id) == invoiced);
+        }
+
+        return readings.ToPagedResultAsync(
+            pageRequest,
+            sortField,
+            sortOrder,
+            page => page
+                .LeftJoin(images, r => r.Id, m => m.EntityId, (r, m) => new { Reading = r, Media = m })
+                .Select(x => new UtilityReadingWithInvoice(
+                    x.Reading,
+                    x.Media == null ? null : new MediaLocation(x.Media.StorageKey, x.Media.MimeType),
+                    liveUtilityItems.Where(i => i.SourceId == x.Reading.Id).Select(i => (Guid?)i.InvoiceId).FirstOrDefault(),
+                    liveUtilityItems.Where(i => i.SourceId == x.Reading.Id).Select(i => i.Invoice!.InvoiceNumber).FirstOrDefault())),
+            cancellationToken);
+    }
 }

@@ -60,4 +60,26 @@ public class BillingMonthTests
         Assert.Equal(BillingMonth.Of(new DateOnly(2026, 7, 31)), july);
         Assert.Equal("2026-07", july.ToString());
     }
+
+    [Fact]
+    public void StrictComparison_FollowsTheCalendar()
+    {
+        var june = BillingMonth.Of(new DateOnly(2026, 6, 15));
+        var july = june.AddMonths(1);
+
+        Assert.True(june < july);
+        Assert.True(july > june);
+        Assert.False(june < june);
+        Assert.False(june > june);
+    }
+
+    [Fact]
+    public void StrictComparison_WithNull_IsFalse()
+    {
+        var june = BillingMonth.Of(new DateOnly(2026, 6, 15));
+        BillingMonth? none = null;
+
+        Assert.False(june > none);
+        Assert.False(june < none);
+    }
 }

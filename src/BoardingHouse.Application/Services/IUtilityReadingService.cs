@@ -9,6 +9,8 @@ public interface IUtilityReadingService
         Guid propertyId, UtilityReadingRoomListQuery query, CancellationToken cancellationToken = default);
     Task<UtilityReadingRoomMetersResponse> GetRoomMetersAsync(
         Guid roomId, UtilityReadingRoomMetersQuery query, CancellationToken cancellationToken = default);
+    Task<PagedResult<UtilityReadingResponse>> GetByLeaseAsync(
+        Guid leaseId, LeaseUtilityReadingListQuery query, CancellationToken cancellationToken = default);
     Task<UtilityReadingRoomMetersResponse> RecordAsync(Guid roomId, RecordRoomUtilityReadingsRequest request, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid roomId, Guid readingId, CancellationToken cancellationToken = default);
 }

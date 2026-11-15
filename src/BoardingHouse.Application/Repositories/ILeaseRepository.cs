@@ -24,6 +24,7 @@ public interface ILeaseRepository : IRepository<Lease>
         IReadOnlyCollection<Guid> roomIds, BillingMonth month, CancellationToken cancellationToken = default);
     Task<Lease?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Lease?> GetAggregateForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<Lease?> GetByIdForBillingAsync(Guid id, bool forUpdate, CancellationToken cancellationToken = default);
     Task<Lease?> GetByIdWithTenantsForDeleteAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Lease?> GetByIdForShareAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Lease?> GetActiveOfMonthByRoomIdAsync(Guid roomId, BillingMonth month, CancellationToken cancellationToken = default);

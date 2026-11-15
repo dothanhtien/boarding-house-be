@@ -1,4 +1,6 @@
+using System.Linq.Expressions;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 
@@ -14,6 +16,18 @@ public interface IUtilityReadingRepository
         IReadOnlyCollection<Guid> roomIds, BillingMonth readingMonth, CancellationToken cancellationToken = default);
     Task<List<EntityWithMedia<UtilityReading>>> ListByRoomAndMonthWithImageAsync(
         Guid roomId, BillingMonth readingMonth, CancellationToken cancellationToken = default);
+    Task<List<UtilityReading>> ListUninvoicedByBilledLeaseIdAsync(
+        Guid leaseId, BillingMonth upToMonth, CancellationToken cancellationToken = default);
     Task AddRangeAsync(IEnumerable<UtilityReading> readings, CancellationToken cancellationToken = default);
     void SoftDelete(UtilityReading reading);
+    Task<PagedResult<UtilityReadingWithInvoice>> SearchByBilledLeaseIdAsync(
+        Guid leaseId,
+        Guid? serviceId,
+        BillingMonth? from,
+        BillingMonth? to,
+        bool? invoiced,
+        PageRequest pageRequest,
+        Expression<Func<UtilityReading, object>> sortField,
+        SortOrder sortOrder,
+        CancellationToken cancellationToken = default);
 }
