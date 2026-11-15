@@ -24,6 +24,8 @@ using BoardingHouse.Application.DTOs.Rooms;
 using BoardingHouse.Application.DTOs.Users;
 using BoardingHouse.Application.DTOs.UtilityReadings;
 using BoardingHouse.Application.DTOs.UtilityServices;
+using BoardingHouse.Application.Jobs;
+using BoardingHouse.Application.Repositories;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 
@@ -476,6 +478,53 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         context.InvoiceStatusHistories.Add(history);
         await context.SaveChangesAsync();
+    }
+
+    private async Task SetDueDateAsync(Guid id, DateOnly dueDate)
+    {
+        using var scope = factory.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<AppDbContext>().Invoices
+            .Where(i => i.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(i => i.DueDate, dueDate));
+    }
+
+    private async Task RunMarkOverdueInvoicesJobAsync()
+    {
+        using var scope = factory.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<MarkOverdueInvoicesJob>().RunAsync();
+    }
+
+    private async Task<List<Guid>> ListIdsToMarkOverdueAsync()
+    {
+        using var scope = factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<IInvoiceRepository>().ListIdsToMarkOverdueAsync(Today);
+    }
+
+    private async Task<Guid?> GetInvoiceUpdatedByAsync(Guid id)
+    {
+        using var scope = factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Invoices
+            .Where(i => i.Id == id)
+            .Select(i => i.UpdatedBy)
+            .SingleAsync();
+    }
+
+    private async Task SetOrganizationLateFeeAsync(LateFeeType type, decimal value)
+    {
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/organizations/{_organizationId}/settings",
+            new UpdateOrganizationSettingsRequest { LateFeeType = type, LateFeeValue = value },
+            JsonOptions);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    private async Task SetPropertyLateFeeAsync(LateFeeType type, decimal value)
+    {
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/properties/{_propertyId}",
+            new UpdatePropertyRequest { LateFeeType = type, LateFeeValue = value },
+            JsonOptions);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
@@ -2121,5 +2170,158 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
         var response = await ListStatusHistoriesAsync(Guid.NewGuid(), factory.CreateClient());
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MarkOverdueInvoicesJob_PastDueInvoice_BecomesOverdueWithThePropertyLateFee()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Percent, 5);
+        await SetPropertyLateFeeAsync(LateFeeType.Fixed, 100_000);
+        var created = await CreateEditableInvoiceAsync();
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(100_000, invoice.LateFeeAmount);
+        Assert.Equal(3_150_000, invoice.TotalAmount);
+        Assert.Equal(3_150_000, invoice.RemainingAmount);
+
+        var history = await GetLastStatusHistoryAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Pending, history.OldStatus);
+        Assert.Equal(InvoiceStatus.Overdue, history.NewStatus);
+        Assert.Equal(Invoice.OverdueReason, history.Reason);
+        Assert.Null(history.ChangedBy);
+        Assert.Equal(SentinelActors.System, await GetInvoiceUpdatedByAsync(created.Id));
+    }
+
+    [Fact]
+    public async Task MarkOverdueInvoicesJob_OrganizationLateFeeOnly_ChargesItsPercent()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Percent, 5);
+        var created = await CreateEditableInvoiceAsync();
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(152_500, invoice.LateFeeAmount);
+        Assert.Equal(3_202_500, invoice.TotalAmount);
+    }
+
+    [Fact]
+    public async Task MarkOverdueInvoicesJob_NoLateFeeConfigured_BecomesOverdueWithoutAFee()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(0, invoice.LateFeeAmount);
+        Assert.Equal(created.TotalAmount, invoice.TotalAmount);
+    }
+
+    [Fact]
+    public async Task MarkOverdueInvoicesJob_PartiallyPaidInvoice_BecomesOverdueKeepingThePaidAmount()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        var created = await CreateEditableInvoiceAsync();
+        await SetInvoiceStateAsync(created.Id, InvoiceStatus.Partial, 1_000_000);
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(1_000_000, invoice.PaidAmount);
+        Assert.Equal(3_100_000, invoice.TotalAmount);
+        Assert.Equal(2_100_000, invoice.RemainingAmount);
+        Assert.Equal(InvoiceStatus.Partial, (await GetLastStatusHistoryAsync(created.Id)).OldStatus);
+    }
+
+    [Fact]
+    public async Task MarkOverdueInvoicesJob_RunTwice_AddsTheLateFeeOnce()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        var created = await CreateEditableInvoiceAsync();
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+
+        await RunMarkOverdueInvoicesJobAsync();
+        var updatedBy = await GetInvoiceUpdatedByAsync(created.Id);
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(50_000, invoice.LateFeeAmount);
+        Assert.Equal(3_100_000, invoice.TotalAmount);
+        Assert.Equal(2, (await GetStatusHistoriesAsync(created.Id)).Count);
+        Assert.Equal(updatedBy, await GetInvoiceUpdatedByAsync(created.Id));
+    }
+
+    [Fact]
+    public async Task MarkOverdueInvoicesJob_NotYetDue_StaysPending()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        var created = await CreateEditableInvoiceAsync();
+        await SetDueDateAsync(created.Id, Today);
+
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Equal(0, invoice.LateFeeAmount);
+        Assert.Single(await GetStatusHistoriesAsync(created.Id));
+    }
+
+    [Theory]
+    [InlineData(InvoiceStatus.Cancelled, 0)]
+    [InlineData(InvoiceStatus.Paid, 3_050_000)]
+    public async Task MarkOverdueInvoicesJob_CancelledOrPaidInvoice_IsLeftAlone(InvoiceStatus status, int paidAmount)
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        var created = await CreateEditableInvoiceAsync();
+        await SetInvoiceStateAsync(created.Id, status, paidAmount);
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(status, invoice.Status);
+        Assert.Equal(0, invoice.LateFeeAmount);
+    }
+
+    [Fact]
+    public async Task MarkOverdueInvoicesJob_SoftDeletedInvoice_IsLeftAlone()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+        await SoftDeleteInvoiceAsync(created.Id);
+
+        await RunMarkOverdueInvoicesJobAsync();
+
+        Assert.Single(await GetStatusHistoriesAsync(created.Id));
+    }
+
+    [Fact]
+    public async Task ListIdsToMarkOverdueAsync_ReturnsUnpaidPastDueInvoicesByDueDate()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        var otherLease = await CreateActiveLeaseAsync(roomId: await CreateRoomAsync(_propertyId, "102"));
+        var pendingLate = await CreateOkAsync(Request(lease.Id));
+        var partialLater = await CreateOkAsync(Request(lease.Id, PreviousMonth));
+        var dueToday = await CreateOkAsync(Request(otherLease.Id));
+        var overdue = await CreateOkAsync(Request(otherLease.Id, PreviousMonth));
+        await SetDueDateAsync(pendingLate.Id, Today.AddDays(-1));
+        await SetDueDateAsync(partialLater.Id, Today.AddDays(-3));
+        await SetInvoiceStateAsync(partialLater.Id, InvoiceStatus.Partial, 1_000);
+        await SetDueDateAsync(dueToday.Id, Today);
+        await SetDueDateAsync(overdue.Id, Today.AddDays(-5));
+        await SetInvoiceStateAsync(overdue.Id, InvoiceStatus.Overdue);
+
+        var ids = await ListIdsToMarkOverdueAsync();
+
+        Assert.Equal([partialLater.Id, pendingLate.Id], ids);
     }
 }
