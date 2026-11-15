@@ -20,6 +20,7 @@ public class InvoiceService(
     IRoomRepository roomRepository,
     IInvoiceRepository invoiceRepository,
     InvoiceBillingInputLoader billingInputLoader,
+    InvoiceLateFeeResolver lateFeeResolver,
     IUnitOfWork unitOfWork,
     IOrganizationScopeAccessor organizationScopeAccessor,
     ICurrentUserAccessor currentUserAccessor,
@@ -207,7 +208,10 @@ public class InvoiceService(
                     .ToList()
                 : [];
 
-            invoice.Update(details, customItemChanges, DateTimeOffset.UtcNow);
+            var now = DateTimeOffset.UtcNow;
+            invoice.Update(details, customItemChanges, now);
+            invoice.RefreshStatus(
+                Today, await lateFeeResolver.ResolveAsync(invoice, ct), currentUserAccessor.RequiredUser.Id, now);
         }, cancellationToken);
 
         logger.LogInformation("Invoice updated ({InvoiceId})", id);

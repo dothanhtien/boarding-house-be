@@ -1791,8 +1791,11 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
     [Fact]
     public async Task Patch_OverdueUnpaid_ReturnsOk()
     {
-        var created = await CreateEditableInvoiceAsync();
-        await SetInvoiceStateAsync(created.Id, InvoiceStatus.Overdue);
+        // Last month's invoice: due "yesterday" is never before its billing month, even on the 1st
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id, PreviousMonth));
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+        await RunMarkOverdueInvoicesJobAsync();
 
         var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { Notes = "Reminder sent" });
 
@@ -2323,5 +2326,105 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
         var ids = await ListIdsToMarkOverdueAsync();
 
         Assert.Equal([partialLater.Id, pendingLate.Id], ids);
+    }
+
+    [Fact]
+    public async Task Patch_DueDateInThePast_MarksTheInvoiceOverdueWithTheLateFee()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id, PreviousMonth));
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(-1) });
+
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(50_000, invoice.LateFeeAmount);
+        Assert.Equal(created.TotalAmount + 50_000, invoice.TotalAmount);
+        var history = await GetLastStatusHistoryAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Pending, history.OldStatus);
+        Assert.Equal(InvoiceStatus.Overdue, history.NewStatus);
+        Assert.Equal(Invoice.OverdueReason, history.Reason);
+        Assert.Equal(_actorId, history.ChangedBy);
+    }
+
+    [Fact]
+    public async Task Patch_DueDateInThePastWithPropertyLateFee_UsesThePropertyFee()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        await SetPropertyLateFeeAsync(LateFeeType.Fixed, 80_000);
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id, PreviousMonth));
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(-1) });
+
+        Assert.Equal(80_000, invoice.LateFeeAmount);
+    }
+
+    [Fact]
+    public async Task Patch_LaterDueDateOnAnOverdueInvoice_MovesItBackToPendingAndKeepsTheLateFee()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id, PreviousMonth));
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(5) });
+
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Equal(50_000, invoice.LateFeeAmount);
+        Assert.Equal(created.TotalAmount + 50_000, invoice.TotalAmount);
+        var history = await GetLastStatusHistoryAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Overdue, history.OldStatus);
+        Assert.Equal(InvoiceStatus.Pending, history.NewStatus);
+        Assert.Null(history.Reason);
+        Assert.Equal(_actorId, history.ChangedBy);
+    }
+
+    [Fact]
+    public async Task Patch_OverdueAgainAfterMovingBack_DoesNotChargeTheLateFeeTwice()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id, PreviousMonth));
+        await PatchOkAsync(created.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(-1) });
+        await PatchOkAsync(created.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(5) });
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(-1) });
+
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(50_000, invoice.LateFeeAmount);
+        Assert.Equal(created.TotalAmount + 50_000, invoice.TotalAmount);
+        Assert.Equal(4, (await GetStatusHistoriesAsync(created.Id)).Count);
+    }
+
+    [Fact]
+    public async Task Patch_DiscountEqualToTheTotal_MarksTheInvoicePaid()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest
+        {
+            DiscountAmount = 3_050_000m,
+            DiscountReason = "Free month"
+        });
+
+        Assert.Equal(0, invoice.TotalAmount);
+        Assert.Equal(InvoiceStatus.Paid, invoice.Status);
+        Assert.Equal(InvoiceStatus.Paid, (await GetLastStatusHistoryAsync(created.Id)).NewStatus);
+        Assert.Equal(HttpStatusCode.Conflict, (await PatchAsync(created.Id, new UpdateInvoiceRequest { Notes = "x" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Patch_InvalidChange_LeavesTheStatusUnchanged()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id, PreviousMonth));
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest { DueDate = PreviousMonth.AddDays(-1) });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(InvoiceStatus.Pending, (await GetOkAsync(created.Id)).Status);
+        Assert.Single(await GetStatusHistoriesAsync(created.Id));
     }
 }

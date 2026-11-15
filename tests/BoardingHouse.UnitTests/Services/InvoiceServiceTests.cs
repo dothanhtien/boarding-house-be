@@ -25,6 +25,7 @@ public class InvoiceServiceTests
     private readonly Mock<ILeaseRepository> _leaseRepository = new();
     private readonly Mock<IRoomRepository> _roomRepository = new();
     private readonly Mock<IInvoiceRepository> _invoiceRepository = new();
+    private readonly Mock<IPropertyRepository> _propertyRepository = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly Mock<IOrganizationScopeAccessor> _organizationScopeAccessor = new();
     private readonly Mock<ICurrentUserAccessor> _currentUserAccessor = new();
@@ -69,6 +70,7 @@ public class InvoiceServiceTests
             _roomRepository.Object,
             _invoiceRepository.Object,
             billingInputLoader,
+            new InvoiceLateFeeResolver(_propertyRepository.Object, Mock.Of<IOrganizationSettingsRepository>()),
             _unitOfWork.Object,
             _organizationScopeAccessor.Object,
             _currentUserAccessor.Object,
@@ -727,5 +729,107 @@ public class InvoiceServiceTests
         SetupScope(Unrestricted());
 
         Assert.Empty(await _invoiceService.GetStatusHistoriesAsync(invoiceId));
+    }
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
+
+    private void SetupPropertyLateFee(Invoice invoice, LateFeeType type, decimal value) =>
+        _propertyRepository
+            .Setup(r => r.GetByLeaseIdAsync(invoice.LeaseId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(TestEntities.New<Property>(new
+            {
+                Name = "Sunrise House",
+                LateFeeType = (LateFeeType?)type,
+                LateFeeValue = (decimal?)value,
+                CreatedBy = SentinelActors.System
+            }));
+
+    // SetupInvoiceForUpdate: due 2026-06-08 (past), rent 3,000,000 + faucet 50,000 - discount 10,000 = 3,040,000 after Update
+    [Fact]
+    public async Task UpdateAsync_PastDueDate_MarksTheInvoiceOverdueWithThePropertyLateFee()
+    {
+        var invoice = SetupInvoiceForUpdate();
+        SetupPropertyLateFee(invoice, LateFeeType.Fixed, 100_000);
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest());
+
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(100_000, invoice.LateFeeAmount);
+        Assert.Equal(3_140_000, invoice.TotalAmount);
+        var history = invoice.StatusHistories.Last();
+        Assert.Equal(Invoice.OverdueReason, history.Reason);
+        Assert.Equal(_actor.Id, history.ChangedBy);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_PercentLateFee_IsChargedOnTheTotalAfterTheEdit()
+    {
+        var invoice = SetupInvoiceForUpdate();
+        SetupPropertyLateFee(invoice, LateFeeType.Percent, 5);
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest { DiscountAmount = 50_000m });
+
+        // 5% of 3,000,000 (after the new discount), not of the total before the edit
+        Assert.Equal(150_000, invoice.LateFeeAmount);
+        Assert.Equal(3_150_000, invoice.TotalAmount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_FutureDueDate_StaysPendingWithoutHistory()
+    {
+        var invoice = SetupInvoiceForUpdate();
+        SetupPropertyLateFee(invoice, LateFeeType.Fixed, 100_000);
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(5) });
+
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Equal(0, invoice.LateFeeAmount);
+        Assert.Single(invoice.StatusHistories);
+        _propertyRepository.Verify(r => r.GetByLeaseIdAsync(invoice.LeaseId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_LaterDueDateOnAnOverdueInvoice_MovesItBackToPendingAndKeepsTheLateFee()
+    {
+        var invoice = SetupInvoiceForUpdate();
+        SetupPropertyLateFee(invoice, LateFeeType.Fixed, 100_000);
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest());
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(5) });
+
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Equal(100_000, invoice.LateFeeAmount);
+        Assert.Equal(3_140_000, invoice.TotalAmount);
+        var history = invoice.StatusHistories.Last();
+        Assert.Equal(InvoiceStatus.Overdue, history.OldStatus);
+        Assert.Null(history.Reason);
+        Assert.Equal(_actor.Id, history.ChangedBy);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DiscountEqualToTheTotal_MarksTheInvoicePaid()
+    {
+        var invoice = SetupInvoiceForUpdate();
+        SetupPropertyLateFee(invoice, LateFeeType.Fixed, 100_000);
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest { DiscountAmount = 3_050_000m });
+
+        Assert.Equal(0, invoice.TotalAmount);
+        Assert.Equal(InvoiceStatus.Paid, invoice.Status);
+        Assert.Equal(0, invoice.LateFeeAmount);
+        Assert.False(invoice.IsEditable);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DomainRuleBroken_DoesNotRefreshTheStatus()
+    {
+        var invoice = SetupInvoiceForUpdate();
+
+        await Assert.ThrowsAsync<DomainException>(() => _invoiceService.UpdateAsync(
+            invoice.Id, new UpdateInvoiceRequest { DueDate = new DateOnly(2026, 5, 31) }));
+
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Single(invoice.StatusHistories);
+        _propertyRepository.VerifyNoOtherCalls();
     }
 }
