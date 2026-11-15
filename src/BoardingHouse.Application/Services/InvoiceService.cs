@@ -238,6 +238,24 @@ public class InvoiceService(
         return await GetDetailAsync(id, cancellationToken);
     }
 
+    public async Task<List<InvoiceStatusHistoryResponse>> GetStatusHistoriesAsync(
+        Guid id, CancellationToken cancellationToken = default)
+    {
+        var organizationId = await invoiceRepository.GetOrganizationIdAsync(id, cancellationToken)
+            ?? throw new AppNotFoundException(NotFoundMessages.Invoice(id));
+
+        await organizationScopeAccessor.EnsureScopeAsync(
+            organizationId,
+            PermissionResources.Invoice,
+            PermissionActions.Read,
+            NotFoundMessages.Invoice(id),
+            cancellationToken);
+
+        var histories = await invoiceRepository.ListStatusHistoriesAsync(id, cancellationToken);
+
+        return histories.Adapt<List<InvoiceStatusHistoryResponse>>();
+    }
+
     private async Task<InvoiceCalculation> CalculateAsync(
         Lease lease, CreateInvoiceRequest request, CancellationToken cancellationToken)
     {

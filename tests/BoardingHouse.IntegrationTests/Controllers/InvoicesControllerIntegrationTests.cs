@@ -460,6 +460,24 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
     private async Task<InvoiceStatusHistory> GetLastStatusHistoryAsync(Guid invoiceId) =>
         (await GetStatusHistoriesAsync(invoiceId)).OrderBy(h => h.ChangedAt).ThenBy(h => h.Id).Last();
 
+    private Task<HttpResponseMessage> ListStatusHistoriesAsync(Guid id, HttpClient? client = null) =>
+        (client ?? _client).GetAsync($"/api/invoices/{id}/status-histories");
+
+    private async Task<List<InvoiceStatusHistoryResponse>> ListStatusHistoriesOkAsync(Guid id, HttpClient? client = null)
+    {
+        var response = await ListStatusHistoriesAsync(id, client);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ReadDataAsync<List<InvoiceStatusHistoryResponse>>(response);
+    }
+
+    private async Task AddStatusHistoryAsync(InvoiceStatusHistory history)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        context.InvoiceStatusHistories.Add(history);
+        await context.SaveChangesAsync();
+    }
+
     [Fact]
     public async Task Preview_FullMonth_ReturnsRentDepositAndReadingLines()
     {
@@ -1996,6 +2014,111 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
     public async Task Cancel_Unauthenticated_ReturnsUnauthorized()
     {
         var response = await CancelAsync(Guid.NewGuid(), client: factory.CreateClient());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_ReturnsEveryChangeInOrder()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await CancelOkAsync(created.Id);
+
+        var histories = await ListStatusHistoriesOkAsync(created.Id);
+
+        Assert.Equal(2, histories.Count);
+
+        Assert.Null(histories[0].OldStatus);
+        Assert.Equal(InvoiceStatus.Pending, histories[0].NewStatus);
+        Assert.Null(histories[0].Reason);
+        Assert.Equal(_actorId, histories[0].ChangedBy);
+
+        Assert.Equal(InvoiceStatus.Pending, histories[1].OldStatus);
+        Assert.Equal(InvoiceStatus.Cancelled, histories[1].NewStatus);
+        Assert.Equal("Wrong meter reading", histories[1].Reason);
+        Assert.Equal(_actorId, histories[1].ChangedBy);
+        Assert.True(histories[1].ChangedAt >= histories[0].ChangedAt);
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_SortsByChangedAtNotInsertOrder()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var first = (await GetStatusHistoriesAsync(created.Id)).Single();
+        var earlier = new InvoiceStatusHistory(
+            created.Id, null, InvoiceStatus.Pending, "Imported", changedBy: null, first.ChangedAt.AddMinutes(-5));
+        await AddStatusHistoryAsync(earlier);
+
+        var histories = await ListStatusHistoriesOkAsync(created.Id);
+
+        Assert.Equal([earlier.Id, first.Id], histories.Select(h => h.Id));
+        Assert.Null(histories[0].ChangedBy);
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_OnlyReturnsTheRequestedInvoice()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var other = await CreateOkAsync(Request(created.LeaseId, PreviousMonth));
+        await CancelOkAsync(other.Id);
+
+        var histories = await ListStatusHistoriesOkAsync(created.Id);
+
+        Assert.Single(histories);
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_PlatformStaff_ReturnsOk()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var staffClient = await CreatePlatformStaffClientAsync();
+
+        Assert.Single(await ListStatusHistoriesOkAsync(created.Id, staffClient));
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_OrganizationStaff_ReturnsOk()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var staffClient = await CreateOrganizationMemberClientAsync(_organizationId);
+
+        Assert.Single(await ListStatusHistoriesOkAsync(created.Id, staffClient));
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_InvoiceOfAnotherOrganization_ReturnsNotFound()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var otherClient = await CreateOtherOrganizationMemberClientAsync();
+
+        var response = await ListStatusHistoriesAsync(created.Id, otherClient);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_UnknownInvoice_ReturnsNotFound()
+    {
+        var response = await ListStatusHistoriesAsync(Guid.NewGuid());
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_SoftDeletedInvoice_ReturnsNotFound()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await SoftDeleteInvoiceAsync(created.Id);
+
+        var response = await ListStatusHistoriesAsync(created.Id);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_Unauthenticated_ReturnsUnauthorized()
+    {
+        var response = await ListStatusHistoriesAsync(Guid.NewGuid(), factory.CreateClient());
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }

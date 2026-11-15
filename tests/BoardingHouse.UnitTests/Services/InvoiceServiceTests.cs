@@ -654,4 +654,78 @@ public class InvoiceServiceTests
         Assert.Equal(InvoiceStatus.Partial, invoice.Status);
         _invoiceRepository.Verify(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    private (Guid InvoiceId, Guid OrganizationId) SetupStatusHistories(params InvoiceStatusHistory[] histories)
+    {
+        var invoiceId = Guid.NewGuid();
+        var organizationId = Guid.NewGuid();
+        _invoiceRepository
+            .Setup(r => r.GetOrganizationIdAsync(invoiceId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(organizationId);
+        _invoiceRepository
+            .Setup(r => r.ListStatusHistoriesAsync(invoiceId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(histories.ToList());
+        return (invoiceId, organizationId);
+    }
+
+    [Fact]
+    public async Task GetStatusHistoriesAsync_UnknownInvoice_ThrowsNotFoundWithoutListing()
+    {
+        SetupScope(Unrestricted());
+        var id = Guid.NewGuid();
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(() => _invoiceService.GetStatusHistoriesAsync(id));
+
+        Assert.Equal(NotFoundMessages.Invoice(id), ex.Message);
+        _invoiceRepository.Verify(
+            r => r.ListStatusHistoriesAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetStatusHistoriesAsync_InvoiceOfAnotherOrganization_ThrowsNotFoundWithoutListing()
+    {
+        var (invoiceId, _) = SetupStatusHistories();
+        SetupScope(Restricted(Guid.NewGuid()));
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(() => _invoiceService.GetStatusHistoriesAsync(invoiceId));
+
+        Assert.Equal(NotFoundMessages.Invoice(invoiceId), ex.Message);
+        _invoiceRepository.Verify(
+            r => r.ListStatusHistoriesAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetStatusHistoriesAsync_InvoiceOfAnAllowedOrganization_ChecksReadScopeAndMapsInRepositoryOrder()
+    {
+        var actorId = Guid.NewGuid();
+        var createdAt = new DateTimeOffset(2026, 6, 1, 3, 0, 0, TimeSpan.Zero);
+        var invoiceId = Guid.NewGuid();
+        var created = new InvoiceStatusHistory(invoiceId, null, InvoiceStatus.Pending, null, actorId, createdAt);
+        var overdue = new InvoiceStatusHistory(
+            invoiceId, InvoiceStatus.Pending, InvoiceStatus.Overdue, Invoice.OverdueReason, null, createdAt.AddDays(9));
+        var (id, organizationId) = SetupStatusHistories(created, overdue);
+        SetupScope(Restricted(organizationId));
+
+        var result = await _invoiceService.GetStatusHistoriesAsync(id);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(
+            (created.Id, (InvoiceStatus?)null, InvoiceStatus.Pending, (string?)null, (Guid?)actorId, createdAt),
+            (result[0].Id, result[0].OldStatus, result[0].NewStatus, result[0].Reason, result[0].ChangedBy, result[0].ChangedAt));
+        Assert.Equal(
+            (overdue.Id, (InvoiceStatus?)InvoiceStatus.Pending, InvoiceStatus.Overdue, (string?)Invoice.OverdueReason, (Guid?)null, createdAt.AddDays(9)),
+            (result[1].Id, result[1].OldStatus, result[1].NewStatus, result[1].Reason, result[1].ChangedBy, result[1].ChangedAt));
+        _organizationScopeAccessor.Verify(
+            a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Read, It.IsAny<CancellationToken>()), Times.Once);
+        _unitOfWork.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetStatusHistoriesAsync_NoHistories_ReturnsEmpty()
+    {
+        var (invoiceId, _) = SetupStatusHistories();
+        SetupScope(Unrestricted());
+
+        Assert.Empty(await _invoiceService.GetStatusHistoriesAsync(invoiceId));
+    }
 }

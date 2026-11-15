@@ -39,6 +39,20 @@ public class InvoiceRepository(AppDbContext context) : Repository<Invoice>(conte
         return invoice;
     }
 
+    public Task<Guid?> GetOrganizationIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Context.Invoices
+            .Where(i => i.Id == id)
+            .Select(i => (Guid?)i.OrganizationId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<List<InvoiceStatusHistory>> ListStatusHistoriesAsync(Guid invoiceId, CancellationToken cancellationToken = default) =>
+        Context.InvoiceStatusHistories
+            .AsNoTracking()
+            .Where(h => h.InvoiceId == invoiceId)
+            .OrderBy(h => h.ChangedAt)
+            .ThenBy(h => h.Id)
+            .ToListAsync(cancellationToken);
+
     public Task<Invoice?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default) =>
         WithLeaseDetails(Context.Invoices.IgnoreQueryFilters().Where(i => i.DeletedAt == null))
             .AsNoTracking()

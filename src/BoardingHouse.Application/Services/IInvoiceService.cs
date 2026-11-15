@@ -7,8 +7,9 @@ public interface IInvoiceService
 {
     Task<PagedResult<InvoiceResponse>> GetAllAsync(InvoiceListQuery query, CancellationToken cancellationToken = default);
     Task<InvoiceDetailResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<InvoiceDetailResponse> CreateAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<InvoicePreviewResponse> PreviewAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
+    Task<InvoiceDetailResponse> CreateAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<InvoiceDetailResponse> UpdateAsync(Guid id, UpdateInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<InvoiceDetailResponse> CancelAsync(Guid id, CancelInvoiceRequest request, CancellationToken cancellationToken = default);
+    Task<List<InvoiceStatusHistoryResponse>> GetStatusHistoriesAsync(Guid id, CancellationToken cancellationToken = default);
 }

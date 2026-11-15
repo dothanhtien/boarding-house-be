@@ -12,6 +12,8 @@ public interface IInvoiceRepository : IRepository<Invoice>
     Task<bool> ExistsLiveDepositItemAsync(Guid leaseId, CancellationToken cancellationToken = default);
     Task<Invoice?> GetAggregateForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Invoice?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<Guid?> GetOrganizationIdAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<List<InvoiceStatusHistory>> ListStatusHistoriesAsync(Guid invoiceId, CancellationToken cancellationToken = default);
     Task<int> NextNumberAsync(Guid organizationId, BillingMonth billingMonth, CancellationToken cancellationToken = default);
     Task<PagedResult<Invoice>> SearchAsync(
         Guid? organizationId,

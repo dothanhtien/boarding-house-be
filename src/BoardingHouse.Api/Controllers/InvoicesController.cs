@@ -66,4 +66,13 @@ public class InvoicesController(IInvoiceService invoiceService) : ControllerBase
         var invoice = await invoiceService.CancelAsync(id, request, cancellationToken);
         return Ok(new ApiResponse<InvoiceDetailResponse> { Data = invoice });
     }
+
+    [HttpGet("{id:guid}/status-histories")]
+    [RequireOrganizationScopedPermission(PermissionResources.Invoice, PermissionActions.Read)]
+    public async Task<ActionResult<ApiResponse<List<InvoiceStatusHistoryResponse>>>> GetStatusHistories(
+        Guid id, CancellationToken cancellationToken)
+    {
+        var histories = await invoiceService.GetStatusHistoriesAsync(id, cancellationToken);
+        return Ok(new ApiResponse<List<InvoiceStatusHistoryResponse>> { Data = histories });
+    }
 }
