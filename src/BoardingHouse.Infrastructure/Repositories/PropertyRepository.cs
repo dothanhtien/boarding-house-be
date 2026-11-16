@@ -18,6 +18,7 @@ public class PropertyRepository(AppDbContext context) : Repository<Property>(con
 
     public Task<Property?> GetByLeaseIdAsync(Guid leaseId, CancellationToken cancellationToken = default) =>
         Context.Leases
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(l => l.Id == leaseId)
             .Select(l => l.Room!.Property)
