@@ -289,4 +289,33 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
                 && s.Lease!.DeletedAt == null
                 && (s.Lease.Status == LeaseStatus.Draft || s.Lease.Status == LeaseStatus.Active),
             cancellationToken);
+
+    public Task<List<Lease>> ListToBillByPropertyAsync(
+        Guid propertyId, BillingMonth month, CancellationToken cancellationToken = default) =>
+        BillableIn(month)
+            .Where(l => l.Room!.PropertyId == propertyId)
+            .OrderBy(l => l.Room!.RoomNumber)
+            .ThenBy(l => l.StartDate)
+            .ThenBy(l => l.Id)
+            .ToListAsync(cancellationToken);
+
+    private IQueryable<Lease> BillableIn(BillingMonth month)
+    {
+        var firstDay = month.FirstDay;
+        var lastDay = month.LastDay;
+        var firstMoment = new DateTimeOffset(firstDay.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+
+        return Context.Leases
+            .AsNoTracking()
+            .Include(l => l.Room)
+            .Where(l => l.Status != LeaseStatus.Draft
+                && l.StartDate <= lastDay
+                && (l.EndDate == null || l.EndDate >= firstDay)
+                && (l.Status != LeaseStatus.Terminated
+                    || (l.Tenants.Any(t => t.LeftDate != null)
+                        ? l.Tenants.Any(t => t.LeftDate >= firstDay)
+                        : l.TerminatedAt >= firstMoment))
+                && !Context.Invoices.Any(i =>
+                    i.LeaseId == l.Id && i.BillingMonth == month && i.Status != InvoiceStatus.Cancelled));
+    }
 }

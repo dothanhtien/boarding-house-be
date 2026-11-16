@@ -37,6 +37,7 @@ public static class DependencyInjection
         services.AddScoped<InvoiceBillingInputLoader>();
         services.AddScoped<InvoiceLateFeeResolver>();
         services.AddScoped<IInvoiceGenerator, InvoiceGenerator>();
+        services.AddScoped<IInvoiceGenerationService, InvoiceGenerationService>();
 
         services.AddScoped<ExpireLeasesJob>();
         services.AddScoped<MarkOverdueInvoicesJob>();

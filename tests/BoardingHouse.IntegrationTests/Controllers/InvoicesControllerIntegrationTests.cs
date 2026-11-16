@@ -156,9 +156,11 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
         decimal monthlyRent = 3_000_000,
         DateOnly? startDate = null,
         Guid? roomId = null,
-        Guid? previousLeaseId = null)
+        Guid? previousLeaseId = null,
+        int? billingDay = null)
     {
-        var lease = await CreateDraftLeaseAsync(serviceIds, depositAmount, monthlyRent, startDate, roomId, previousLeaseId);
+        var lease = await CreateDraftLeaseAsync(
+            serviceIds, depositAmount, monthlyRent, startDate, roomId, previousLeaseId, billingDay);
 
         var activateResponse = await _client.PostAsync($"/api/leases/{lease.Id}/activate", null);
         Assert.Equal(HttpStatusCode.OK, activateResponse.StatusCode);
@@ -171,13 +173,15 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
         decimal monthlyRent = 3_000_000,
         DateOnly? startDate = null,
         Guid? roomId = null,
-        Guid? previousLeaseId = null)
+        Guid? previousLeaseId = null,
+        int? billingDay = null)
     {
         var createResponse = await _client.PostAsJsonAsync("/api/leases", new CreateLeaseRequest
         {
             RoomId = roomId ?? _roomId,
             PreviousLeaseId = previousLeaseId,
             StartDate = startDate ?? PreviousMonth,
+            BillingDay = billingDay,
             MonthlyRent = monthlyRent,
             DepositAmount = depositAmount,
             Tenants = [new CreateLeaseTenantRequest { UserId = await CreateTenantUserAsync(), IsRepresentative = true }],
@@ -2426,5 +2430,337 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(InvoiceStatus.Pending, (await GetOkAsync(created.Id)).Status);
         Assert.Single(await GetStatusHistoriesAsync(created.Id));
+    }
+
+    private Task<HttpResponseMessage> GenerateForPropertyAsync(
+        Guid propertyId, DateOnly? billingMonth = null, HttpClient? client = null) =>
+        (client ?? _client).PostAsJsonAsync(
+            $"/api/properties/{propertyId}/invoices/generate",
+            new GenerateInvoicesRequest { BillingMonth = billingMonth ?? CurrentMonth },
+            JsonOptions);
+
+    private async Task<InvoiceGenerationRunResponse> GenerateForPropertyOkAsync(DateOnly? billingMonth = null)
+    {
+        var response = await GenerateForPropertyAsync(_propertyId, billingMonth);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ReadDataAsync<InvoiceGenerationRunResponse>(response);
+    }
+
+    private async Task<List<Invoice>> GetInvoicesOfLeaseAsync(Guid leaseId)
+    {
+        using var scope = factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Invoices
+            .AsNoTracking()
+            .Where(i => i.LeaseId == leaseId)
+            .ToListAsync();
+    }
+
+    private async Task<List<InvoiceGenerationRun>> GetGenerationRunsAsync()
+    {
+        using var scope = factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().InvoiceGenerationRuns
+            .AsNoTracking()
+            .OrderBy(r => r.StartedAt)
+            .ToListAsync();
+    }
+
+    // Room 101 pays electricity but has no reading this month; rooms 102 and 103 pay rent only
+    private async Task<(LeaseResponse MissingReading, LeaseResponse Room102, LeaseResponse Room103)> CreateThreeLeasesAsync()
+    {
+        var electricity = await CreateUtilityServiceAsync("Electricity", 3_500, UtilityBillingMethod.Metered, "kWh");
+        var missingReading = await CreateActiveLeaseAsync([electricity.Id]);
+        var room102 = await CreateActiveLeaseAsync(roomId: await CreateRoomAsync(_propertyId, "102"));
+        var room103 = await CreateActiveLeaseAsync(roomId: await CreateRoomAsync(_propertyId, "103"));
+        return (missingReading, room102, room103);
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_BillsEveryLeaseAndReportsTheOnesThatCannotBeBilled()
+    {
+        var (missingReading, room102, room103) = await CreateThreeLeasesAsync();
+
+        var run = await GenerateForPropertyOkAsync();
+
+        Assert.Equal((_organizationId, _propertyId, CurrentMonth), (run.OrganizationId, run.PropertyId, run.BillingMonth));
+        Assert.Equal(_actorId, run.TriggeredBy);
+        Assert.Equal((2, 1), (run.CreatedCount, run.SkippedCount));
+        var skip = Assert.Single(run.Skipped);
+        Assert.Equal((missingReading.Id, missingReading.LeaseCode, "101"), (skip.LeaseId, skip.LeaseCode, skip.RoomNumber));
+        var reason = Assert.Single(skip.Reasons);
+        Assert.Equal("missingReading", reason.Code);
+        Assert.Contains("Electricity", reason.Message);
+
+        Assert.Equal(0, await CountInvoicesAsync(missingReading.Id));
+        Assert.Equal(1, await CountInvoicesAsync(room102.Id));
+        Assert.Equal(1, await CountInvoicesAsync(room103.Id));
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_RecordsTheRunWithTheActor()
+    {
+        await CreateThreeLeasesAsync();
+
+        var response = await GenerateForPropertyOkAsync();
+
+        var saved = Assert.Single(await GetGenerationRunsAsync());
+        Assert.Equal(response.Id, saved.Id);
+        Assert.Equal((_propertyId, (Guid?)_actorId, 2), (saved.PropertyId, saved.TriggeredBy, saved.CreatedCount));
+        Assert.Equal("missingReading", Assert.Single(Assert.Single(saved.Skipped).Reasons).Code);
+    }
+
+    // The skipped lease is reported again on every call until it can be billed; billed leases are never duplicated
+    [Fact]
+    public async Task GenerateForProperty_CalledAgain_ReportsTheSkippedLeaseAgainWithoutDuplicates()
+    {
+        var (missingReading, room102, _) = await CreateThreeLeasesAsync();
+        await GenerateForPropertyOkAsync();
+
+        var second = await GenerateForPropertyOkAsync();
+
+        Assert.Equal((0, 1), (second.CreatedCount, second.SkippedCount));
+        Assert.Equal(missingReading.Id, Assert.Single(second.Skipped).LeaseId);
+        Assert.Equal(1, await CountInvoicesAsync(room102.Id));
+        Assert.Equal(2, (await GetGenerationRunsAsync()).Count);
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_NumbersTheInvoicesInRoomOrderAsTheActor()
+    {
+        var room102 = await CreateActiveLeaseAsync(roomId: await CreateRoomAsync(_propertyId, "102"));
+        var room101 = await CreateActiveLeaseAsync();
+
+        await GenerateForPropertyOkAsync();
+
+        var month = BillingMonth.FromFirstDay(CurrentMonth);
+        var first = Assert.Single(await GetInvoicesOfLeaseAsync(room101.Id));
+        var second = Assert.Single(await GetInvoicesOfLeaseAsync(room102.Id));
+        Assert.Equal(Invoice.FormatNumber(month, 1), first.InvoiceNumber);
+        Assert.Equal(Invoice.FormatNumber(month, 2), second.InvoiceNumber);
+        Assert.Equal(_actorId, first.CreatedBy);
+        Assert.Equal(_actorId, (await GetLastStatusHistoryAsync(first.Id)).ChangedBy);
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_AlreadyInvoicedLease_IsLeftOut()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        await CreateOkAsync(Request(lease.Id));
+
+        var run = await GenerateForPropertyOkAsync();
+
+        Assert.Equal((0, 0), (run.CreatedCount, run.SkippedCount));
+        Assert.Equal(1, await CountInvoicesAsync(lease.Id));
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_CancelledInvoice_IsGeneratedAgain()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        var invoice = await CreateOkAsync(Request(lease.Id));
+        await CancelOkAsync(invoice.Id);
+
+        var run = await GenerateForPropertyOkAsync();
+
+        Assert.Equal(1, run.CreatedCount);
+        Assert.Equal(2, await CountInvoicesAsync(lease.Id));
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_PreviousMonth_BillsIt()
+    {
+        var lease = await CreateActiveLeaseAsync();
+
+        var run = await GenerateForPropertyOkAsync(PreviousMonth);
+
+        Assert.Equal((PreviousMonth, 1), (run.BillingMonth, run.CreatedCount));
+        Assert.Equal(BillingMonth.FromFirstDay(PreviousMonth), Assert.Single(await GetInvoicesOfLeaseAsync(lease.Id)).BillingMonth);
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_LeaseTerminatedThisMonth_IsBilledForItsDays()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        await TerminateAsync(lease.Id);
+
+        var run = await GenerateForPropertyOkAsync();
+
+        Assert.Equal(1, run.CreatedCount);
+        var invoice = Assert.Single(await GetInvoicesOfLeaseAsync(lease.Id));
+        Assert.Equal(BillingMonth.FromFirstDay(CurrentMonth), invoice.BillingMonth);
+    }
+
+    // Terminated this month, but the tenants left last month: LastDayOfStay comes from LeftDate, not TerminatedAt
+    [Fact]
+    public async Task GenerateForProperty_TenantsLeftLastMonth_BillsLastMonthOnly()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        var terminateResponse = await _client.PostAsJsonAsync(
+            $"/api/leases/{lease.Id}/terminate",
+            new TerminateLeaseRequest { Reason = "Moving out", LeftDate = CurrentMonth.AddDays(-1) },
+            JsonOptions);
+        Assert.Equal(HttpStatusCode.OK, terminateResponse.StatusCode);
+
+        var current = await GenerateForPropertyOkAsync();
+        var previous = await GenerateForPropertyOkAsync(PreviousMonth);
+
+        Assert.Equal((0, 0), (current.CreatedCount, current.SkippedCount));
+        Assert.Equal(1, previous.CreatedCount);
+        Assert.Equal(BillingMonth.FromFirstDay(PreviousMonth), Assert.Single(await GetInvoicesOfLeaseAsync(lease.Id)).BillingMonth);
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_MonthAfterTheLeaseEnded_DoesNotBillIt()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        await TerminateAsync(lease.Id);
+
+        var run = await GenerateForPropertyOkAsync(CurrentMonth.AddMonths(1));
+
+        Assert.Equal((0, 0), (run.CreatedCount, run.SkippedCount));
+        Assert.Equal(0, await CountInvoicesAsync(lease.Id));
+    }
+
+    // Still ACTIVE (expire-leases has not run yet) but EndDate is in the previous month. The API refuses to activate a
+    // lease that already ended, so the EndDate is moved back in the database
+    [Fact]
+    public async Task GenerateForProperty_LeaseEndedLastMonthButNotExpiredYet_IsNotBilled()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var entity = await context.Leases.SingleAsync(l => l.Id == lease.Id);
+            TestEntities.Set(entity, new { EndDate = (DateOnly?)CurrentMonth.AddDays(-1) });
+            await context.SaveChangesAsync();
+        }
+
+        var run = await GenerateForPropertyOkAsync();
+
+        Assert.Equal((0, 0), (run.CreatedCount, run.SkippedCount));
+        Assert.Equal(0, await CountInvoicesAsync(lease.Id));
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_LeaseStartingNextMonth_IsNotBilledThisMonth()
+    {
+        var lease = await CreateDraftLeaseAsync(startDate: CurrentMonth.AddMonths(1));
+        var activateResponse = await _client.PostAsync($"/api/leases/{lease.Id}/activate", null);
+        Assert.Equal(HttpStatusCode.OK, activateResponse.StatusCode);
+
+        var run = await GenerateForPropertyOkAsync();
+
+        Assert.Equal((0, 0), (run.CreatedCount, run.SkippedCount));
+        Assert.Equal(0, await CountInvoicesAsync(lease.Id));
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_DraftLease_IsNotBilled()
+    {
+        var lease = await CreateDraftLeaseAsync();
+
+        var run = await GenerateForPropertyOkAsync();
+
+        Assert.Equal((0, 0), (run.CreatedCount, run.SkippedCount));
+        Assert.Equal(0, await CountInvoicesAsync(lease.Id));
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_LeaseOfAnotherProperty_IsNotBilled()
+    {
+        var otherPropertyId = await CreatePropertyAsync(_organizationId, "Other Property");
+        var otherLease = await CreateActiveLeaseAsync(roomId: await CreateRoomAsync(otherPropertyId, "201"));
+
+        var run = await GenerateForPropertyOkAsync();
+
+        Assert.Equal(0, run.CreatedCount);
+        Assert.Equal(0, await CountInvoicesAsync(otherLease.Id));
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_NoLeases_StillRecordsTheRun()
+    {
+        var run = await GenerateForPropertyOkAsync();
+
+        Assert.Equal((0, 0), (run.CreatedCount, run.SkippedCount));
+        Assert.Single(await GetGenerationRunsAsync());
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_UnknownProperty_ReturnsNotFound()
+    {
+        var response = await GenerateForPropertyAsync(Guid.NewGuid());
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_PropertyOfAnotherOrganization_ReturnsNotFound()
+    {
+        await CreateActiveLeaseAsync();
+        var otherClient = await CreateOtherOrganizationMemberClientAsync();
+
+        var response = await GenerateForPropertyAsync(_propertyId, client: otherClient);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(await GetGenerationRunsAsync());
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_OrganizationStaff_ReturnsOk()
+    {
+        await CreateActiveLeaseAsync();
+        var staffClient = await CreateOrganizationMemberClientAsync(_organizationId);
+
+        var response = await GenerateForPropertyAsync(_propertyId, client: staffClient);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(1, (await ReadDataAsync<InvoiceGenerationRunResponse>(response)).CreatedCount);
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_WithoutInvoiceCreatePermission_ReturnsForbidden()
+    {
+        var platformStaffClient = await CreatePlatformStaffClientAsync();
+
+        var response = await GenerateForPropertyAsync(_propertyId, client: platformStaffClient);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_WithoutAuthentication_ReturnsUnauthorized()
+    {
+        var response = await GenerateForPropertyAsync(_propertyId, client: factory.CreateClient());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_BillingMonthNotFirstDay_ReturnsBadRequest()
+    {
+        var response = await GenerateForPropertyAsync(_propertyId, CurrentMonth.AddDays(1));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.True((await ReadErrorsAsync(response)).TryGetProperty("billingMonth", out _));
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_BillingMonthTwoMonthsAhead_ReturnsBadRequestWithoutARun()
+    {
+        var response = await GenerateForPropertyAsync(_propertyId, CurrentMonth.AddMonths(2));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.True((await ReadErrorsAsync(response)).TryGetProperty("billingMonth", out _));
+        Assert.Empty(await GetGenerationRunsAsync());
+    }
+
+    [Fact]
+    public async Task GenerateForProperty_WithoutBillingMonth_ReturnsBadRequest()
+    {
+        var response = await _client.PostAsJsonAsync(
+            $"/api/properties/{_propertyId}/invoices/generate", new GenerateInvoicesRequest(), JsonOptions);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.True((await ReadErrorsAsync(response)).TryGetProperty("billingMonth", out _));
     }
 }

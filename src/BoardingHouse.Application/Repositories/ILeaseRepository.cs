@@ -35,6 +35,7 @@ public interface ILeaseRepository : IRepository<Lease>
     Task<int> CountTenantsInMonthAsync(Guid leaseId, BillingMonth month, CancellationToken cancellationToken = default);
     Task<bool> ExistsOpenByRoomIdAsync(Guid roomId, CancellationToken cancellationToken = default);
     Task<List<Guid>> ListIdsToExpireAsync(DateOnly today, CancellationToken cancellationToken = default);
+    Task<List<Lease>> ListToBillByPropertyAsync(Guid propertyId, BillingMonth billingMonth, CancellationToken cancellationToken = default);
     Task<bool> ExistsByPreviousLeaseIdAsync(
         Guid previousLeaseId,
         Guid? excludingLeaseId = null,
