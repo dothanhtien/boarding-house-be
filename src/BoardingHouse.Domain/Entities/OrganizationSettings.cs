@@ -16,6 +16,8 @@ public class OrganizationSettings
     public decimal? VatRate { get; private set; }
     public string Currency { get; private set; } = "VND";
 
+    public bool AutoGenerateInvoices { get; private set; }
+
     public string? BankAccountNumber { get; private set; }
     public string? BankName { get; private set; }
     public string? BankAccountName { get; private set; }

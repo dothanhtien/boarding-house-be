@@ -14,6 +14,7 @@ public class OrganizationSettingsConfiguration : IEntityTypeConfiguration<Organi
         builder.Property(s => s.LateFeeValue).HasColumnType("decimal(18,2)");
         builder.Property(s => s.VatRate).HasColumnType("decimal(5,2)");
         builder.Property(s => s.Currency).HasMaxLength(3).HasDefaultValue("VND");
+        builder.Property(s => s.AutoGenerateInvoices).HasDefaultValue(false);
         builder.Property(s => s.BankAccountNumber).HasMaxLength(50);
         builder.Property(s => s.BankName).HasMaxLength(100);
         builder.Property(s => s.BankAccountName).HasMaxLength(100);
