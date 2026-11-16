@@ -82,4 +82,29 @@ public class LateFeePolicyTests
         Assert.Throws<DomainException>(() => settings.Update(
             new OrganizationSettingsDetails(null, LateFeePolicy.None, VatRate: 101, null, null, null), Guid.NewGuid(), DateTimeOffset.UtcNow));
     }
+
+    [Theory]
+    [InlineData(LateFeeType.Percent, 5d, 3_050_000, 152_500)]
+    [InlineData(LateFeeType.Percent, 3.33d, 5_355_000, 178_322)] // 178,321.5 rounded away from zero
+    [InlineData(LateFeeType.Percent, 0d, 3_050_000, 0)]
+    [InlineData(LateFeeType.Fixed, 100_000d, 3_050_000, 100_000)]
+    [InlineData(LateFeeType.Fixed, 0d, 3_050_000, 0)]
+    public void FeeFor_ReturnsTheRoundedPercentOrTheFixedAmount(LateFeeType type, double value, int totalAmount, int expected)
+    {
+        var policy = new LateFeePolicy(type, (decimal)value, graceDays: null);
+
+        Assert.Equal(expected, policy.FeeFor(totalAmount));
+    }
+
+    [Fact]
+    public void FeeFor_NoPolicy_ReturnsZero()
+    {
+        Assert.Equal(0, LateFeePolicy.None.FeeFor(3_050_000));
+    }
+
+    [Fact]
+    public void FeeFor_GraceDaysOnly_ReturnsZero()
+    {
+        Assert.Equal(0, new LateFeePolicy(null, null, graceDays: 5).FeeFor(3_050_000));
+    }
 }

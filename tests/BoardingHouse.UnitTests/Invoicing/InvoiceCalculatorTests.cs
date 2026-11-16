@@ -737,4 +737,48 @@ public class InvoiceCalculatorTests
 
         Assert.Equal(new DateOnly(2026, 6, 23), Calculate(lease, today: new DateOnly(2026, 6, 20)).DueDate);
     }
+
+    [Theory]
+    [InlineData(LateFeeType.Fixed, 100_000, LateFeeType.Percent, 5, LateFeeType.Fixed, 100_000)] // property
+    [InlineData(null, null, LateFeeType.Percent, 5, LateFeeType.Percent, 5)] // organization
+    [InlineData(LateFeeType.Percent, 3, null, null, LateFeeType.Percent, 3)] // property, organization has none
+    [InlineData(null, null, null, null, null, null)] // none
+    public void ResolveLateFee_UsesThePropertyPairElseTheOrganizationPair(
+        LateFeeType? propertyType, int? propertyValue,
+        LateFeeType? organizationType, int? organizationValue,
+        LateFeeType? expectedType, int? expectedValue)
+    {
+        TestEntities.Set(_property, new { LateFeeType = propertyType, LateFeeValue = (decimal?)propertyValue });
+        TestEntities.Set(_settings, new { LateFeeType = organizationType, LateFeeValue = (decimal?)organizationValue });
+
+        var policy = InvoiceCalculator.ResolveLateFee(_property, _settings);
+
+        Assert.Equal(expectedType, policy.Type);
+        Assert.Equal((decimal?)expectedValue, policy.Value);
+    }
+
+    [Fact]
+    public void ResolveLateFee_PropertyWithOnlyGraceDays_UsesTheOrganizationPair()
+    {
+        TestEntities.Set(_property, new { LateFeeGraceDays = (int?)3 });
+        TestEntities.Set(_settings, new { LateFeeType = (LateFeeType?)LateFeeType.Fixed, LateFeeValue = (decimal?)50_000 });
+
+        var policy = InvoiceCalculator.ResolveLateFee(_property, _settings);
+
+        Assert.Equal((LateFeeType.Fixed, 50_000m), (policy.Type, policy.Value));
+    }
+
+    [Fact]
+    public void ResolveLateFee_WithoutProperty_UsesTheOrganizationPair()
+    {
+        TestEntities.Set(_settings, new { LateFeeType = (LateFeeType?)LateFeeType.Percent, LateFeeValue = (decimal?)5 });
+
+        Assert.Equal(_settings.LateFee, InvoiceCalculator.ResolveLateFee(null, _settings));
+    }
+
+    [Fact]
+    public void ResolveLateFee_WithoutPropertyOrSettings_ReturnsNone()
+    {
+        Assert.Equal(LateFeePolicy.None, InvoiceCalculator.ResolveLateFee(null, null));
+    }
 }

@@ -25,10 +25,18 @@ public class InvoiceServiceTests
     private readonly Mock<ILeaseRepository> _leaseRepository = new();
     private readonly Mock<IRoomRepository> _roomRepository = new();
     private readonly Mock<IInvoiceRepository> _invoiceRepository = new();
+    private readonly Mock<IPropertyRepository> _propertyRepository = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly Mock<IOrganizationScopeAccessor> _organizationScopeAccessor = new();
     private readonly Mock<ICurrentUserAccessor> _currentUserAccessor = new();
     private readonly Mock<ICurrentOrganizationAccessor> _currentOrganizationAccessor = new();
+    private readonly User _actor = TestEntities.New<User>(new
+    {
+        Email = "actor@test.com",
+        PasswordHash = "hashed-password",
+        FullName = "Actor",
+        CreatedBy = SentinelActors.System
+    });
     private readonly InvoiceService _invoiceService;
 
     private SearchCall? _search;
@@ -49,6 +57,7 @@ public class InvoiceServiceTests
     public InvoiceServiceTests()
     {
         MapsterTestSupport.EnsureUserMappingRegistered();
+        _currentUserAccessor.SetupGet(a => a.RequiredUser).Returns(_actor);
 
         var billingInputLoader = new InvoiceBillingInputLoader(
             _leaseRepository.Object,
@@ -61,6 +70,7 @@ public class InvoiceServiceTests
             _roomRepository.Object,
             _invoiceRepository.Object,
             billingInputLoader,
+            new InvoiceLateFeeResolver(_propertyRepository.Object, Mock.Of<IOrganizationSettingsRepository>()),
             _unitOfWork.Object,
             _organizationScopeAccessor.Object,
             _currentUserAccessor.Object,
@@ -362,7 +372,7 @@ public class InvoiceServiceTests
         Assert.Equal(0, result.TotalItems);
     }
 
-    private Invoice SetupInvoiceForUpdate(OrganizationScope? scope = null)
+    private Invoice SetupInvoiceForUpdate(OrganizationScope? scope = null, string action = PermissionActions.Update)
     {
         var invoice = NewInvoice("INV-202606-0001", InvoiceLine.Custom("Faucet repair", 1, 50_000));
         TestEntities.Set(invoice, new { DiscountAmount = 10_000m, DiscountReason = "Old reason", Notes = "Old note" });
@@ -377,7 +387,7 @@ public class InvoiceServiceTests
             .Setup(r => r.GetByIdWithDetailsAsync(invoice.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(invoice);
         _organizationScopeAccessor
-            .Setup(a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Update, It.IsAny<CancellationToken>()))
+            .Setup(a => a.GetScopeAsync(PermissionResources.Invoice, action, It.IsAny<CancellationToken>()))
             .ReturnsAsync(scope ?? Unrestricted());
 
         return invoice;
@@ -574,5 +584,252 @@ public class InvoiceServiceTests
             a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Read, It.IsAny<CancellationToken>()),
             Times.Once);
         _unitOfWork.VerifyNoOtherCalls();
+    }
+
+    private static CancelInvoiceRequest CancelRequest => new() { Reason = "Wrong meter reading" };
+
+    [Fact]
+    public async Task CancelAsync_UnknownInvoice_ThrowsNotFound()
+    {
+        SetupInvoiceForUpdate(action: PermissionActions.Cancel);
+        var id = Guid.NewGuid();
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(() => _invoiceService.CancelAsync(id, CancelRequest));
+
+        Assert.Equal(NotFoundMessages.Invoice(id), ex.Message);
+        _invoiceRepository.Verify(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CancelAsync_InvoiceOfAnotherOrganization_ThrowsNotFoundAndLeavesItUnchanged()
+    {
+        var invoice = SetupInvoiceForUpdate(Restricted(Guid.NewGuid()), PermissionActions.Cancel);
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(() => _invoiceService.CancelAsync(invoice.Id, CancelRequest));
+
+        Assert.Equal(NotFoundMessages.Invoice(invoice.Id), ex.Message);
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Single(invoice.StatusHistories);
+    }
+
+    [Fact]
+    public async Task CancelAsync_InvoiceOfAnAllowedOrganization_Cancels()
+    {
+        var invoice = SetupInvoiceForUpdate(action: PermissionActions.Cancel);
+        _organizationScopeAccessor
+            .Setup(a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Cancel, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Restricted(invoice.OrganizationId));
+
+        await _invoiceService.CancelAsync(invoice.Id, CancelRequest);
+
+        Assert.Equal(InvoiceStatus.Cancelled, invoice.Status);
+    }
+
+    [Fact]
+    public async Task CancelAsync_ChecksInvoiceCancelScopeAndCancelsAsTheCurrentUser()
+    {
+        var invoice = SetupInvoiceForUpdate(action: PermissionActions.Cancel);
+
+        var result = await _invoiceService.CancelAsync(invoice.Id, CancelRequest);
+
+        Assert.Equal(InvoiceStatus.Cancelled, invoice.Status);
+        Assert.Equal(InvoiceStatus.Cancelled, result.Status);
+        var history = invoice.StatusHistories.Last();
+        Assert.Equal(_actor.Id, history.ChangedBy);
+        Assert.Equal("Wrong meter reading", history.Reason);
+        _organizationScopeAccessor.Verify(
+            a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Cancel, It.IsAny<CancellationToken>()), Times.Once);
+        _invoiceRepository.Verify(r => r.GetAggregateForUpdateAsync(invoice.Id, It.IsAny<CancellationToken>()), Times.Once);
+        _unitOfWork.Verify(
+            u => u.ExecuteInTransactionAsync(It.IsAny<Func<CancellationToken, Task>>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CancelAsync_PaidInvoice_ThrowsConflictAndDoesNotReloadIt()
+    {
+        var invoice = SetupInvoiceForUpdate(action: PermissionActions.Cancel);
+        TestEntities.Set(invoice, new { Status = InvoiceStatus.Partial, PaidAmount = 1_000m });
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() => _invoiceService.CancelAsync(invoice.Id, CancelRequest));
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal(InvoiceStatus.Partial, invoice.Status);
+        _invoiceRepository.Verify(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private (Guid InvoiceId, Guid OrganizationId) SetupStatusHistories(params InvoiceStatusHistory[] histories)
+    {
+        var invoiceId = Guid.NewGuid();
+        var organizationId = Guid.NewGuid();
+        _invoiceRepository
+            .Setup(r => r.GetOrganizationIdAsync(invoiceId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(organizationId);
+        _invoiceRepository
+            .Setup(r => r.ListStatusHistoriesAsync(invoiceId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(histories.ToList());
+        return (invoiceId, organizationId);
+    }
+
+    [Fact]
+    public async Task GetStatusHistoriesAsync_UnknownInvoice_ThrowsNotFoundWithoutListing()
+    {
+        SetupScope(Unrestricted());
+        var id = Guid.NewGuid();
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(() => _invoiceService.GetStatusHistoriesAsync(id));
+
+        Assert.Equal(NotFoundMessages.Invoice(id), ex.Message);
+        _invoiceRepository.Verify(
+            r => r.ListStatusHistoriesAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetStatusHistoriesAsync_InvoiceOfAnotherOrganization_ThrowsNotFoundWithoutListing()
+    {
+        var (invoiceId, _) = SetupStatusHistories();
+        SetupScope(Restricted(Guid.NewGuid()));
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(() => _invoiceService.GetStatusHistoriesAsync(invoiceId));
+
+        Assert.Equal(NotFoundMessages.Invoice(invoiceId), ex.Message);
+        _invoiceRepository.Verify(
+            r => r.ListStatusHistoriesAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetStatusHistoriesAsync_InvoiceOfAnAllowedOrganization_ChecksReadScopeAndMapsInRepositoryOrder()
+    {
+        var actorId = Guid.NewGuid();
+        var createdAt = new DateTimeOffset(2026, 6, 1, 3, 0, 0, TimeSpan.Zero);
+        var invoiceId = Guid.NewGuid();
+        var created = new InvoiceStatusHistory(invoiceId, null, InvoiceStatus.Pending, null, actorId, createdAt);
+        var overdue = new InvoiceStatusHistory(
+            invoiceId, InvoiceStatus.Pending, InvoiceStatus.Overdue, Invoice.OverdueReason, null, createdAt.AddDays(9));
+        var (id, organizationId) = SetupStatusHistories(created, overdue);
+        SetupScope(Restricted(organizationId));
+
+        var result = await _invoiceService.GetStatusHistoriesAsync(id);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(
+            (created.Id, (InvoiceStatus?)null, InvoiceStatus.Pending, (string?)null, (Guid?)actorId, createdAt),
+            (result[0].Id, result[0].OldStatus, result[0].NewStatus, result[0].Reason, result[0].ChangedBy, result[0].ChangedAt));
+        Assert.Equal(
+            (overdue.Id, (InvoiceStatus?)InvoiceStatus.Pending, InvoiceStatus.Overdue, (string?)Invoice.OverdueReason, (Guid?)null, createdAt.AddDays(9)),
+            (result[1].Id, result[1].OldStatus, result[1].NewStatus, result[1].Reason, result[1].ChangedBy, result[1].ChangedAt));
+        _organizationScopeAccessor.Verify(
+            a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Read, It.IsAny<CancellationToken>()), Times.Once);
+        _unitOfWork.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task GetStatusHistoriesAsync_NoHistories_ReturnsEmpty()
+    {
+        var (invoiceId, _) = SetupStatusHistories();
+        SetupScope(Unrestricted());
+
+        Assert.Empty(await _invoiceService.GetStatusHistoriesAsync(invoiceId));
+    }
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
+
+    private void SetupPropertyLateFee(Invoice invoice, LateFeeType type, decimal value) =>
+        _propertyRepository
+            .Setup(r => r.GetByLeaseIdAsync(invoice.LeaseId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(TestEntities.New<Property>(new
+            {
+                Name = "Sunrise House",
+                LateFeeType = (LateFeeType?)type,
+                LateFeeValue = (decimal?)value,
+                CreatedBy = SentinelActors.System
+            }));
+
+    // SetupInvoiceForUpdate: due 2026-06-08 (past), rent 3,000,000 + faucet 50,000 - discount 10,000 = 3,040,000 after Update
+    [Fact]
+    public async Task UpdateAsync_PastDueDate_MarksTheInvoiceOverdueWithThePropertyLateFee()
+    {
+        var invoice = SetupInvoiceForUpdate();
+        SetupPropertyLateFee(invoice, LateFeeType.Fixed, 100_000);
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest());
+
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(100_000, invoice.LateFeeAmount);
+        Assert.Equal(3_140_000, invoice.TotalAmount);
+        var history = invoice.StatusHistories.Last();
+        Assert.Equal(Invoice.OverdueReason, history.Reason);
+        Assert.Equal(_actor.Id, history.ChangedBy);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_PercentLateFee_IsChargedOnTheTotalAfterTheEdit()
+    {
+        var invoice = SetupInvoiceForUpdate();
+        SetupPropertyLateFee(invoice, LateFeeType.Percent, 5);
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest { DiscountAmount = 50_000m });
+
+        // 5% of 3,000,000 (after the new discount), not of the total before the edit
+        Assert.Equal(150_000, invoice.LateFeeAmount);
+        Assert.Equal(3_150_000, invoice.TotalAmount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_FutureDueDate_StaysPendingWithoutHistory()
+    {
+        var invoice = SetupInvoiceForUpdate();
+        SetupPropertyLateFee(invoice, LateFeeType.Fixed, 100_000);
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(5) });
+
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Equal(0, invoice.LateFeeAmount);
+        Assert.Single(invoice.StatusHistories);
+        _propertyRepository.Verify(r => r.GetByLeaseIdAsync(invoice.LeaseId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_LaterDueDateOnAnOverdueInvoice_MovesItBackToPendingAndKeepsTheLateFee()
+    {
+        var invoice = SetupInvoiceForUpdate();
+        SetupPropertyLateFee(invoice, LateFeeType.Fixed, 100_000);
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest());
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(5) });
+
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Equal(100_000, invoice.LateFeeAmount);
+        Assert.Equal(3_140_000, invoice.TotalAmount);
+        var history = invoice.StatusHistories.Last();
+        Assert.Equal(InvoiceStatus.Overdue, history.OldStatus);
+        Assert.Null(history.Reason);
+        Assert.Equal(_actor.Id, history.ChangedBy);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DiscountEqualToTheTotal_MarksTheInvoicePaid()
+    {
+        var invoice = SetupInvoiceForUpdate();
+        SetupPropertyLateFee(invoice, LateFeeType.Fixed, 100_000);
+
+        await _invoiceService.UpdateAsync(invoice.Id, new UpdateInvoiceRequest { DiscountAmount = 3_050_000m });
+
+        Assert.Equal(0, invoice.TotalAmount);
+        Assert.Equal(InvoiceStatus.Paid, invoice.Status);
+        Assert.Equal(0, invoice.LateFeeAmount);
+        Assert.False(invoice.IsEditable);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DomainRuleBroken_DoesNotRefreshTheStatus()
+    {
+        var invoice = SetupInvoiceForUpdate();
+
+        await Assert.ThrowsAsync<DomainException>(() => _invoiceService.UpdateAsync(
+            invoice.Id, new UpdateInvoiceRequest { DueDate = new DateOnly(2026, 5, 31) }));
+
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Single(invoice.StatusHistories);
+        _propertyRepository.VerifyNoOtherCalls();
     }
 }

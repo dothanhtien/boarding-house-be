@@ -8,6 +8,7 @@ public interface IPropertyRepository : IRepository<Property>
 {
     Task<Property?> GetByIdForShareAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Property?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<Property?> GetByLeaseIdAsync(Guid leaseId, CancellationToken cancellationToken = default);
     Task<Guid?> GetOrganizationIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<PagedResult<Property>> SearchAsync(
         Guid? organizationId,

@@ -11,6 +11,8 @@ public class Invoice : BaseEntity
     public const int InvoiceNumberMaxLength = 50;
     public const int DiscountReasonMaxLength = 255;
     public const int NotesMaxLength = 2000;
+    public const int CancelReasonMaxLength = 1000;
+    public const string OverdueReason = "Past due date";
 
     public Guid OrganizationId { get; private set; }
     public Organization? Organization { get; private set; }
@@ -167,6 +169,54 @@ public class Invoice : BaseEntity
         ApplyTotals(totals);
     }
 
+    public bool RefreshStatus(DateOnly today, LateFeePolicy lateFee, Guid? changedBy, DateTimeOffset now)
+    {
+        if (Status == InvoiceStatus.Cancelled)
+        {
+            return false;
+        }
+
+        var next = ResolveStatus(today);
+        if (next == Status)
+        {
+            return false;
+        }
+
+        if (next == InvoiceStatus.Overdue && LateFeeAmount == 0)
+        {
+            LateFeeAmount = lateFee.FeeFor(TotalAmount);
+            TotalAmount += LateFeeAmount;
+        }
+
+        TransitionTo(next, changedBy, now, next == InvoiceStatus.Overdue ? OverdueReason : null);
+        return true;
+    }
+
+    public void Cancel(string reason, Guid changedBy, DateTimeOffset now)
+    {
+        if (Status == InvoiceStatus.Cancelled)
+        {
+            throw DomainException.Conflict("The invoice is already cancelled");
+        }
+
+        if (PaidAmount > 0)
+        {
+            throw DomainException.Conflict("An invoice with confirmed payments cannot be cancelled");
+        }
+
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new DomainException("Reason is required");
+        }
+
+        if (reason.Trim().Length > CancelReasonMaxLength)
+        {
+            throw new DomainException($"Reason must not exceed {CancelReasonMaxLength} characters");
+        }
+
+        TransitionTo(InvoiceStatus.Cancelled, changedBy, now, reason.Trim());
+    }
+
     public static string FormatNumber(BillingMonth month, int number) =>
         string.Create(CultureInfo.InvariantCulture, $"INV-{month.FirstDay:yyyyMM}-{number:D4}");
 
@@ -215,5 +265,31 @@ public class Invoice : BaseEntity
         Subtotal = totals.Subtotal;
         VatAmount = totals.VatAmount;
         TotalAmount = totals.TotalAmount;
+    }
+
+    private InvoiceStatus ResolveStatus(DateOnly today)
+    {
+        if (PaidAmount >= TotalAmount)
+        {
+            return InvoiceStatus.Paid;
+        }
+
+        if (today > DueDate)
+        {
+            return InvoiceStatus.Overdue;
+        }
+
+        if (PaidAmount > 0)
+        {
+            return InvoiceStatus.Partial;
+        }
+
+        return InvoiceStatus.Pending;
+    }
+
+    private void TransitionTo(InvoiceStatus next, Guid? changedBy, DateTimeOffset now, string? reason)
+    {
+        _statusHistories.Add(new InvoiceStatusHistory(Id, Status, next, reason, changedBy, now));
+        Status = next;
     }
 }

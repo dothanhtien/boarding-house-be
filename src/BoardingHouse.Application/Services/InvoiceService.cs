@@ -20,6 +20,7 @@ public class InvoiceService(
     IRoomRepository roomRepository,
     IInvoiceRepository invoiceRepository,
     InvoiceBillingInputLoader billingInputLoader,
+    InvoiceLateFeeResolver lateFeeResolver,
     IUnitOfWork unitOfWork,
     IOrganizationScopeAccessor organizationScopeAccessor,
     ICurrentUserAccessor currentUserAccessor,
@@ -207,12 +208,56 @@ public class InvoiceService(
                     .ToList()
                 : [];
 
-            invoice.Update(details, customItemChanges, DateTimeOffset.UtcNow);
+            var now = DateTimeOffset.UtcNow;
+            invoice.Update(details, customItemChanges, now);
+            invoice.RefreshStatus(
+                Today, await lateFeeResolver.ResolveAsync(invoice, ct), currentUserAccessor.RequiredUser.Id, now);
         }, cancellationToken);
 
         logger.LogInformation("Invoice updated ({InvoiceId})", id);
 
         return await GetDetailAsync(id, cancellationToken);
+    }
+
+    public async Task<InvoiceDetailResponse> CancelAsync(Guid id, CancelInvoiceRequest request, CancellationToken cancellationToken = default)
+    {
+        await unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var invoice = await invoiceRepository.GetAggregateForUpdateAsync(id, ct)
+                ?? throw new AppNotFoundException(NotFoundMessages.Invoice(id));
+
+            await organizationScopeAccessor.EnsureScopeAsync(
+                invoice.OrganizationId,
+                PermissionResources.Invoice,
+                PermissionActions.Cancel,
+                NotFoundMessages.Invoice(id),
+                ct);
+
+            // TODO: void the invoice's PENDING payments in this transaction
+            invoice.Cancel(request.Reason, currentUserAccessor.RequiredUser.Id, DateTimeOffset.UtcNow);
+        }, cancellationToken);
+
+        logger.LogInformation("Invoice cancelled ({InvoiceId})", id);
+
+        return await GetDetailAsync(id, cancellationToken);
+    }
+
+    public async Task<List<InvoiceStatusHistoryResponse>> GetStatusHistoriesAsync(
+        Guid id, CancellationToken cancellationToken = default)
+    {
+        var organizationId = await invoiceRepository.GetOrganizationIdAsync(id, cancellationToken)
+            ?? throw new AppNotFoundException(NotFoundMessages.Invoice(id));
+
+        await organizationScopeAccessor.EnsureScopeAsync(
+            organizationId,
+            PermissionResources.Invoice,
+            PermissionActions.Read,
+            NotFoundMessages.Invoice(id),
+            cancellationToken);
+
+        var histories = await invoiceRepository.ListStatusHistoriesAsync(id, cancellationToken);
+
+        return histories.Adapt<List<InvoiceStatusHistoryResponse>>();
     }
 
     private async Task<InvoiceCalculation> CalculateAsync(

@@ -56,6 +56,7 @@ public class RbacSeeder
         (PermissionResources.Invoice, PermissionActions.Read, "View invoice list/details"),
         (PermissionResources.Invoice, PermissionActions.Create, "Preview and create an invoice for a lease"),
         (PermissionResources.Invoice, PermissionActions.Update, "Edit discount, notes, due date and custom items of an unpaid invoice"),
+        (PermissionResources.Invoice, PermissionActions.Cancel, "Cancel an invoice nobody has paid yet"),
     ];
 
     internal static readonly (string Slug, string Name, string Description, RoleScope Scope, string[] Permissions)[] RoleSeeds =
@@ -75,7 +76,7 @@ public class RbacSeeder
                 "utility-service:read", "utility-service:create", "utility-service:update", "utility-service:delete",
                 "utility-reading:read", "utility-reading:create", "utility-reading:delete",
                 "lease:read", "lease:create", "lease:update", "lease:delete", "lease:activate", "lease:terminate",
-                "invoice:read", "invoice:create", "invoice:update",
+                "invoice:read", "invoice:create", "invoice:update", "invoice:cancel",
                 "tenant:read", "tenant:create", "tenant:update"]),
         (RoleSlugs.OrganizationStaff, "Organization staff", "Manage day-to-day operations within the organization", RoleScope.Organization,
             [

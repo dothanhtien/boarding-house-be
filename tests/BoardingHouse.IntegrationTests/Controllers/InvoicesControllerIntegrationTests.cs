@@ -24,6 +24,8 @@ using BoardingHouse.Application.DTOs.Rooms;
 using BoardingHouse.Application.DTOs.Users;
 using BoardingHouse.Application.DTOs.UtilityReadings;
 using BoardingHouse.Application.DTOs.UtilityServices;
+using BoardingHouse.Application.Jobs;
+using BoardingHouse.Application.Repositories;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 
@@ -248,7 +250,6 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
         return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Invoices.CountAsync(i => i.LeaseId == leaseId);
     }
 
-    // No cancel / payment endpoint yet (TICKET-050 / TICKET-052): the state is written directly
     private async Task SetInvoiceStateAsync(Guid id, InvoiceStatus status, decimal paidAmount = 0)
     {
         using var scope = factory.Services.CreateScope();
@@ -446,6 +447,84 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
         }
 
         return await LoginAsync(email);
+    }
+
+    private Task<HttpResponseMessage> CancelAsync(Guid id, string reason = "Wrong meter reading", HttpClient? client = null) =>
+        (client ?? _client).PostAsJsonAsync($"/api/invoices/{id}/cancel", new CancelInvoiceRequest { Reason = reason }, JsonOptions);
+
+    private async Task<InvoiceDetailResponse> CancelOkAsync(Guid id, string reason = "Wrong meter reading")
+    {
+        var response = await CancelAsync(id, reason);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ReadDataAsync<InvoiceDetailResponse>(response);
+    }
+
+    private async Task<InvoiceStatusHistory> GetLastStatusHistoryAsync(Guid invoiceId) =>
+        (await GetStatusHistoriesAsync(invoiceId)).OrderBy(h => h.ChangedAt).ThenBy(h => h.Id).Last();
+
+    private Task<HttpResponseMessage> ListStatusHistoriesAsync(Guid id, HttpClient? client = null) =>
+        (client ?? _client).GetAsync($"/api/invoices/{id}/status-histories");
+
+    private async Task<List<InvoiceStatusHistoryResponse>> ListStatusHistoriesOkAsync(Guid id, HttpClient? client = null)
+    {
+        var response = await ListStatusHistoriesAsync(id, client);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ReadDataAsync<List<InvoiceStatusHistoryResponse>>(response);
+    }
+
+    private async Task AddStatusHistoryAsync(InvoiceStatusHistory history)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        context.InvoiceStatusHistories.Add(history);
+        await context.SaveChangesAsync();
+    }
+
+    private async Task SetDueDateAsync(Guid id, DateOnly dueDate)
+    {
+        using var scope = factory.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<AppDbContext>().Invoices
+            .Where(i => i.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(i => i.DueDate, dueDate));
+    }
+
+    private async Task RunMarkOverdueInvoicesJobAsync()
+    {
+        using var scope = factory.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<MarkOverdueInvoicesJob>().RunAsync();
+    }
+
+    private async Task<List<Guid>> ListIdsToMarkOverdueAsync()
+    {
+        using var scope = factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<IInvoiceRepository>().ListIdsToMarkOverdueAsync(Today);
+    }
+
+    private async Task<Guid?> GetInvoiceUpdatedByAsync(Guid id)
+    {
+        using var scope = factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Invoices
+            .Where(i => i.Id == id)
+            .Select(i => i.UpdatedBy)
+            .SingleAsync();
+    }
+
+    private async Task SetOrganizationLateFeeAsync(LateFeeType type, decimal value)
+    {
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/organizations/{_organizationId}/settings",
+            new UpdateOrganizationSettingsRequest { LateFeeType = type, LateFeeValue = value },
+            JsonOptions);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    private async Task SetPropertyLateFeeAsync(LateFeeType type, decimal value)
+    {
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/properties/{_propertyId}",
+            new UpdatePropertyRequest { LateFeeType = type, LateFeeValue = value },
+            JsonOptions);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
@@ -837,7 +916,7 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
         var lease = await CreateActiveLeaseAsync([electricity.Id], depositAmount: 3_000_000);
         await RecordAsync(electricity.Id, CurrentMonth, previousValue: 100, currentValue: 150);
         var cancelled = await CreateOkAsync(Request(lease.Id));
-        await SetInvoiceStateAsync(cancelled.Id, InvoiceStatus.Cancelled);
+        await CancelOkAsync(cancelled.Id);
 
         var invoice = await CreateOkAsync(Request(lease.Id));
 
@@ -1712,8 +1791,11 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
     [Fact]
     public async Task Patch_OverdueUnpaid_ReturnsOk()
     {
-        var created = await CreateEditableInvoiceAsync();
-        await SetInvoiceStateAsync(created.Id, InvoiceStatus.Overdue);
+        // Last month's invoice: due "yesterday" is never before its billing month, even on the 1st
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id, PreviousMonth));
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+        await RunMarkOverdueInvoicesJobAsync();
 
         var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { Notes = "Reminder sent" });
 
@@ -1791,5 +1873,558 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
         var response = await PatchAsync(Guid.NewGuid(), new UpdateInvoiceRequest(), factory.CreateClient());
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Cancel_UnpaidInvoice_CancelsKeepsTheNumberAndRecordsTheReason()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var invoice = await CancelOkAsync(created.Id, "  Wrong meter reading  ");
+
+        Assert.Equal(InvoiceStatus.Cancelled, invoice.Status);
+        Assert.Equal(created.InvoiceNumber, invoice.InvoiceNumber);
+        Assert.Equal(created.TotalAmount, invoice.TotalAmount);
+        Assert.Equal(created.Items.Count, invoice.Items.Count);
+        Assert.Equal(InvoiceStatus.Cancelled, (await GetOkAsync(created.Id)).Status);
+        var history = await GetLastStatusHistoryAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Pending, history.OldStatus);
+        Assert.Equal(InvoiceStatus.Cancelled, history.NewStatus);
+        Assert.Equal("Wrong meter reading", history.Reason);
+        Assert.Equal(_actorId, history.ChangedBy);
+    }
+
+    [Fact]
+    public async Task Cancel_OverdueUnpaidInvoice_Cancels()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await SetInvoiceStateAsync(created.Id, InvoiceStatus.Overdue);
+
+        var invoice = await CancelOkAsync(created.Id);
+
+        Assert.Equal(InvoiceStatus.Cancelled, invoice.Status);
+        Assert.Equal(InvoiceStatus.Overdue, (await GetLastStatusHistoryAsync(created.Id)).OldStatus);
+    }
+
+    [Fact]
+    public async Task Cancel_ThenCreateTheSameMonth_UsesTheNextNumber()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        var cancelled = await CreateOkAsync(Request(lease.Id));
+        await CancelOkAsync(cancelled.Id);
+
+        var invoice = await CreateOkAsync(Request(lease.Id));
+
+        Assert.Equal($"INV-{CurrentMonth:yyyyMM}-0002", invoice.InvoiceNumber);
+        Assert.Equal(InvoiceStatus.Cancelled, (await GetOkAsync(cancelled.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Cancel_ThenPatch_ReturnsConflict()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await CancelOkAsync(created.Id);
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest { Notes = "x" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(InvoiceStatus.Partial, 1_000)]
+    [InlineData(InvoiceStatus.Paid, 3_050_000)]
+    public async Task Cancel_WithConfirmedPayments_ReturnsConflict(InvoiceStatus status, int paidAmount)
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await SetInvoiceStateAsync(created.Id, status, paidAmount);
+
+        var response = await CancelAsync(created.Id);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("An invoice with confirmed payments cannot be cancelled", await ReadTitleAsync(response));
+        Assert.Equal(status, (await GetOkAsync(created.Id)).Status);
+        Assert.Single(await GetStatusHistoriesAsync(created.Id));
+    }
+
+    [Fact]
+    public async Task Cancel_AlreadyCancelled_ReturnsConflict()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await CancelOkAsync(created.Id);
+
+        var response = await CancelAsync(created.Id);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("The invoice is already cancelled", await ReadTitleAsync(response));
+        Assert.Equal(2, (await GetStatusHistoriesAsync(created.Id)).Count);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Cancel_BlankReason_ReturnsBadRequest(string reason)
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var response = await CancelAsync(created.Id, reason);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.True((await ReadErrorsAsync(response)).TryGetProperty("reason", out _));
+        Assert.Equal(InvoiceStatus.Pending, (await GetOkAsync(created.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Cancel_ReasonTooLong_ReturnsBadRequest()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var response = await CancelAsync(created.Id, new string('a', Invoice.CancelReasonMaxLength + 1));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(InvoiceStatus.Pending, (await GetOkAsync(created.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Cancel_MissingBody_ReturnsBadRequest()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var response = await _client.PostAsJsonAsync($"/api/invoices/{created.Id}/cancel", new { }, JsonOptions);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(InvoiceStatus.Pending, (await GetOkAsync(created.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Cancel_OrganizationAdmin_ReturnsOk()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var adminClient = await CreateOrganizationMemberClientAsync(_organizationId, RoleSlugs.OrganizationAdmin);
+
+        var response = await CancelAsync(created.Id, client: adminClient);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(InvoiceStatus.Cancelled, (await ReadDataAsync<InvoiceDetailResponse>(response)).Status);
+    }
+
+    [Fact]
+    public async Task Cancel_OrganizationStaff_ReturnsForbidden()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var staffClient = await CreateOrganizationMemberClientAsync(_organizationId);
+
+        var response = await CancelAsync(created.Id, client: staffClient);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(InvoiceStatus.Pending, (await GetOkAsync(created.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Cancel_PlatformStaff_ReturnsForbidden()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var staffClient = await CreatePlatformStaffClientAsync();
+
+        var response = await CancelAsync(created.Id, client: staffClient);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(InvoiceStatus.Pending, (await GetOkAsync(created.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Cancel_InvoiceOfAnotherOrganization_ReturnsNotFound()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var otherClient = await CreateOtherOrganizationMemberClientAsync();
+
+        var response = await CancelAsync(created.Id, client: otherClient);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(InvoiceStatus.Pending, (await GetOkAsync(created.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Cancel_UnknownInvoice_ReturnsNotFound()
+    {
+        var response = await CancelAsync(Guid.NewGuid());
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Cancel_SoftDeletedInvoice_ReturnsNotFound()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await SoftDeleteInvoiceAsync(created.Id);
+
+        var response = await CancelAsync(created.Id);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Cancel_Unauthenticated_ReturnsUnauthorized()
+    {
+        var response = await CancelAsync(Guid.NewGuid(), client: factory.CreateClient());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_ReturnsEveryChangeInOrder()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await CancelOkAsync(created.Id);
+
+        var histories = await ListStatusHistoriesOkAsync(created.Id);
+
+        Assert.Equal(2, histories.Count);
+
+        Assert.Null(histories[0].OldStatus);
+        Assert.Equal(InvoiceStatus.Pending, histories[0].NewStatus);
+        Assert.Null(histories[0].Reason);
+        Assert.Equal(_actorId, histories[0].ChangedBy);
+
+        Assert.Equal(InvoiceStatus.Pending, histories[1].OldStatus);
+        Assert.Equal(InvoiceStatus.Cancelled, histories[1].NewStatus);
+        Assert.Equal("Wrong meter reading", histories[1].Reason);
+        Assert.Equal(_actorId, histories[1].ChangedBy);
+        Assert.True(histories[1].ChangedAt >= histories[0].ChangedAt);
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_SortsByChangedAtNotInsertOrder()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var first = (await GetStatusHistoriesAsync(created.Id)).Single();
+        var earlier = new InvoiceStatusHistory(
+            created.Id, null, InvoiceStatus.Pending, "Imported", changedBy: null, first.ChangedAt.AddMinutes(-5));
+        await AddStatusHistoryAsync(earlier);
+
+        var histories = await ListStatusHistoriesOkAsync(created.Id);
+
+        Assert.Equal([earlier.Id, first.Id], histories.Select(h => h.Id));
+        Assert.Null(histories[0].ChangedBy);
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_OnlyReturnsTheRequestedInvoice()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var other = await CreateOkAsync(Request(created.LeaseId, PreviousMonth));
+        await CancelOkAsync(other.Id);
+
+        var histories = await ListStatusHistoriesOkAsync(created.Id);
+
+        Assert.Single(histories);
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_PlatformStaff_ReturnsOk()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var staffClient = await CreatePlatformStaffClientAsync();
+
+        Assert.Single(await ListStatusHistoriesOkAsync(created.Id, staffClient));
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_OrganizationStaff_ReturnsOk()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var staffClient = await CreateOrganizationMemberClientAsync(_organizationId);
+
+        Assert.Single(await ListStatusHistoriesOkAsync(created.Id, staffClient));
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_InvoiceOfAnotherOrganization_ReturnsNotFound()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        var otherClient = await CreateOtherOrganizationMemberClientAsync();
+
+        var response = await ListStatusHistoriesAsync(created.Id, otherClient);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_UnknownInvoice_ReturnsNotFound()
+    {
+        var response = await ListStatusHistoriesAsync(Guid.NewGuid());
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_SoftDeletedInvoice_ReturnsNotFound()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await SoftDeleteInvoiceAsync(created.Id);
+
+        var response = await ListStatusHistoriesAsync(created.Id);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetStatusHistories_Unauthenticated_ReturnsUnauthorized()
+    {
+        var response = await ListStatusHistoriesAsync(Guid.NewGuid(), factory.CreateClient());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MarkOverdueInvoicesJob_PastDueInvoice_BecomesOverdueWithThePropertyLateFee()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Percent, 5);
+        await SetPropertyLateFeeAsync(LateFeeType.Fixed, 100_000);
+        var created = await CreateEditableInvoiceAsync();
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(100_000, invoice.LateFeeAmount);
+        Assert.Equal(3_150_000, invoice.TotalAmount);
+        Assert.Equal(3_150_000, invoice.RemainingAmount);
+
+        var history = await GetLastStatusHistoryAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Pending, history.OldStatus);
+        Assert.Equal(InvoiceStatus.Overdue, history.NewStatus);
+        Assert.Equal(Invoice.OverdueReason, history.Reason);
+        Assert.Null(history.ChangedBy);
+        Assert.Equal(SentinelActors.System, await GetInvoiceUpdatedByAsync(created.Id));
+    }
+
+    [Fact]
+    public async Task MarkOverdueInvoicesJob_OrganizationLateFeeOnly_ChargesItsPercent()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Percent, 5);
+        var created = await CreateEditableInvoiceAsync();
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(152_500, invoice.LateFeeAmount);
+        Assert.Equal(3_202_500, invoice.TotalAmount);
+    }
+
+    [Fact]
+    public async Task MarkOverdueInvoicesJob_NoLateFeeConfigured_BecomesOverdueWithoutAFee()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(0, invoice.LateFeeAmount);
+        Assert.Equal(created.TotalAmount, invoice.TotalAmount);
+    }
+
+    [Fact]
+    public async Task MarkOverdueInvoicesJob_PartiallyPaidInvoice_BecomesOverdueKeepingThePaidAmount()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        var created = await CreateEditableInvoiceAsync();
+        await SetInvoiceStateAsync(created.Id, InvoiceStatus.Partial, 1_000_000);
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(1_000_000, invoice.PaidAmount);
+        Assert.Equal(3_100_000, invoice.TotalAmount);
+        Assert.Equal(2_100_000, invoice.RemainingAmount);
+        Assert.Equal(InvoiceStatus.Partial, (await GetLastStatusHistoryAsync(created.Id)).OldStatus);
+    }
+
+    [Fact]
+    public async Task MarkOverdueInvoicesJob_RunTwice_AddsTheLateFeeOnce()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        var created = await CreateEditableInvoiceAsync();
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+
+        await RunMarkOverdueInvoicesJobAsync();
+        var updatedBy = await GetInvoiceUpdatedByAsync(created.Id);
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(50_000, invoice.LateFeeAmount);
+        Assert.Equal(3_100_000, invoice.TotalAmount);
+        Assert.Equal(2, (await GetStatusHistoriesAsync(created.Id)).Count);
+        Assert.Equal(updatedBy, await GetInvoiceUpdatedByAsync(created.Id));
+    }
+
+    [Fact]
+    public async Task MarkOverdueInvoicesJob_NotYetDue_StaysPending()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        var created = await CreateEditableInvoiceAsync();
+        await SetDueDateAsync(created.Id, Today);
+
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Equal(0, invoice.LateFeeAmount);
+        Assert.Single(await GetStatusHistoriesAsync(created.Id));
+    }
+
+    [Theory]
+    [InlineData(InvoiceStatus.Cancelled, 0)]
+    [InlineData(InvoiceStatus.Paid, 3_050_000)]
+    public async Task MarkOverdueInvoicesJob_CancelledOrPaidInvoice_IsLeftAlone(InvoiceStatus status, int paidAmount)
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        var created = await CreateEditableInvoiceAsync();
+        await SetInvoiceStateAsync(created.Id, status, paidAmount);
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await GetOkAsync(created.Id);
+        Assert.Equal(status, invoice.Status);
+        Assert.Equal(0, invoice.LateFeeAmount);
+    }
+
+    [Fact]
+    public async Task MarkOverdueInvoicesJob_SoftDeletedInvoice_IsLeftAlone()
+    {
+        var created = await CreateEditableInvoiceAsync();
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+        await SoftDeleteInvoiceAsync(created.Id);
+
+        await RunMarkOverdueInvoicesJobAsync();
+
+        Assert.Single(await GetStatusHistoriesAsync(created.Id));
+    }
+
+    [Fact]
+    public async Task ListIdsToMarkOverdueAsync_ReturnsUnpaidPastDueInvoicesByDueDate()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        var otherLease = await CreateActiveLeaseAsync(roomId: await CreateRoomAsync(_propertyId, "102"));
+        var pendingLate = await CreateOkAsync(Request(lease.Id));
+        var partialLater = await CreateOkAsync(Request(lease.Id, PreviousMonth));
+        var dueToday = await CreateOkAsync(Request(otherLease.Id));
+        var overdue = await CreateOkAsync(Request(otherLease.Id, PreviousMonth));
+        await SetDueDateAsync(pendingLate.Id, Today.AddDays(-1));
+        await SetDueDateAsync(partialLater.Id, Today.AddDays(-3));
+        await SetInvoiceStateAsync(partialLater.Id, InvoiceStatus.Partial, 1_000);
+        await SetDueDateAsync(dueToday.Id, Today);
+        await SetDueDateAsync(overdue.Id, Today.AddDays(-5));
+        await SetInvoiceStateAsync(overdue.Id, InvoiceStatus.Overdue);
+
+        var ids = await ListIdsToMarkOverdueAsync();
+
+        Assert.Equal([partialLater.Id, pendingLate.Id], ids);
+    }
+
+    [Fact]
+    public async Task Patch_DueDateInThePast_MarksTheInvoiceOverdueWithTheLateFee()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id, PreviousMonth));
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(-1) });
+
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(50_000, invoice.LateFeeAmount);
+        Assert.Equal(created.TotalAmount + 50_000, invoice.TotalAmount);
+        var history = await GetLastStatusHistoryAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Pending, history.OldStatus);
+        Assert.Equal(InvoiceStatus.Overdue, history.NewStatus);
+        Assert.Equal(Invoice.OverdueReason, history.Reason);
+        Assert.Equal(_actorId, history.ChangedBy);
+    }
+
+    [Fact]
+    public async Task Patch_DueDateInThePastWithPropertyLateFee_UsesThePropertyFee()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        await SetPropertyLateFeeAsync(LateFeeType.Fixed, 80_000);
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id, PreviousMonth));
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(-1) });
+
+        Assert.Equal(80_000, invoice.LateFeeAmount);
+    }
+
+    [Fact]
+    public async Task Patch_LaterDueDateOnAnOverdueInvoice_MovesItBackToPendingAndKeepsTheLateFee()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id, PreviousMonth));
+        await SetDueDateAsync(created.Id, Today.AddDays(-1));
+        await RunMarkOverdueInvoicesJobAsync();
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(5) });
+
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Equal(50_000, invoice.LateFeeAmount);
+        Assert.Equal(created.TotalAmount + 50_000, invoice.TotalAmount);
+        var history = await GetLastStatusHistoryAsync(created.Id);
+        Assert.Equal(InvoiceStatus.Overdue, history.OldStatus);
+        Assert.Equal(InvoiceStatus.Pending, history.NewStatus);
+        Assert.Null(history.Reason);
+        Assert.Equal(_actorId, history.ChangedBy);
+    }
+
+    [Fact]
+    public async Task Patch_OverdueAgainAfterMovingBack_DoesNotChargeTheLateFeeTwice()
+    {
+        await SetOrganizationLateFeeAsync(LateFeeType.Fixed, 50_000);
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id, PreviousMonth));
+        await PatchOkAsync(created.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(-1) });
+        await PatchOkAsync(created.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(5) });
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest { DueDate = Today.AddDays(-1) });
+
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(50_000, invoice.LateFeeAmount);
+        Assert.Equal(created.TotalAmount + 50_000, invoice.TotalAmount);
+        Assert.Equal(4, (await GetStatusHistoriesAsync(created.Id)).Count);
+    }
+
+    [Fact]
+    public async Task Patch_DiscountEqualToTheTotal_MarksTheInvoicePaid()
+    {
+        var created = await CreateEditableInvoiceAsync();
+
+        var invoice = await PatchOkAsync(created.Id, new UpdateInvoiceRequest
+        {
+            DiscountAmount = 3_050_000m,
+            DiscountReason = "Free month"
+        });
+
+        Assert.Equal(0, invoice.TotalAmount);
+        Assert.Equal(InvoiceStatus.Paid, invoice.Status);
+        Assert.Equal(InvoiceStatus.Paid, (await GetLastStatusHistoryAsync(created.Id)).NewStatus);
+        Assert.Equal(HttpStatusCode.Conflict, (await PatchAsync(created.Id, new UpdateInvoiceRequest { Notes = "x" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Patch_InvalidChange_LeavesTheStatusUnchanged()
+    {
+        var lease = await CreateActiveLeaseAsync();
+        var created = await CreateOkAsync(Request(lease.Id, PreviousMonth));
+
+        var response = await PatchAsync(created.Id, new UpdateInvoiceRequest { DueDate = PreviousMonth.AddDays(-1) });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(InvoiceStatus.Pending, (await GetOkAsync(created.Id)).Status);
+        Assert.Single(await GetStatusHistoriesAsync(created.Id));
     }
 }

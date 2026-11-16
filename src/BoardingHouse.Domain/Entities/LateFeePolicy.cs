@@ -37,4 +37,11 @@ public sealed record LateFeePolicy
         Value = value;
         GraceDays = graceDays;
     }
+
+    public decimal FeeFor(decimal totalAmount) => Type switch
+    {
+        LateFeeType.Percent => Money.Round(totalAmount * Value!.Value / 100),
+        LateFeeType.Fixed => Value!.Value,
+        _ => 0
+    };
 }
