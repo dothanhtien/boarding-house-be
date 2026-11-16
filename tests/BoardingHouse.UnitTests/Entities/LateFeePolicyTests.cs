@@ -66,12 +66,14 @@ public class LateFeePolicyTests
         var now = DateTimeOffset.UtcNow;
 
         settings.Update(
-            new OrganizationSettingsDetails(10, new LateFeePolicy(LateFeeType.Fixed, 20_000, 2), VatRate: 8, "123", "VCB", "A"),
+            new OrganizationSettingsDetails(
+                10, new LateFeePolicy(LateFeeType.Fixed, 20_000, 2), VatRate: 8, "123", "VCB", "A", AutoGenerateInvoices: true),
             actor,
             now);
 
         Assert.Equal((10, LateFeeType.Fixed, 20_000m, 8m, actor, now),
             (settings.DefaultBillingDay, settings.LateFeeType, settings.LateFeeValue, settings.VatRate, settings.UpdatedBy, settings.UpdatedAt));
+        Assert.True(settings.AutoGenerateInvoices);
     }
 
     [Fact]
@@ -80,7 +82,51 @@ public class LateFeePolicyTests
         var settings = OrganizationSettings.DefaultsFor(Guid.NewGuid());
 
         Assert.Throws<DomainException>(() => settings.Update(
-            new OrganizationSettingsDetails(null, LateFeePolicy.None, VatRate: 101, null, null, null), Guid.NewGuid(), DateTimeOffset.UtcNow));
+            new OrganizationSettingsDetails(null, LateFeePolicy.None, VatRate: 101, null, null, null, AutoGenerateInvoices: false),
+            Guid.NewGuid(), DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void OrganizationSettingsDefaults_AutoGenerateInvoicesIsOff()
+    {
+        var settings = OrganizationSettings.DefaultsFor(Guid.NewGuid());
+
+        Assert.False(settings.AutoGenerateInvoices);
+        Assert.False(settings.Details.AutoGenerateInvoices);
+    }
+
+    [Fact]
+    public void OrganizationSettingsUpdate_DetailsRoundTrip_KeepsAutoGenerateInvoices()
+    {
+        var settings = OrganizationSettings.DefaultsFor(Guid.NewGuid());
+        settings.Update(settings.Details with { AutoGenerateInvoices = true }, Guid.NewGuid(), DateTimeOffset.UtcNow);
+
+        settings.Update(settings.Details with { VatRate = 8 }, Guid.NewGuid(), DateTimeOffset.UtcNow);
+
+        Assert.True(settings.AutoGenerateInvoices);
+        Assert.True(settings.Details.AutoGenerateInvoices);
+    }
+
+    [Fact]
+    public void OrganizationSettingsUpdate_AutoGenerateInvoicesFalse_TurnsItOff()
+    {
+        var settings = OrganizationSettings.DefaultsFor(Guid.NewGuid());
+        settings.Update(settings.Details with { AutoGenerateInvoices = true }, Guid.NewGuid(), DateTimeOffset.UtcNow);
+
+        settings.Update(settings.Details with { AutoGenerateInvoices = false }, Guid.NewGuid(), DateTimeOffset.UtcNow);
+
+        Assert.False(settings.AutoGenerateInvoices);
+    }
+
+    [Fact]
+    public void OrganizationSettingsUpdate_InvalidDetails_DoesNotTurnOnAutoGenerateInvoices()
+    {
+        var settings = OrganizationSettings.DefaultsFor(Guid.NewGuid());
+
+        Assert.Throws<DomainException>(() => settings.Update(
+            settings.Details with { VatRate = 101, AutoGenerateInvoices = true }, Guid.NewGuid(), DateTimeOffset.UtcNow));
+
+        Assert.False(settings.AutoGenerateInvoices);
     }
 
     [Theory]

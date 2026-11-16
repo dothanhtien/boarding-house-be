@@ -138,6 +138,7 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
         Assert.Null(settings.LateFeeGraceDays);
         Assert.Null(settings.LateFeeType);
         Assert.Null(settings.DefaultBillingDay);
+        Assert.False(settings.AutoGenerateInvoices);
     }
 
     [Fact]
@@ -367,5 +368,84 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
             $"/api/organizations/{targetOrganizationId}/settings", new UpdateOrganizationSettingsRequest { VatRate = 8 });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    private async Task<OrganizationSettingsResponse> PatchSettingsAsync(Guid organizationId, UpdateOrganizationSettingsRequest request)
+    {
+        var response = await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationSettingsResponse>>(JsonOptions))!.Data!;
+    }
+
+    private async Task<OrganizationSettingsResponse> GetSettingsAsync(Guid organizationId)
+    {
+        var response = await _client.GetAsync($"/api/organizations/{organizationId}/settings");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<ApiResponse<OrganizationSettingsResponse>>(JsonOptions))!.Data!;
+    }
+
+    private async Task<bool> ReadAutoGenerateInvoicesColumnAsync(Guid organizationId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await context.Database
+            .SqlQueryRaw<bool>(
+                "SELECT auto_generate_invoices AS \"Value\" FROM organization_settings WHERE organization_id = {0}", organizationId)
+            .SingleAsync();
+    }
+
+    [Fact]
+    public async Task UpdateSettings_AutoGenerateInvoices_IsSavedAndKeptByLaterPatches()
+    {
+        var organizationId = await CreateOrganizationAsync();
+
+        Assert.True((await PatchSettingsAsync(organizationId, new UpdateOrganizationSettingsRequest { AutoGenerateInvoices = true })).AutoGenerateInvoices);
+        Assert.True(await ReadAutoGenerateInvoicesColumnAsync(organizationId));
+
+        Assert.True((await PatchSettingsAsync(organizationId, new UpdateOrganizationSettingsRequest { VatRate = 8 })).AutoGenerateInvoices);
+        Assert.True((await GetSettingsAsync(organizationId)).AutoGenerateInvoices);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_AutoGenerateInvoicesFalse_TurnsItOffAndKeepsOtherFields()
+    {
+        var organizationId = await CreateOrganizationAsync();
+        await PatchSettingsAsync(organizationId, new UpdateOrganizationSettingsRequest { AutoGenerateInvoices = true, VatRate = 8 });
+
+        var updated = await PatchSettingsAsync(organizationId, new UpdateOrganizationSettingsRequest { AutoGenerateInvoices = false });
+
+        Assert.False(updated.AutoGenerateInvoices);
+        Assert.Equal(8, updated.VatRate);
+        Assert.False(await ReadAutoGenerateInvoicesColumnAsync(organizationId));
+    }
+
+    // A rejected PATCH must not flip the flag even when it is sent alongside the invalid field
+    [Fact]
+    public async Task UpdateSettings_AutoGenerateInvoicesWithAnInvalidField_Returns400AndKeepsItOff()
+    {
+        var organizationId = await CreateOrganizationAsync();
+        await PatchSettingsAsync(organizationId, new UpdateOrganizationSettingsRequest { VatRate = 8 });
+
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/organizations/{organizationId}/settings",
+            new UpdateOrganizationSettingsRequest { AutoGenerateInvoices = true, DefaultBillingDay = 32 });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.False((await GetSettingsAsync(organizationId)).AutoGenerateInvoices);
+        Assert.False(await ReadAutoGenerateInvoicesColumnAsync(organizationId));
+    }
+
+    [Theory]
+    [InlineData("""{ "autoGenerateInvoices": null }""")]
+    [InlineData("""{ "autoGenerateInvoices": "yes" }""")]
+    public async Task UpdateSettings_AutoGenerateInvoicesNotABoolean_Returns400(string body)
+    {
+        var organizationId = await CreateOrganizationAsync();
+
+        var response = await _client.PatchAsync(
+            $"/api/organizations/{organizationId}/settings",
+            new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 }

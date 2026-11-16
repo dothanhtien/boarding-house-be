@@ -14,5 +14,6 @@ public record OrganizationSettingsResponse
     public string? BankAccountNumber { get; init; }
     public string? BankName { get; init; }
     public string? BankAccountName { get; init; }
+    public bool AutoGenerateInvoices { get; init; }
     public DateTimeOffset? UpdatedAt { get; init; }
 }

@@ -28,7 +28,7 @@ public class OrganizationSettings
     public LateFeePolicy LateFee => new(LateFeeType, LateFeeValue, LateFeeGraceDays);
 
     public OrganizationSettingsDetails Details =>
-        new(DefaultBillingDay, LateFee, VatRate, BankAccountNumber, BankName, BankAccountName);
+        new(DefaultBillingDay, LateFee, VatRate, BankAccountNumber, BankName, BankAccountName, AutoGenerateInvoices);
 
     private OrganizationSettings() { }
 
@@ -51,6 +51,7 @@ public class OrganizationSettings
         BankAccountNumber = details.BankAccountNumber;
         BankName = details.BankName;
         BankAccountName = details.BankAccountName;
+        AutoGenerateInvoices = details.AutoGenerateInvoices;
         UpdatedAt = now;
         UpdatedBy = updatedBy;
     }
