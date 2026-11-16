@@ -36,6 +36,7 @@ public static class DependencyInjection
         services.AddScoped<IMediaUploader, MediaUploader>();
         services.AddScoped<InvoiceBillingInputLoader>();
         services.AddScoped<InvoiceLateFeeResolver>();
+        services.AddScoped<IInvoiceGenerator, InvoiceGenerator>();
 
         services.AddScoped<ExpireLeasesJob>();
         services.AddScoped<MarkOverdueInvoicesJob>();

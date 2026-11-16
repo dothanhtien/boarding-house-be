@@ -59,7 +59,7 @@ public class Invoice : BaseEntity
         string? discountReason,
         string? notes,
         DateTimeOffset now,
-        Guid createdBy)
+        Guid? createdBy)
     {
         if (!calculation.CanCreate)
         {
@@ -76,7 +76,8 @@ public class Invoice : BaseEntity
             InvoiceNumber = invoiceNumber,
             BillingMonth = calculation.BillingMonth,
             VatRate = calculation.VatRate,
-            CreatedBy = createdBy
+            // null = background job: the audit interceptor fills in SentinelActors.System
+            CreatedBy = createdBy ?? Guid.Empty
         };
 
         invoice.ApplyDetails(details);

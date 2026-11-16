@@ -24,4 +24,24 @@ public class InvoiceGenerationRun : Entity
     public int SkippedCount => Skipped.Count;
 
     private InvoiceGenerationRun() { }
+
+    public static InvoiceGenerationRun Record(
+        Guid organizationId,
+        Guid? propertyId,
+        BillingMonth billingMonth,
+        Guid? triggeredBy,
+        DateTimeOffset startedAt,
+        DateTimeOffset finishedAt,
+        int createdCount,
+        IReadOnlyList<InvoiceGenerationSkip> skipped) => new()
+        {
+            OrganizationId = organizationId,
+            PropertyId = propertyId,
+            BillingMonth = billingMonth,
+            TriggeredBy = triggeredBy,
+            StartedAt = startedAt,
+            FinishedAt = finishedAt,
+            CreatedCount = createdCount,
+            Skipped = skipped.ToList()
+        };
 }

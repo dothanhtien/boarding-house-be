@@ -1,5 +1,5 @@
 using Mapster;
-using System.Text.Json;
+using System.Diagnostics;
 using System.Linq.Expressions;
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.Common.CurrentOrganization;
@@ -17,10 +17,9 @@ namespace BoardingHouse.Application.Services;
 
 public class InvoiceService(
     ILeaseRepository leaseRepository,
-    IRoomRepository roomRepository,
     IInvoiceRepository invoiceRepository,
-    InvoiceBillingInputLoader billingInputLoader,
     InvoiceLateFeeResolver lateFeeResolver,
+    IInvoiceGenerator invoiceGenerator,
     IUnitOfWork unitOfWork,
     IOrganizationScopeAccessor organizationScopeAccessor,
     ICurrentUserAccessor currentUserAccessor,
@@ -104,79 +103,35 @@ public class InvoiceService(
             NotFoundMessages.Lease(request.LeaseId),
             cancellationToken);
 
-        var calculation = await CalculateAsync(lease, request, cancellationToken);
+        var calculation = await invoiceGenerator.CalculateAsync(lease, ToDraft(request), cancellationToken);
 
         return ToPreviewResponse(lease, request, calculation);
     }
 
     public async Task<InvoiceDetailResponse> CreateAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default)
     {
-        var billingMonth = BillingMonth.FromFirstDay(request.BillingMonth!.Value);
-        Guid invoiceId;
+        var organizationId = await leaseRepository.GetOrganizationIdAsync(request.LeaseId, cancellationToken)
+            ?? throw new AppNotFoundException(NotFoundMessages.Lease(request.LeaseId));
 
-        try
+        await organizationScopeAccessor.EnsureScopeAsync(
+            organizationId,
+            PermissionResources.Invoice,
+            PermissionActions.Create,
+            NotFoundMessages.Lease(request.LeaseId),
+            cancellationToken);
+
+        var draft = ToDraft(request);
+        var result = await invoiceGenerator.GenerateAsync(draft, currentUserAccessor.RequiredUser.Id, cancellationToken);
+
+        var invoiceId = result switch
         {
-            invoiceId = await unitOfWork.ExecuteInTransactionAsync(async ct =>
-            {
-                var roomId = await leaseRepository.GetRoomIdAsync(request.LeaseId, ct)
-                    ?? throw new AppNotFoundException(NotFoundMessages.Lease(request.LeaseId));
-
-                _ = await roomRepository.GetByIdWithOrganizationIdForShareAsync(roomId, ct)
-                    ?? throw new AppNotFoundException(NotFoundMessages.Lease(request.LeaseId));
-
-                var lease = await leaseRepository.GetByIdForBillingAsync(request.LeaseId, forUpdate: true, ct)
-                    ?? throw new AppNotFoundException(NotFoundMessages.Lease(request.LeaseId));
-
-                await organizationScopeAccessor.EnsureScopeAsync(
-                    lease.OrganizationId,
-                    PermissionResources.Invoice,
-                    PermissionActions.Create,
-                    NotFoundMessages.Lease(request.LeaseId),
-                    ct);
-
-                if (lease.RoomId != roomId)
-                {
-                    throw new AppConflictException("The lease was modified concurrently, please retry");
-                }
-
-                var calculation = await CalculateAsync(lease, request, ct);
-
-                if (calculation.Errors.Any(e => e.Code == InvoiceIssueCode.AlreadyInvoiced))
-                {
-                    throw new AppConflictException($"The lease already has an invoice for {billingMonth}");
-                }
-
-                if (!calculation.CanCreate)
-                {
-                    throw new AppValidationException("The invoice cannot be created", ToErrors(calculation.Errors));
-                }
-
-                var number = await invoiceRepository.NextNumberAsync(lease.OrganizationId, billingMonth, ct);
-
-                var invoice = Invoice.Create(
-                    calculation,
-                    lease.OrganizationId,
-                    lease.Id,
-                    Invoice.FormatNumber(billingMonth, number),
-                    request.DiscountReason,
-                    request.Notes,
-                    DateTimeOffset.UtcNow,
-                    currentUserAccessor.RequiredUser.Id);
-
-                await invoiceRepository.AddAsync(invoice, ct);
-
-                return invoice.Id;
-            }, cancellationToken);
-        }
-        catch (UniqueConstraintViolationException ex) when (ex.ConstraintName == UniqueIndexNames.InvoiceLeaseIdBillingMonth)
-        {
-            logger.LogWarning(
-                "Create invoice failed: lease {LeaseId} already has an invoice for {BillingMonth}", request.LeaseId, billingMonth);
-            throw new AppConflictException($"The lease already has an invoice for {billingMonth}");
-        }
-
-        logger.LogInformation(
-            "Invoice created ({InvoiceId}, lease {LeaseId}, month {BillingMonth})", invoiceId, request.LeaseId, billingMonth);
+            InvoiceGenerationResult.Created created => created.InvoiceId,
+            InvoiceGenerationResult.Skipped { AlreadyInvoiced: true } =>
+                throw new AppConflictException($"The lease already has an invoice for {draft.BillingMonth}"),
+            InvoiceGenerationResult.Skipped skipped =>
+                throw new AppValidationException("The invoice cannot be created", ToErrors(skipped.Errors)),
+            _ => throw new UnreachableException()
+        };
 
         return await GetDetailAsync(invoiceId, cancellationToken);
     }
@@ -260,24 +215,6 @@ public class InvoiceService(
         return histories.Adapt<List<InvoiceStatusHistoryResponse>>();
     }
 
-    private async Task<InvoiceCalculation> CalculateAsync(
-        Lease lease, CreateInvoiceRequest request, CancellationToken cancellationToken)
-    {
-        var customLines = (request.CustomItems ?? [])
-            .Select(i => InvoiceLine.Custom(i.Description!, i.Quantity, i.UnitPrice!.Value))
-            .ToList();
-
-        var input = await billingInputLoader.LoadAsync(
-            lease,
-            BillingMonth.FromFirstDay(request.BillingMonth!.Value),
-            Today,
-            customLines,
-            request.DiscountAmount,
-            cancellationToken);
-
-        return InvoiceCalculator.Calculate(input);
-    }
-
     private static InvoicePreviewResponse ToPreviewResponse(
         Lease lease, CreateInvoiceRequest request, InvoiceCalculation calculation) => new()
         {
@@ -323,6 +260,17 @@ public class InvoiceService(
 
     private static Dictionary<string, string[]> ToErrors(IEnumerable<InvoiceIssue> issues) =>
         issues
-            .GroupBy(i => JsonNamingPolicy.CamelCase.ConvertName(i.Code.ToString()))
+            .GroupBy(i => InvoiceIssueKeys.Of(i.Code))
             .ToDictionary(g => g.Key, g => g.Select(i => i.Message).ToArray());
+
+    private static InvoiceDraft ToDraft(CreateInvoiceRequest request) => new(
+        request.LeaseId,
+        BillingMonth.FromFirstDay(request.BillingMonth!.Value),
+        Today,
+        (request.CustomItems ?? [])
+            .Select(i => InvoiceLine.Custom(i.Description!, i.Quantity, i.UnitPrice!.Value))
+            .ToList(),
+        request.DiscountAmount,
+        request.DiscountReason,
+        request.Notes);
 }
