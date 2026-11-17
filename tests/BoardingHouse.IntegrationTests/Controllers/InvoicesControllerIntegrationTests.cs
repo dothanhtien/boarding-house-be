@@ -2464,6 +2464,28 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
             .ToListAsync();
     }
 
+    private async Task<PagedResult<InvoiceGenerationRunResponse>> ListGenerationRunsOkAsync(
+        string queryString = "", HttpClient? client = null)
+    {
+        var response = await (client ?? _client).GetAsync($"/api/invoice-generation-runs{queryString}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ReadDataAsync<PagedResult<InvoiceGenerationRunResponse>>(response);
+    }
+
+    // A daily-job run (no property, no actor) written directly: the job itself comes in a later step
+    private async Task<Guid> InsertJobRunAsync(Guid organizationId, DateOnly billingMonth)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var startedAt = DateTimeOffset.UtcNow;
+        var run = InvoiceGenerationRun.Record(
+            organizationId, propertyId: null, BillingMonth.FromFirstDay(billingMonth), triggeredBy: null,
+            startedAt, startedAt, createdCount: 0, []);
+        context.InvoiceGenerationRuns.Add(run);
+        await context.SaveChangesAsync();
+        return run.Id;
+    }
+
     // Room 101 pays electricity but has no reading this month; rooms 102 and 103 pay rent only
     private async Task<(LeaseResponse MissingReading, LeaseResponse Room102, LeaseResponse Room103)> CreateThreeLeasesAsync()
     {
@@ -2759,6 +2781,141 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
     {
         var response = await _client.PostAsJsonAsync(
             $"/api/properties/{_propertyId}/invoices/generate", new GenerateInvoicesRequest(), JsonOptions);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.True((await ReadErrorsAsync(response)).TryGetProperty("billingMonth", out _));
+    }
+
+    [Fact]
+    public async Task ListGenerationRuns_ReturnsTheRunsOfTheOrganizationNewestFirstWithTheirSkips()
+    {
+        await CreateThreeLeasesAsync();
+        var first = await GenerateForPropertyOkAsync();
+        var second = await GenerateForPropertyOkAsync();
+
+        var runs = await ListGenerationRunsOkAsync($"?organizationId={_organizationId}");
+
+        Assert.Equal([second.Id, first.Id], runs.Items.Select(r => r.Id));
+        Assert.Equal((2, 0), (first.CreatedCount, second.CreatedCount));
+        Assert.All(runs.Items, r => Assert.Equal("missingReading", Assert.Single(Assert.Single(r.Skipped).Reasons).Code));
+    }
+
+    [Fact]
+    public async Task ListGenerationRuns_FilterByBillingMonthAndProperty_ReturnsOnlyThoseRuns()
+    {
+        await GenerateForPropertyOkAsync();
+        var nextMonth = await GenerateForPropertyOkAsync(CurrentMonth.AddMonths(1));
+        var otherPropertyId = await CreatePropertyAsync(_organizationId, "Other Property");
+        Assert.Equal(HttpStatusCode.OK, (await GenerateForPropertyAsync(otherPropertyId, CurrentMonth.AddMonths(1))).StatusCode);
+
+        var runs = await ListGenerationRunsOkAsync(
+            $"?organizationId={_organizationId}&propertyId={_propertyId}&billingMonth={CurrentMonth.AddMonths(1):yyyy-MM-dd}");
+
+        Assert.Equal(nextMonth.Id, Assert.Single(runs.Items).Id);
+    }
+
+    // Job runs have no property: they are listed with the organization and left out by a property filter
+    [Fact]
+    public async Task ListGenerationRuns_JobRun_IsListedWithoutPropertyAndExcludedByThePropertyFilter()
+    {
+        var manual = await GenerateForPropertyOkAsync();
+        var jobRunId = await InsertJobRunAsync(_organizationId, CurrentMonth);
+
+        var all = await ListGenerationRunsOkAsync($"?organizationId={_organizationId}");
+        var ofProperty = await ListGenerationRunsOkAsync($"?organizationId={_organizationId}&propertyId={_propertyId}");
+
+        var jobRun = Assert.Single(all.Items, r => r.Id == jobRunId);
+        Assert.Equal((null, null), (jobRun.PropertyId, jobRun.TriggeredBy));
+        Assert.Equal(2, all.TotalItems);
+        Assert.Equal(manual.Id, Assert.Single(ofProperty.Items).Id);
+    }
+
+    [Fact]
+    public async Task ListGenerationRuns_Paging_ReturnsThePageAndTheTotal()
+    {
+        await GenerateForPropertyOkAsync();
+        await GenerateForPropertyOkAsync();
+        var newest = await GenerateForPropertyOkAsync();
+
+        var runs = await ListGenerationRunsOkAsync($"?organizationId={_organizationId}&page=1&pageSize=1");
+
+        Assert.Equal((1, 1, 3), (runs.Page, runs.PageSize, runs.TotalItems));
+        Assert.Equal(newest.Id, Assert.Single(runs.Items).Id);
+    }
+
+    [Fact]
+    public async Task ListGenerationRuns_OrganizationHeader_IsUsedWhenTheQueryHasNoOrganization()
+    {
+        await GenerateForPropertyOkAsync();
+        var otherOrganizationId = await CreateOrganizationAsync("Other Org");
+        var otherPropertyId = await CreatePropertyAsync(otherOrganizationId, "Other Property");
+        Assert.Equal(HttpStatusCode.OK, (await GenerateForPropertyAsync(otherPropertyId)).StatusCode);
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/invoice-generation-runs");
+        request.Headers.Add("X-Organization-Id", otherOrganizationId.ToString());
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var runs = await ReadDataAsync<PagedResult<InvoiceGenerationRunResponse>>(response);
+        Assert.Equal(otherOrganizationId, Assert.Single(runs.Items).OrganizationId);
+    }
+
+    [Fact]
+    public async Task ListGenerationRuns_OrganizationNotInScope_ReturnsNotFound()
+    {
+        await GenerateForPropertyOkAsync();
+        var otherClient = await CreateOtherOrganizationMemberClientAsync();
+
+        var response = await otherClient.GetAsync($"/api/invoice-generation-runs?organizationId={_organizationId}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ListGenerationRuns_MemberWithoutOrganization_SeesOnlyItsOrganizations()
+    {
+        await GenerateForPropertyOkAsync();
+        var otherClient = await CreateOtherOrganizationMemberClientAsync();
+
+        var runs = await ListGenerationRunsOkAsync(client: otherClient);
+
+        Assert.Empty(runs.Items);
+    }
+
+    [Fact]
+    public async Task ListGenerationRuns_OrganizationStaff_SeesTheRunsOfItsOrganization()
+    {
+        var run = await GenerateForPropertyOkAsync();
+        var staffClient = await CreateOrganizationMemberClientAsync(_organizationId);
+
+        var runs = await ListGenerationRunsOkAsync(client: staffClient);
+
+        Assert.Equal(run.Id, Assert.Single(runs.Items).Id);
+    }
+
+    [Fact]
+    public async Task ListGenerationRuns_PlatformStaff_ReturnsOk()
+    {
+        await GenerateForPropertyOkAsync();
+        var platformStaffClient = await CreatePlatformStaffClientAsync();
+
+        var runs = await ListGenerationRunsOkAsync(client: platformStaffClient);
+
+        Assert.Single(runs.Items);
+    }
+
+    [Fact]
+    public async Task ListGenerationRuns_WithoutAuthentication_ReturnsUnauthorized()
+    {
+        var response = await factory.CreateClient().GetAsync("/api/invoice-generation-runs");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ListGenerationRuns_BillingMonthNotFirstDay_ReturnsBadRequest()
+    {
+        var response = await _client.GetAsync($"/api/invoice-generation-runs?billingMonth={CurrentMonth.AddDays(1):yyyy-MM-dd}");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.True((await ReadErrorsAsync(response)).TryGetProperty("billingMonth", out _));
