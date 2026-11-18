@@ -299,6 +299,28 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
             .ThenBy(l => l.Id)
             .ToListAsync(cancellationToken);
 
+    public Task<List<Lease>> ListDueForBillingAsync(Guid organizationId, DateOnly today, CancellationToken cancellationToken = default)
+    {
+        var month = BillingMonth.Of(today);
+        var daysInMonth = month.LastDay.Day;
+
+        return BillableIn(month)
+            .Where(l => l.OrganizationId == organizationId && l.StartDate <= today)
+            .Where(l => Math.Min(
+                l.BillingDay
+                    ?? l.Room!.Property!.DefaultBillingDay
+                    ?? Context.OrganizationSettings
+                        .Where(s => s.OrganizationId == organizationId)
+                        .Select(s => s.DefaultBillingDay)
+                        .FirstOrDefault()
+                    ?? l.StartDate.Day,
+                daysInMonth) <= today.Day)
+            .OrderBy(l => l.Room!.Property!.Name)
+            .ThenBy(l => l.Room!.RoomNumber)
+            .ThenBy(l => l.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     private IQueryable<Lease> BillableIn(BillingMonth month)
     {
         var firstDay = month.FirstDay;

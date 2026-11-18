@@ -5,5 +5,6 @@ namespace BoardingHouse.Application.Repositories;
 public interface IOrganizationSettingsRepository
 {
     Task<OrganizationSettings?> GetByOrganizationIdAsync(Guid organizationId, CancellationToken cancellationToken = default);
+    Task<List<Guid>> ListOrganizationIdsWithAutoGenerateInvoicesAsync(CancellationToken cancellationToken = default);
     Task AddAsync(OrganizationSettings settings, CancellationToken cancellationToken = default);
 }

@@ -2486,6 +2486,31 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
         return run.Id;
     }
 
+    private static DateOnly DayOfCurrentMonth(int day) => CurrentMonth.AddDays(day - 1);
+
+    private async Task RunGenerateDueInvoicesJobAsync(DateOnly today)
+    {
+        using var scope = factory.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<GenerateDueInvoicesJob>().RunAsync(today);
+    }
+
+    private async Task UpdateOrganizationSettingsAsync(UpdateOrganizationSettingsRequest request, Guid? organizationId = null)
+    {
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/organizations/{organizationId ?? _organizationId}/settings", request, JsonOptions);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    private Task EnableAutoGenerateInvoicesAsync(Guid? organizationId = null) =>
+        UpdateOrganizationSettingsAsync(new UpdateOrganizationSettingsRequest { AutoGenerateInvoices = true }, organizationId);
+
+    private async Task SetPropertyDefaultBillingDayAsync(int day)
+    {
+        var response = await _client.PatchAsJsonAsync(
+            $"/api/properties/{_propertyId}", new UpdatePropertyRequest { DefaultBillingDay = day }, JsonOptions);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
     // Room 101 pays electricity but has no reading this month; rooms 102 and 103 pay rent only
     private async Task<(LeaseResponse MissingReading, LeaseResponse Room102, LeaseResponse Room103)> CreateThreeLeasesAsync()
     {
@@ -2919,5 +2944,242 @@ public class InvoicesControllerIntegrationTests(PostgresApiFactory factory)
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.True((await ReadErrorsAsync(response)).TryGetProperty("billingMonth", out _));
+    }
+
+    [Fact]
+    public async Task GenerateDueInvoicesJob_BillingDayReached_CreatesTheInvoiceOnceAsTheSystem()
+    {
+        await EnableAutoGenerateInvoicesAsync();
+        var lease = await CreateActiveLeaseAsync(billingDay: 5);
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(5));
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(5));
+
+        var invoice = Assert.Single(await GetInvoicesOfLeaseAsync(lease.Id));
+        Assert.Equal(BillingMonth.FromFirstDay(CurrentMonth), invoice.BillingMonth);
+        Assert.Equal(DayOfCurrentMonth(5), invoice.DueDate);
+        Assert.Equal(SentinelActors.System, invoice.CreatedBy);
+        Assert.Null(Assert.Single(await GetStatusHistoriesAsync(invoice.Id)).ChangedBy);
+
+        // The second run had nothing due, so it recorded no run
+        var run = Assert.Single(await GetGenerationRunsAsync());
+        Assert.Equal((_organizationId, (Guid?)null, (Guid?)null, 1), (run.OrganizationId, run.PropertyId, run.TriggeredBy, run.CreatedCount));
+        Assert.Empty(run.Skipped);
+    }
+
+    [Fact]
+    public async Task GenerateDueInvoicesJob_BeforeTheBillingDay_CreatesNothing()
+    {
+        await EnableAutoGenerateInvoicesAsync();
+        var lease = await CreateActiveLeaseAsync(billingDay: 5);
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(4));
+
+        Assert.Equal(0, await CountInvoicesAsync(lease.Id));
+        Assert.Empty(await GetGenerationRunsAsync());
+    }
+
+    [Fact]
+    public async Task GenerateDueInvoicesJob_MissedBillingDay_CatchesUpLaterInTheMonth()
+    {
+        await EnableAutoGenerateInvoicesAsync();
+        var lease = await CreateActiveLeaseAsync(billingDay: 5);
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(10));
+
+        var invoice = Assert.Single(await GetInvoicesOfLeaseAsync(lease.Id));
+        Assert.Equal(DayOfCurrentMonth(10), invoice.DueDate);
+    }
+
+    [Fact]
+    public async Task GenerateDueInvoicesJob_AutoGenerateOff_CreatesNothing()
+    {
+        var lease = await CreateActiveLeaseAsync(billingDay: 5);
+        await UpdateOrganizationSettingsAsync(new UpdateOrganizationSettingsRequest { VatRate = 0 });
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(10));
+
+        Assert.Equal(0, await CountInvoicesAsync(lease.Id));
+        Assert.Empty(await GetGenerationRunsAsync());
+    }
+
+    // Turned on, then off again: the job must read the current value, not "has ever been on"
+    [Fact]
+    public async Task GenerateDueInvoicesJob_AutoGenerateTurnedOffAgain_CreatesNothing()
+    {
+        await EnableAutoGenerateInvoicesAsync();
+        await UpdateOrganizationSettingsAsync(new UpdateOrganizationSettingsRequest { AutoGenerateInvoices = false });
+        var lease = await CreateActiveLeaseAsync(billingDay: 5);
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(10));
+
+        Assert.Equal(0, await CountInvoicesAsync(lease.Id));
+    }
+
+    [Fact]
+    public async Task GenerateDueInvoicesJob_OnlyOrganizationsThatOptedIn_AreBilled()
+    {
+        await EnableAutoGenerateInvoicesAsync();
+        var lease = await CreateActiveLeaseAsync(billingDay: 5);
+        var otherOrganizationId = await CreateOrganizationAsync("Other Org");
+        var otherPropertyId = await CreatePropertyAsync(otherOrganizationId, "Other Property");
+        var otherLease = await CreateActiveLeaseAsync(roomId: await CreateRoomAsync(otherPropertyId, "101"), billingDay: 5);
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(5));
+
+        Assert.Equal(1, await CountInvoicesAsync(lease.Id));
+        Assert.Equal(0, await CountInvoicesAsync(otherLease.Id));
+    }
+
+    // organization_settings has no soft delete of its own: its query filter follows the organization
+    [Fact]
+    public async Task GenerateDueInvoicesJob_DeletedOrganization_IsNotBilled()
+    {
+        await EnableAutoGenerateInvoicesAsync();
+        var lease = await CreateActiveLeaseAsync(billingDay: 5);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var organization = await context.Organizations.SingleAsync(o => o.Id == _organizationId);
+            TestEntities.Set(organization, new { DeletedAt = (DateTimeOffset?)DateTimeOffset.UtcNow, DeletedBy = (Guid?)_actorId });
+            await context.SaveChangesAsync();
+        }
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(5));
+
+        Assert.Equal(0, await CountInvoicesAsync(lease.Id));
+        Assert.Empty(await GetGenerationRunsAsync());
+    }
+
+    [Fact]
+    public async Task GenerateDueInvoicesJob_PropertyDefaultBillingDay_IsUsedWhenTheLeaseHasNone()
+    {
+        await EnableAutoGenerateInvoicesAsync();
+        await SetPropertyDefaultBillingDayAsync(5);
+        var lease = await CreateActiveLeaseAsync();
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(4));
+        Assert.Equal(0, await CountInvoicesAsync(lease.Id));
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(5));
+        Assert.Equal(1, await CountInvoicesAsync(lease.Id));
+    }
+
+    [Fact]
+    public async Task GenerateDueInvoicesJob_OrganizationDefaultBillingDay_IsUsedWhenThePropertyHasNone()
+    {
+        await UpdateOrganizationSettingsAsync(new UpdateOrganizationSettingsRequest { AutoGenerateInvoices = true, DefaultBillingDay = 5 });
+        var lease = await CreateActiveLeaseAsync();
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(4));
+        Assert.Equal(0, await CountInvoicesAsync(lease.Id));
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(5));
+        Assert.Equal(1, await CountInvoicesAsync(lease.Id));
+    }
+
+    [Fact]
+    public async Task GenerateDueInvoicesJob_LeaseBillingDay_WinsOverTheDefaults()
+    {
+        await UpdateOrganizationSettingsAsync(new UpdateOrganizationSettingsRequest { AutoGenerateInvoices = true, DefaultBillingDay = 3 });
+        await SetPropertyDefaultBillingDayAsync(4);
+        var lease = await CreateActiveLeaseAsync(billingDay: 5);
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(4));
+
+        Assert.Equal(0, await CountInvoicesAsync(lease.Id));
+    }
+
+    // No billing day anywhere: the day of the start date (here the 1st) is the billing day
+    [Fact]
+    public async Task GenerateDueInvoicesJob_NoBillingDayAnywhere_UsesTheStartDay()
+    {
+        await EnableAutoGenerateInvoicesAsync();
+        var lease = await CreateActiveLeaseAsync();
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(1));
+
+        Assert.Equal(1, await CountInvoicesAsync(lease.Id));
+    }
+
+    // Billing day reached, but the tenants only move in later this month: no invoice before the start date
+    [Fact]
+    public async Task GenerateDueInvoicesJob_LeaseStartingLaterThisMonth_WaitsForTheStartDate()
+    {
+        await EnableAutoGenerateInvoicesAsync();
+        var lease = await CreateDraftLeaseAsync(
+            startDate: DayOfCurrentMonth(20), roomId: await CreateRoomAsync(_propertyId, "102"), billingDay: 5);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync($"/api/leases/{lease.Id}/activate", null)).StatusCode);
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(10));
+        Assert.Equal(0, await CountInvoicesAsync(lease.Id));
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(20));
+        Assert.Equal(1, await CountInvoicesAsync(lease.Id));
+    }
+
+    // One run per organization (no property), invoices numbered by property name then room number
+    [Fact]
+    public async Task GenerateDueInvoicesJob_SeveralProperties_RecordsOneRunAndNumbersByPropertyThenRoom()
+    {
+        await EnableAutoGenerateInvoicesAsync();
+        var mainProperty = await CreateActiveLeaseAsync(billingDay: 5);
+        var firstPropertyId = await CreatePropertyAsync(_organizationId, "A Property");
+        var firstProperty = await CreateActiveLeaseAsync(roomId: await CreateRoomAsync(firstPropertyId, "201"), billingDay: 5);
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(5));
+
+        var month = BillingMonth.FromFirstDay(CurrentMonth);
+        Assert.Equal(Invoice.FormatNumber(month, 1), Assert.Single(await GetInvoicesOfLeaseAsync(firstProperty.Id)).InvoiceNumber);
+        Assert.Equal(Invoice.FormatNumber(month, 2), Assert.Single(await GetInvoicesOfLeaseAsync(mainProperty.Id)).InvoiceNumber);
+        var run = Assert.Single(await GetGenerationRunsAsync());
+        Assert.Equal(((Guid?)null, 2), (run.PropertyId, run.CreatedCount));
+    }
+
+    [Fact]
+    public async Task GenerateDueInvoicesJob_MissingReading_IsSkippedWithItsReasonAndBilledOnceRecorded()
+    {
+        await EnableAutoGenerateInvoicesAsync();
+        var electricity = await CreateUtilityServiceAsync("Electricity", 3_500, UtilityBillingMethod.Metered, "kWh");
+        var lease = await CreateActiveLeaseAsync([electricity.Id], billingDay: 5);
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(5));
+
+        Assert.Equal(0, await CountInvoicesAsync(lease.Id));
+        var skip = Assert.Single(Assert.Single(await GetGenerationRunsAsync()).Skipped);
+        Assert.Equal((lease.Id, "101"), (skip.LeaseId, skip.RoomNumber));
+        Assert.Equal("missingReading", Assert.Single(skip.Reasons).Code);
+
+        await RecordAsync(electricity.Id, CurrentMonth, previousValue: 100, currentValue: 150);
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(6));
+
+        Assert.Equal(1, await CountInvoicesAsync(lease.Id));
+        Assert.Equal([0, 1], (await GetGenerationRunsAsync()).Select(r => r.CreatedCount));
+    }
+
+    [Fact]
+    public async Task GenerateDueInvoicesJob_CancelledInvoice_IsGeneratedAgain()
+    {
+        await EnableAutoGenerateInvoicesAsync();
+        var lease = await CreateActiveLeaseAsync(billingDay: 5);
+        var invoice = await CreateOkAsync(Request(lease.Id));
+        await CancelOkAsync(invoice.Id);
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(5));
+
+        Assert.Equal(2, await CountInvoicesAsync(lease.Id));
+    }
+
+    // Terminated today (any day of the month): it still stays at least one day, so its billing day still bills it
+    [Fact]
+    public async Task GenerateDueInvoicesJob_LeaseTerminatedThisMonth_IsStillBilledOnItsBillingDay()
+    {
+        await EnableAutoGenerateInvoicesAsync();
+        var lease = await CreateActiveLeaseAsync(billingDay: 28);
+        await TerminateAsync(lease.Id);
+
+        await RunGenerateDueInvoicesJobAsync(DayOfCurrentMonth(28));
+
+        Assert.Equal(1, await CountInvoicesAsync(lease.Id));
     }
 }

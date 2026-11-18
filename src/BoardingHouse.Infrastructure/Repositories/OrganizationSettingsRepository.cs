@@ -12,4 +12,11 @@ public class OrganizationSettingsRepository(AppDbContext context) : IOrganizatio
 
     public Task AddAsync(OrganizationSettings settings, CancellationToken cancellationToken = default) =>
         context.OrganizationSettings.AddAsync(settings, cancellationToken).AsTask();
+
+    public Task<List<Guid>> ListOrganizationIdsWithAutoGenerateInvoicesAsync(CancellationToken cancellationToken = default) =>
+        context.OrganizationSettings
+            .Where(s => s.AutoGenerateInvoices)
+            .OrderBy(s => s.OrganizationId)
+            .Select(s => s.OrganizationId)
+            .ToListAsync(cancellationToken);
 }
