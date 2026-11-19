@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
@@ -105,6 +106,59 @@ public class PaymentRepositoryIntegrationTests(PostgresContainerFixture fixture)
         Assert.Equal("101", payment.Invoice.Lease.Room!.RoomNumber);
         Assert.Equal("Property", payment.Invoice.Lease.Room.Property!.Name);
         Assert.Equal("Tenant", payment.PayerUser!.FullName);
+    }
+
+    [Fact]
+    public async Task GetInvoiceIdAsync_ReturnsTheInvoiceOfThePayment()
+    {
+        var (invoiceId, staffId, _) = await SeedInvoiceAsync();
+        var paymentId = await InsertAsync(NewPayment(invoiceId, staffId));
+
+        await using var context = fixture.CreateContext();
+        var repository = new PaymentRepository(context);
+
+        Assert.Equal(invoiceId, await repository.GetInvoiceIdAsync(paymentId));
+        Assert.Null(await repository.GetInvoiceIdAsync(Guid.NewGuid()));
+    }
+
+    [Fact]
+    public async Task GetForUpdateAsync_ReturnsATrackedPayment_AndLocksTheRowUntilCommit()
+    {
+        var (invoiceId, staffId, _) = await SeedInvoiceAsync();
+        var paymentId = await InsertAsync(NewPayment(invoiceId, staffId));
+
+        await using var context = fixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var payment = await new PaymentRepository(context).GetForUpdateAsync(paymentId);
+
+        Assert.NotNull(payment);
+        Assert.Equal(EntityState.Unchanged, context.Entry(payment).State);
+
+        // Another connection cannot take the same row lock while the transaction is open
+        await using (var other = fixture.CreateContext())
+        {
+            await using var otherTransaction = await other.Database.BeginTransactionAsync();
+            var exception = await Assert.ThrowsAsync<PostgresException>(() => other.Database.ExecuteSqlRawAsync(
+                "SELECT id FROM payments WHERE id = {0} FOR UPDATE NOWAIT", paymentId));
+            Assert.Equal(PostgresErrorCodes.LockNotAvailable, exception.SqlState);
+        }
+
+        await transaction.CommitAsync();
+
+        await using var afterCommit = fixture.CreateContext();
+        await using var afterCommitTransaction = await afterCommit.Database.BeginTransactionAsync();
+        await afterCommit.Database.ExecuteSqlRawAsync("SELECT id FROM payments WHERE id = {0} FOR UPDATE NOWAIT", paymentId);
+    }
+
+    [Fact]
+    public async Task GetForUpdateAsync_UnknownPayment_ReturnsNull()
+    {
+        await SeedInvoiceAsync();
+
+        await using var context = fixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+
+        Assert.Null(await new PaymentRepository(context).GetForUpdateAsync(Guid.NewGuid()));
     }
 
     private static Payment NewPayment(Guid invoiceId, Guid createdBy, Guid? payerUserId = null) =>

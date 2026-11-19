@@ -28,4 +28,13 @@ public class PaymentsController(IPaymentService paymentService) : ControllerBase
         var payment = await paymentService.RecordAsync(invoiceId, request, cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id = payment.Id }, new ApiResponse<PaymentResponse> { Data = payment });
     }
+
+    [HttpPost("api/payments/{id:guid}/confirm")]
+    [RequireOrganizationScopedPermission(PermissionResources.Payment, PermissionActions.Confirm)]
+    public async Task<ActionResult<ApiResponse<PaymentResponse>>> Confirm(Guid id, CancellationToken cancellationToken)
+    {
+        var payment = await paymentService.ConfirmAsync(id, cancellationToken);
+        return Ok(new ApiResponse<PaymentResponse> { Data = payment });
+    }
+
 }

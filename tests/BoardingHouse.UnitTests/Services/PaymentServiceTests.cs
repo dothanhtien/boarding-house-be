@@ -28,6 +28,7 @@ public class PaymentServiceTests
     private readonly User _actor = NewUser("Actor");
     private readonly Dictionary<Guid, Invoice> _invoices = [];
     private readonly Dictionary<Guid, Payment> _payments = [];
+    private readonly List<string> _locks = [];
     private readonly PaymentService _paymentService;
 
     public PaymentServiceTests()
@@ -114,6 +115,7 @@ public class PaymentServiceTests
         _invoices[invoice.Id] = invoice;
         _invoiceRepository
             .Setup(r => r.GetAggregateForUpdateAsync(invoice.Id, It.IsAny<CancellationToken>()))
+            .Callback(() => _locks.Add("invoice"))
             .ReturnsAsync(invoice);
 
         return invoice;
@@ -144,6 +146,17 @@ public class PaymentServiceTests
             DateTimeOffset.UtcNow);
         _payments[payment.Id] = payment;
         return payment;
+    }
+
+    private void SetupPaymentForUpdate(Payment payment)
+    {
+        _paymentRepository
+            .Setup(r => r.GetInvoiceIdAsync(payment.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payment.InvoiceId);
+        _paymentRepository
+            .Setup(r => r.GetForUpdateAsync(payment.Id, It.IsAny<CancellationToken>()))
+            .Callback(() => _locks.Add("payment"))
+            .ReturnsAsync(payment);
     }
 
     [Fact]
@@ -346,5 +359,68 @@ public class PaymentServiceTests
         Assert.Equal("Representative", result.PayerName);
         Assert.Equal(1_000_000, result.Amount);
         Assert.Equal(PaymentMethod.Cash, result.Method);
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_UnknownPayment_ThrowsNotFoundWithoutLockingAnything()
+    {
+        var id = Guid.NewGuid();
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(() => _paymentService.ConfirmAsync(id));
+
+        Assert.Equal(NotFoundMessages.Payment(id), ex.Message);
+        Assert.Empty(_locks);
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_PaymentOfAnotherOrganization_ThrowsNotFoundWithoutLockingThePayment()
+    {
+        var invoice = SetupInvoice();
+        var payment = AddPayment(invoice);
+        SetupPaymentForUpdate(payment);
+        SetupScope(PermissionActions.Confirm, Restricted(Guid.NewGuid()));
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(() => _paymentService.ConfirmAsync(payment.Id));
+
+        Assert.Equal(NotFoundMessages.Payment(payment.Id), ex.Message);
+        Assert.Equal(["invoice"], _locks);
+        Assert.Equal(PaymentStatus.Pending, payment.Status);
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_LocksTheInvoiceThenThePaymentAndRefreshesTheStatus()
+    {
+        var invoice = SetupInvoice();
+        var payment = AddPayment(invoice, amount: 3_000_000);
+        SetupPaymentForUpdate(payment);
+        SetupScope(PermissionActions.Confirm, Restricted(invoice.OrganizationId));
+
+        var result = await _paymentService.ConfirmAsync(payment.Id);
+
+        Assert.Equal(["invoice", "payment"], _locks);
+        Assert.Equal(PaymentStatus.Confirmed, result.Status);
+        Assert.Equal(_actor.Id, payment.ConfirmedBy);
+        Assert.Equal(3_000_000, invoice.PaidAmount);
+        Assert.Equal(InvoiceStatus.Paid, invoice.Status);
+        Assert.Equal(_actor.Id, invoice.StatusHistories.Last().ChangedBy);
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_ExceedingTheRemainingAmount_ThrowsAndLeavesThePaymentPending()
+    {
+        var invoice = SetupInvoice();
+        var first = AddPayment(invoice, amount: 2_000_000);
+        var second = AddPayment(invoice, amount: 2_000_000);
+        SetupPaymentForUpdate(first);
+        SetupPaymentForUpdate(second);
+        SetupScope(PermissionActions.Confirm, Unrestricted());
+        await _paymentService.ConfirmAsync(first.Id);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(() => _paymentService.ConfirmAsync(second.Id));
+
+        Assert.Equal(DomainErrorKind.Validation, ex.Kind);
+        Assert.Equal(PaymentStatus.Pending, second.Status);
+        Assert.Equal(2_000_000, invoice.PaidAmount);
+        Assert.Equal(InvoiceStatus.Partial, invoice.Status);
     }
 }

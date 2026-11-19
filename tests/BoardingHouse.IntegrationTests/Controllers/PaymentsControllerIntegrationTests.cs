@@ -280,6 +280,16 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
             .ToListAsync();
     }
 
+    private Task<HttpResponseMessage> ConfirmAsync(Guid id, HttpClient? client = null) =>
+        (client ?? _client).PostAsync($"/api/payments/{id}/confirm", null);
+
+    private async Task<PaymentResponse> ConfirmOkAsync(Guid id)
+    {
+        var response = await ConfirmAsync(id);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ReadDataAsync<PaymentResponse>(response);
+    }
+
     [Fact]
     public async Task Record_WithoutConfirm_CreatesAPendingPaymentAndLeavesTheInvoiceUnpaid()
     {
@@ -468,6 +478,21 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    // payment:confirm is organization-scoped: platform staff only hold payment:read
+    [Fact]
+    public async Task Confirm_PlatformStaff_ReturnsForbiddenAndLeavesItPending()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000));
+        var staffClient = await CreatePlatformStaffClientAsync();
+
+        var response = await ConfirmAsync(payment.Id, staffClient);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(PaymentStatus.Pending, (await GetPaymentOkAsync(payment.Id)).Status);
+        Assert.Equal(0, (await GetInvoiceOkAsync(invoice.Id)).PaidAmount);
+    }
+
     [Fact]
     public async Task Record_OrganizationStaffWithConfirm_ConfirmsThePayment()
     {
@@ -521,6 +546,113 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
         var staffClient = await CreatePlatformStaffClientAsync();
 
         var response = await GetPaymentAsync(payment.Id, staffClient);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Confirm_TwoPayments_MarkTheInvoicePartialThenPaidWithHistory()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var first = await RecordOkAsync(invoice.Id, Cash(1_000_000));
+        var second = await RecordOkAsync(invoice.Id, Cash(2_000_000));
+
+        var confirmed = await ConfirmOkAsync(first.Id);
+
+        Assert.Equal(PaymentStatus.Confirmed, confirmed.Status);
+        Assert.Equal(_actorId, confirmed.ConfirmedBy);
+        Assert.NotNull(confirmed.ConfirmedAt);
+        Assert.Equal(InvoiceStatus.Partial, (await GetInvoiceOkAsync(invoice.Id)).Status);
+
+        await ConfirmOkAsync(second.Id);
+
+        var after = await GetInvoiceOkAsync(invoice.Id);
+        Assert.Equal(3_000_000, after.PaidAmount);
+        Assert.Equal(InvoiceStatus.Paid, after.Status);
+        var histories = await GetStatusHistoriesAsync(invoice.Id);
+        Assert.Equal(
+            [InvoiceStatus.Pending, InvoiceStatus.Partial, InvoiceStatus.Paid],
+            histories.Select(h => h.NewStatus));
+        Assert.All(histories.Skip(1), h => Assert.Equal(_actorId, h.ChangedBy));
+    }
+
+    [Fact]
+    public async Task Confirm_ExceedingTheRemainingAmount_ReturnsBadRequestAndLeavesItPending()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var first = await RecordOkAsync(invoice.Id, Cash(2_000_000));
+        var second = await RecordOkAsync(invoice.Id, Cash(2_000_000));
+        await ConfirmOkAsync(first.Id);
+
+        var response = await ConfirmAsync(second.Id);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("Amount must not exceed the remaining amount of the invoice (1000000)", await ReadTitleAsync(response));
+        Assert.Equal(PaymentStatus.Pending, (await GetPaymentOkAsync(second.Id)).Status);
+        Assert.Equal(2_000_000, (await GetInvoiceOkAsync(invoice.Id)).PaidAmount);
+    }
+
+    [Fact]
+    public async Task Confirm_TwoPaymentsAtOnceThatTogetherExceedTheInvoice_OnlyOneSucceeds()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var first = await RecordOkAsync(invoice.Id, Cash(2_000_000));
+        var second = await RecordOkAsync(invoice.Id, Cash(2_000_000));
+
+        var responses = await Task.WhenAll(ConfirmAsync(first.Id), ConfirmAsync(second.Id));
+
+        Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK);
+        Assert.Single(responses, r => r.StatusCode == HttpStatusCode.BadRequest);
+        var after = await GetInvoiceOkAsync(invoice.Id);
+        Assert.Equal(2_000_000, after.PaidAmount);
+        Assert.Equal(InvoiceStatus.Partial, after.Status);
+    }
+
+    [Fact]
+    public async Task Confirm_AlreadyConfirmed_ReturnsConflict()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000, confirm: true));
+
+        var response = await ConfirmAsync(payment.Id);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("Only pending payments can be confirmed", await ReadTitleAsync(response));
+        Assert.Equal(1_000_000, (await GetInvoiceOkAsync(invoice.Id)).PaidAmount);
+    }
+
+    [Fact]
+    public async Task Confirm_UnknownPayment_ReturnsNotFound()
+    {
+        var id = Guid.NewGuid();
+
+        var response = await ConfirmAsync(id);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(NotFoundMessages.Payment(id), await ReadTitleAsync(response));
+    }
+
+    [Fact]
+    public async Task Confirm_PaymentOfAnotherOrganization_ReturnsNotFound()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000));
+        var otherClient = await CreateOtherOrganizationMemberClientAsync();
+
+        var response = await ConfirmAsync(payment.Id, otherClient);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(PaymentStatus.Pending, (await GetPaymentOkAsync(payment.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Confirm_OrganizationStaff_ReturnsOk()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000));
+        var staffClient = await CreateOrganizationMemberClientAsync(_organizationId);
+
+        var response = await ConfirmAsync(payment.Id, staffClient);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }

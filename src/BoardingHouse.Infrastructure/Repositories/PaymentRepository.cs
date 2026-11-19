@@ -15,6 +15,17 @@ public class PaymentRepository(AppDbContext context) : IPaymentRepository
             .AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
 
+    public Task<Guid?> GetInvoiceIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        context.Payments
+            .Where(p => p.Id == id)
+            .Select(p => p.InvoiceId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<Payment?> GetForUpdateAsync(Guid id, CancellationToken cancellationToken = default) =>
+        context.Payments
+            .FromSql($"SELECT * FROM payments WHERE id = {id} FOR UPDATE")
+            .FirstOrDefaultAsync(cancellationToken);
+
     private IQueryable<Payment> WithDetails() =>
         context.Payments
             .IgnoreQueryFilters()

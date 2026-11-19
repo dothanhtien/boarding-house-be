@@ -6,4 +6,5 @@ public interface IPaymentService
 {
     Task<PaymentResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<PaymentResponse> RecordAsync(Guid invoiceId, RecordPaymentRequest request, CancellationToken cancellationToken = default);
+    Task<PaymentResponse> ConfirmAsync(Guid id, CancellationToken cancellationToken = default);
 }

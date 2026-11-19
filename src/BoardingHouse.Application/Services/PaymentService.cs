@@ -89,6 +89,44 @@ public class PaymentService(
         return await GetDetailAsync(paymentId, cancellationToken);
     }
 
+    public async Task<PaymentResponse> ConfirmAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        await unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var (invoice, payment) = await LockAsync(id, PermissionActions.Confirm, ct);
+
+            var actorId = currentUserAccessor.RequiredUser.Id;
+            var now = DateTimeOffset.UtcNow;
+            invoice.ConfirmPayment(payment, actorId, now);
+            invoice.RefreshStatus(Today, await lateFeeResolver.ResolveAsync(invoice, ct), actorId, now);
+        }, cancellationToken);
+
+        logger.LogInformation("Payment confirmed ({PaymentId})", id);
+
+        return await GetDetailAsync(id, cancellationToken);
+    }
+
+    private async Task<(Invoice Invoice, Payment Payment)> LockAsync(Guid id, string action, CancellationToken cancellationToken)
+    {
+        var invoiceId = await paymentRepository.GetInvoiceIdAsync(id, cancellationToken)
+            ?? throw new AppNotFoundException(NotFoundMessages.Payment(id));
+
+        var invoice = await invoiceRepository.GetAggregateForUpdateAsync(invoiceId, cancellationToken)
+            ?? throw new AppNotFoundException(NotFoundMessages.Payment(id));
+
+        await organizationScopeAccessor.EnsureScopeAsync(
+            invoice.OrganizationId,
+            PermissionResources.Payment,
+            action,
+            NotFoundMessages.Payment(id),
+            cancellationToken);
+
+        var payment = await paymentRepository.GetForUpdateAsync(id, cancellationToken)
+            ?? throw new AppNotFoundException(NotFoundMessages.Payment(id));
+
+        return (invoice, payment);
+    }
+
     private async Task<Guid?> ResolvePayerUserIdAsync(
         Guid leaseId, RecordPaymentRequest request, CancellationToken cancellationToken)
     {
