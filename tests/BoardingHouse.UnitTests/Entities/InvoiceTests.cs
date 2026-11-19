@@ -92,6 +92,16 @@ public class InvoiceTests
     }
 
     [Fact]
+    public void Create_WithoutActor_LeavesCreatedByToTheAuditInterceptorAndTheHistoryWithoutActor()
+    {
+        var invoice = Invoice.Create(
+            Calculation(), OrganizationId, LeaseId, "INV-202606-0001", discountReason: null, notes: null, Now, createdBy: null);
+
+        Assert.Equal(Guid.Empty, invoice.CreatedBy);
+        Assert.Null(Assert.Single(invoice.StatusHistories).ChangedBy);
+    }
+
+    [Fact]
     public void Create_CalculationWithErrors_Throws()
     {
         var calculation = Calculation(errors: [new InvoiceIssue(InvoiceIssueCode.MissingReading, "No reading")]);

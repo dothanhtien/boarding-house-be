@@ -215,6 +215,7 @@ Jobs (all cron expressions are in **UTC**, the same "today" as the rest of the b
 | --- | --- | --- |
 | `expire-leases` | `5 0 * * *` (00:05 UTC daily) | Moves every `ACTIVE` lease whose `end_date` is before today to `EXPIRED`, moves its tenants out on `end_date` and frees the room. |
 | `mark-overdue-invoices` | `15 0 * * *` (00:15 UTC daily) | Moves every `PENDING` / `PARTIAL` invoice whose `due_date` is before today to `OVERDUE` and adds its late fee once (property late fee, else organization). |
+| `generate-due-invoices` | `30 0 * * *` (00:30 UTC daily) | In organizations with `auto_generate_invoices`, creates this month's invoice of every lease whose billing day is today or earlier and that has none yet; records one `invoice_generation_runs` row per organization with the leases it skipped and why. |
 
 - **Dashboard** (`/hangfire`) requires the `background-job:manage` permission — by default only `platform_admin` has
   it. Log in first (e.g. `POST /api/auth/login` from Scalar on the same host) so the browser sends the `accessToken`

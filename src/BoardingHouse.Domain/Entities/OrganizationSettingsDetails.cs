@@ -6,4 +6,5 @@ public sealed record OrganizationSettingsDetails(
     decimal? VatRate,
     string? BankAccountNumber,
     string? BankName,
-    string? BankAccountName);
+    string? BankAccountName,
+    bool AutoGenerateInvoices);

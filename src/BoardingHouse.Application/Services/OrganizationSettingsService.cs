@@ -83,7 +83,8 @@ public class OrganizationSettingsService(
                 request.VatRate.OrKeep(current.VatRate),
                 request.BankAccountNumber.OrKeep(current.BankAccountNumber),
                 request.BankName.OrKeep(current.BankName),
-                request.BankAccountName.OrKeep(current.BankAccountName)),
+                request.BankAccountName.OrKeep(current.BankAccountName),
+                request.AutoGenerateInvoices.OrKeep(current.AutoGenerateInvoices)),
             currentUserAccessor.RequiredUser.Id,
             DateTimeOffset.UtcNow);
     }

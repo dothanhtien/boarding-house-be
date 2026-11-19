@@ -29,4 +29,7 @@ public record UpdateOrganizationSettingsRequest
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public Optional<string> BankAccountName { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<bool> AutoGenerateInvoices { get; init; }
 }

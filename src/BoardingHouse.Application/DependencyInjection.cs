@@ -36,9 +36,12 @@ public static class DependencyInjection
         services.AddScoped<IMediaUploader, MediaUploader>();
         services.AddScoped<InvoiceBillingInputLoader>();
         services.AddScoped<InvoiceLateFeeResolver>();
+        services.AddScoped<IInvoiceGenerator, InvoiceGenerator>();
+        services.AddScoped<IInvoiceGenerationService, InvoiceGenerationService>();
 
         services.AddScoped<ExpireLeasesJob>();
         services.AddScoped<MarkOverdueInvoicesJob>();
+        services.AddScoped<GenerateDueInvoicesJob>();
 
         TypeAdapterConfig.GlobalSettings.Scan(typeof(DependencyInjection).Assembly);
 

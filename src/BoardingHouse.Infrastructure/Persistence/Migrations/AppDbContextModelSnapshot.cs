@@ -157,6 +157,68 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.InvoiceGenerationRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateOnly>("BillingMonth")
+                        .HasColumnType("date")
+                        .HasColumnName("billing_month");
+
+                    b.Property<int>("CreatedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("created_count");
+
+                    b.Property<DateTimeOffset>("FinishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_at");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<Guid?>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.Property<string>("Skipped")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("skipped");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<Guid?>("TriggeredBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("triggered_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_invoice_generation_runs");
+
+                    b.HasIndex("PropertyId")
+                        .HasDatabaseName("ix_invoice_generation_runs_property_id");
+
+                    b.HasIndex("TriggeredBy")
+                        .HasDatabaseName("ix_invoice_generation_runs_triggered_by");
+
+                    b.HasIndex("OrganizationId", "BillingMonth")
+                        .HasDatabaseName("ix_invoice_generation_runs_organization_id_billing_month");
+
+                    b.ToTable("invoice_generation_runs", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_invoice_generation_runs_billing_month", "EXTRACT(DAY FROM billing_month) = 1");
+
+                            t.HasCheckConstraint("ck_invoice_generation_runs_created_count", "created_count >= 0");
+
+                            t.HasCheckConstraint("ck_invoice_generation_runs_finished_at", "finished_at >= started_at");
+                        });
+                });
+
             modelBuilder.Entity("BoardingHouse.Domain.Entities.InvoiceItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -823,6 +885,12 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("OrganizationId")
                         .HasColumnType("uuid")
                         .HasColumnName("organization_id");
+
+                    b.Property<bool>("AutoGenerateInvoices")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("auto_generate_invoices");
 
                     b.Property<string>("BankAccountName")
                         .HasMaxLength(100)
@@ -2069,6 +2137,28 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                     b.Navigation("Lease");
 
                     b.Navigation("Organization");
+                });
+
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.InvoiceGenerationRun", b =>
+                {
+                    b.HasOne("BoardingHouse.Domain.Entities.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_invoice_generation_runs_organizations_organization_id");
+
+                    b.HasOne("BoardingHouse.Domain.Entities.Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_invoice_generation_runs_properties_property_id");
+
+                    b.HasOne("BoardingHouse.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("TriggeredBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_invoice_generation_runs_users_triggered_by");
                 });
 
             modelBuilder.Entity("BoardingHouse.Domain.Entities.InvoiceItem", b =>

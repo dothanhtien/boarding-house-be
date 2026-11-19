@@ -16,6 +16,8 @@ public class OrganizationSettings
     public decimal? VatRate { get; private set; }
     public string Currency { get; private set; } = "VND";
 
+    public bool AutoGenerateInvoices { get; private set; }
+
     public string? BankAccountNumber { get; private set; }
     public string? BankName { get; private set; }
     public string? BankAccountName { get; private set; }
@@ -26,7 +28,7 @@ public class OrganizationSettings
     public LateFeePolicy LateFee => new(LateFeeType, LateFeeValue, LateFeeGraceDays);
 
     public OrganizationSettingsDetails Details =>
-        new(DefaultBillingDay, LateFee, VatRate, BankAccountNumber, BankName, BankAccountName);
+        new(DefaultBillingDay, LateFee, VatRate, BankAccountNumber, BankName, BankAccountName, AutoGenerateInvoices);
 
     private OrganizationSettings() { }
 
@@ -49,6 +51,7 @@ public class OrganizationSettings
         BankAccountNumber = details.BankAccountNumber;
         BankName = details.BankName;
         BankAccountName = details.BankAccountName;
+        AutoGenerateInvoices = details.AutoGenerateInvoices;
         UpdatedAt = now;
         UpdatedBy = updatedBy;
     }

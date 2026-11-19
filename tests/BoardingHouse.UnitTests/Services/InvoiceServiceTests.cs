@@ -23,8 +23,8 @@ public class InvoiceServiceTests
     private static readonly BillingMonth June = BillingMonth.FromFirstDay(new DateOnly(2026, 6, 1));
 
     private readonly Mock<ILeaseRepository> _leaseRepository = new();
-    private readonly Mock<IRoomRepository> _roomRepository = new();
     private readonly Mock<IInvoiceRepository> _invoiceRepository = new();
+    private readonly Mock<IInvoiceGenerator> _invoiceGenerator = new();
     private readonly Mock<IPropertyRepository> _propertyRepository = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly Mock<IOrganizationScopeAccessor> _organizationScopeAccessor = new();
@@ -59,18 +59,11 @@ public class InvoiceServiceTests
         MapsterTestSupport.EnsureUserMappingRegistered();
         _currentUserAccessor.SetupGet(a => a.RequiredUser).Returns(_actor);
 
-        var billingInputLoader = new InvoiceBillingInputLoader(
-            _leaseRepository.Object,
-            Mock.Of<IOrganizationSettingsRepository>(),
-            Mock.Of<IUtilityReadingRepository>(),
-            _invoiceRepository.Object);
-
         _invoiceService = new InvoiceService(
             _leaseRepository.Object,
-            _roomRepository.Object,
             _invoiceRepository.Object,
-            billingInputLoader,
             new InvoiceLateFeeResolver(_propertyRepository.Object, Mock.Of<IOrganizationSettingsRepository>()),
+            _invoiceGenerator.Object,
             _unitOfWork.Object,
             _organizationScopeAccessor.Object,
             _currentUserAccessor.Object,
@@ -831,5 +824,167 @@ public class InvoiceServiceTests
         Assert.Equal(InvoiceStatus.Pending, invoice.Status);
         Assert.Single(invoice.StatusHistories);
         _propertyRepository.VerifyNoOtherCalls();
+    }
+
+    private void SetupCreate(Guid leaseId, Guid organizationId, OrganizationScope scope)
+    {
+        _leaseRepository
+            .Setup(r => r.GetOrganizationIdAsync(leaseId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(organizationId);
+        _organizationScopeAccessor
+            .Setup(a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Create, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(scope);
+    }
+
+    private void SetupGenerateReturns(InvoiceGenerationResult result) =>
+        _invoiceGenerator
+            .Setup(g => g.GenerateAsync(It.IsAny<InvoiceDraft>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(result);
+
+    [Fact]
+    public async Task CreateAsync_UnknownLease_ThrowsNotFoundWithoutGenerating()
+    {
+        var leaseId = Guid.NewGuid();
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(
+            () => _invoiceService.CreateAsync(new CreateInvoiceRequest { LeaseId = leaseId, BillingMonth = June.FirstDay }));
+
+        Assert.Equal(NotFoundMessages.Lease(leaseId), ex.Message);
+        _invoiceGenerator.Verify(
+            g => g.GenerateAsync(It.IsAny<InvoiceDraft>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateAsync_LeaseOfAnotherOrganization_ThrowsNotFoundWithoutGenerating()
+    {
+        var leaseId = Guid.NewGuid();
+        SetupCreate(leaseId, Guid.NewGuid(), Restricted(Guid.NewGuid()));
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(
+            () => _invoiceService.CreateAsync(new CreateInvoiceRequest { LeaseId = leaseId, BillingMonth = June.FirstDay }));
+
+        Assert.Equal(NotFoundMessages.Lease(leaseId), ex.Message);
+        _invoiceGenerator.Verify(
+            g => g.GenerateAsync(It.IsAny<InvoiceDraft>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateAsync_GeneratesTheRequestAsTheCurrentUserAndReturnsTheReloadedInvoice()
+    {
+        var invoice = NewInvoice();
+        var organizationId = Guid.NewGuid();
+        SetupCreate(invoice.LeaseId, organizationId, Restricted(organizationId));
+        SetupGenerateReturns(new InvoiceGenerationResult.Created(invoice.Id));
+        _invoiceRepository
+            .Setup(r => r.GetByIdWithDetailsAsync(invoice.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invoice);
+        var before = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        var result = await _invoiceService.CreateAsync(new CreateInvoiceRequest
+        {
+            LeaseId = invoice.LeaseId,
+            BillingMonth = June.FirstDay,
+            CustomItems = [new CreateInvoiceCustomItemRequest { Description = " Faucet repair ", Quantity = 2, UnitPrice = 50_000 }],
+            DiscountAmount = 10_000,
+            DiscountReason = "Loyal tenant",
+            Notes = "Pay by transfer"
+        });
+
+        var after = DateOnly.FromDateTime(DateTime.UtcNow);
+        Assert.Equal(invoice.Id, result.Id);
+        _invoiceGenerator.Verify(g => g.GenerateAsync(
+            It.Is<InvoiceDraft>(d =>
+                d.LeaseId == invoice.LeaseId
+                && d.BillingMonth == June
+                && d.Today >= before && d.Today <= after
+                && d.CustomLines.Single() == InvoiceLine.Custom("Faucet repair", 2, 50_000)
+                && d.DiscountAmount == 10_000
+                && d.DiscountReason == "Loyal tenant"
+                && d.Notes == "Pay by transfer"),
+            _actor.Id,
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateAsync_AlreadyInvoiced_ThrowsConflict()
+    {
+        var leaseId = Guid.NewGuid();
+        SetupCreate(leaseId, Guid.NewGuid(), Unrestricted());
+        SetupGenerateReturns(new InvoiceGenerationResult.Skipped(
+        [
+            new InvoiceIssue(InvoiceIssueCode.AlreadyInvoiced, "The lease already has an invoice for 2026-06"),
+            new InvoiceIssue(InvoiceIssueCode.MissingReading, "No Electricity reading has been recorded for 2026-06")
+        ]));
+
+        var ex = await Assert.ThrowsAsync<AppConflictException>(
+            () => _invoiceService.CreateAsync(new CreateInvoiceRequest { LeaseId = leaseId, BillingMonth = June.FirstDay }));
+
+        Assert.Equal("The lease already has an invoice for 2026-06", ex.Message);
+    }
+
+    [Fact]
+    public async Task CreateAsync_CalculationErrors_ThrowsValidationKeyedByCamelCaseCode()
+    {
+        var leaseId = Guid.NewGuid();
+        SetupCreate(leaseId, Guid.NewGuid(), Unrestricted());
+        SetupGenerateReturns(new InvoiceGenerationResult.Skipped(
+        [
+            new InvoiceIssue(InvoiceIssueCode.MissingReading, "No Electricity reading has been recorded for 2026-06"),
+            new InvoiceIssue(InvoiceIssueCode.MissingReading, "No Water reading has been recorded for 2026-06")
+        ]));
+
+        var ex = await Assert.ThrowsAsync<AppValidationException>(
+            () => _invoiceService.CreateAsync(new CreateInvoiceRequest { LeaseId = leaseId, BillingMonth = June.FirstDay }));
+
+        var messages = Assert.Single(ex.Errors!, e => e.Key == "missingReading").Value;
+        Assert.Equal(2, messages.Length);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_CalculatesTheRequestThroughTheGeneratorWithoutCreating()
+    {
+        // As GetByIdForBillingAsync loads it: Room and Room.Property included
+        var property = Property.Create(
+            Guid.NewGuid(),
+            new PropertyDetails("Sunrise House", null, null, null, null, null, IsActive: true, DefaultBillingDay: null, LateFeePolicy.None),
+            SentinelActors.System);
+        var room = TestRooms.New(propertyId: property.Id, roomNumber: "101");
+        TestEntities.Set(room, new { Property = property });
+        var lease = TestLeases.Active(new DateOnly(2026, 5, 1), room: room);
+        _leaseRepository
+            .Setup(r => r.GetByIdForBillingAsync(lease.Id, false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(lease);
+        _organizationScopeAccessor
+            .Setup(a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Create, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Unrestricted());
+        InvoiceLine[] lines = [new("Rent 06/2026", 1, 3_000_000, 3_000_000, InvoiceItemSourceType.Rent, lease.Id)];
+        _invoiceGenerator
+            .Setup(g => g.CalculateAsync(lease, It.IsAny<InvoiceDraft>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new InvoiceCalculation
+            {
+                BillingMonth = June,
+                DueDate = new DateOnly(2026, 6, 8),
+                VatRate = 0,
+                DiscountAmount = 0,
+                Lines = lines,
+                Totals = InvoiceTotals.Compute(lines.Select(l => (l.SourceType, l.Amount)), 0, 0, 0),
+                Errors = [],
+                Warnings = []
+            });
+
+        await _invoiceService.PreviewAsync(new CreateInvoiceRequest
+        {
+            LeaseId = lease.Id,
+            BillingMonth = June.FirstDay,
+            DiscountAmount = 5_000,
+            Notes = "Preview"
+        });
+
+        _invoiceGenerator.Verify(g => g.CalculateAsync(
+            lease,
+            It.Is<InvoiceDraft>(d => d.LeaseId == lease.Id && d.BillingMonth == June && d.DiscountAmount == 5_000 && d.CustomLines.Count == 0),
+            It.IsAny<CancellationToken>()), Times.Once);
+        _invoiceGenerator.Verify(
+            g => g.GenerateAsync(It.IsAny<InvoiceDraft>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

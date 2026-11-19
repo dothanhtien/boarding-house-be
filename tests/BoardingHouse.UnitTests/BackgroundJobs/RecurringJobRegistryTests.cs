@@ -21,6 +21,7 @@ public class RecurringJobRegistryTests
     [Theory]
     [InlineData(RecurringJobRegistry.ExpireLeases, typeof(ExpireLeasesJob), "5 0 * * *")]
     [InlineData(RecurringJobRegistry.MarkOverdueInvoices, typeof(MarkOverdueInvoicesJob), "15 0 * * *")]
+    [InlineData(RecurringJobRegistry.GenerateDueInvoices, typeof(GenerateDueInvoicesJob), "30 0 * * *")]
     public async Task StartAsync_RegistersTheJobDailyInUtc(string id, Type jobType, string cron)
     {
         await new RecurringJobRegistry(_recurringJobManager.Object).StartAsync(CancellationToken.None);
@@ -33,12 +34,21 @@ public class RecurringJobRegistryTests
     }
 
     [Fact]
-    public async Task StartAsync_MarkOverdueInvoicesRunsAfterExpireLeases()
+    public async Task StartAsync_RegistersTheJobsInTheOrderTheyRun()
     {
         await new RecurringJobRegistry(_recurringJobManager.Object).StartAsync(CancellationToken.None);
 
         Assert.Equal(
-            [RecurringJobRegistry.ExpireLeases, RecurringJobRegistry.MarkOverdueInvoices],
+            [RecurringJobRegistry.ExpireLeases, RecurringJobRegistry.MarkOverdueInvoices, RecurringJobRegistry.GenerateDueInvoices],
             _registered.Select(r => r.Id));
+    }
+
+    [Fact]
+    public async Task StartAsync_GenerateDueInvoicesCallsTheOverloadWithoutDate()
+    {
+        await new RecurringJobRegistry(_recurringJobManager.Object).StartAsync(CancellationToken.None);
+
+        var registration = Assert.Single(_registered, r => r.Id == RecurringJobRegistry.GenerateDueInvoices);
+        Assert.Equal([typeof(CancellationToken)], registration.Job.Method.GetParameters().Select(p => p.ParameterType));
     }
 }
