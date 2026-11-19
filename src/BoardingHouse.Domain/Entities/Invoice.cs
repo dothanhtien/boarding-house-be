@@ -235,6 +235,25 @@ public class Invoice : BaseEntity
         PaidAmount += payment.Amount;
     }
 
+    public void VoidPayment(Payment payment, string reason, Guid? voidedBy, DateTimeOffset now)
+    {
+        EnsureOwns(payment);
+
+        var wasConfirmed = payment.Status == PaymentStatus.Confirmed;
+        if (wasConfirmed && PaidAmount < payment.Amount)
+        {
+            throw new InvalidOperationException(
+                $"Invoice '{Id}' has paid {PaidAmount}, less than its confirmed payment '{payment.Id}' ({payment.Amount})");
+        }
+
+        payment.Void(reason, voidedBy, now);
+
+        if (wasConfirmed)
+        {
+            PaidAmount -= payment.Amount;
+        }
+    }
+
     public static string FormatNumber(BillingMonth month, int number) =>
         string.Create(CultureInfo.InvariantCulture, $"INV-{month.FirstDay:yyyyMM}-{number:D4}");
 

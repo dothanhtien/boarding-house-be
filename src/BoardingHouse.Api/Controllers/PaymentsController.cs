@@ -37,4 +37,12 @@ public class PaymentsController(IPaymentService paymentService) : ControllerBase
         return Ok(new ApiResponse<PaymentResponse> { Data = payment });
     }
 
+    [HttpPost("api/payments/{id:guid}/void")]
+    [RequireOrganizationScopedPermission(PermissionResources.Payment, PermissionActions.Void)]
+    public async Task<ActionResult<ApiResponse<PaymentResponse>>> Void(
+        Guid id, VoidPaymentRequest request, CancellationToken cancellationToken)
+    {
+        var payment = await paymentService.VoidAsync(id, request, cancellationToken);
+        return Ok(new ApiResponse<PaymentResponse> { Data = payment });
+    }
 }

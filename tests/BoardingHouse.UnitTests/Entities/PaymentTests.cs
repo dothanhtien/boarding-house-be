@@ -154,4 +154,92 @@ public class PaymentTests
         Assert.Equal(ActorId, payment.ConfirmedBy);
         Assert.Equal(Now, payment.ConfirmedAt);
     }
+
+    [Fact]
+    public void Void_Pending_RecordsTheTrimmedReason()
+    {
+        var payment = Record();
+
+        payment.Void("  Typed the wrong amount  ", ActorId, Now);
+
+        Assert.Equal(PaymentStatus.Voided, payment.Status);
+        Assert.Equal(ActorId, payment.VoidedBy);
+        Assert.Equal(Now, payment.VoidedAt);
+        Assert.Equal("Typed the wrong amount", payment.VoidReason);
+        Assert.Null(payment.ConfirmedAt);
+    }
+
+    [Fact]
+    public void Void_Confirmed_KeepsTheConfirmation()
+    {
+        var payment = Record();
+        payment.Confirm(ActorId, Now);
+
+        payment.Void("Bounced transfer", ActorId, Now.AddDays(1));
+
+        Assert.Equal(PaymentStatus.Voided, payment.Status);
+        Assert.Equal(Now, payment.ConfirmedAt);
+        Assert.Equal(Now.AddDays(1), payment.VoidedAt);
+    }
+
+    [Fact]
+    public void Void_WithoutActor_IsVoidedByTheSystem()
+    {
+        var payment = Record();
+
+        payment.Void(Payment.InvoiceCancelledReason, voidedBy: null, Now);
+
+        Assert.Null(payment.VoidedBy);
+        Assert.Equal(Payment.InvoiceCancelledReason, payment.VoidReason);
+    }
+
+    [Fact]
+    public void Void_AlreadyVoided_ThrowsConflictAndKeepsTheFirstReason()
+    {
+        var payment = Record();
+        payment.Void("First", ActorId, Now);
+
+        var ex = Assert.Throws<DomainException>(() => payment.Void("Second", ActorId, Now.AddMinutes(1)));
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal("The payment is already voided", ex.Message);
+        Assert.Equal("First", payment.VoidReason);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Void_BlankReason_ThrowsAndLeavesItPending(string reason)
+    {
+        var payment = Record();
+
+        var ex = Assert.Throws<DomainException>(() => payment.Void(reason, ActorId, Now));
+
+        Assert.Equal(DomainErrorKind.Validation, ex.Kind);
+        Assert.Equal("Reason is required", ex.Message);
+        Assert.Equal(PaymentStatus.Pending, payment.Status);
+    }
+
+    [Fact]
+    public void Void_ReasonTooLong_Throws()
+    {
+        var payment = Record();
+
+        var ex = Assert.Throws<DomainException>(
+            () => payment.Void(new string('a', Payment.VoidReasonMaxLength + 1), ActorId, Now));
+
+        Assert.Equal($"Reason must not exceed {Payment.VoidReasonMaxLength} characters", ex.Message);
+    }
+
+    [Fact]
+    public void Confirm_Voided_ThrowsConflict()
+    {
+        var payment = Record();
+        payment.Void("Typed the wrong amount", ActorId, Now);
+
+        var ex = Assert.Throws<DomainException>(() => payment.Confirm(ActorId, Now));
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal(PaymentStatus.Voided, payment.Status);
+    }
 }

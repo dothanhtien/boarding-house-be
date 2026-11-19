@@ -106,6 +106,23 @@ public class PaymentService(
         return await GetDetailAsync(id, cancellationToken);
     }
 
+    public async Task<PaymentResponse> VoidAsync(Guid id, VoidPaymentRequest request, CancellationToken cancellationToken = default)
+    {
+        await unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var (invoice, payment) = await LockAsync(id, PermissionActions.Void, ct);
+
+            var actorId = currentUserAccessor.RequiredUser.Id;
+            var now = DateTimeOffset.UtcNow;
+            invoice.VoidPayment(payment, request.Reason, actorId, now);
+            invoice.RefreshStatus(Today, await lateFeeResolver.ResolveAsync(invoice, ct), actorId, now);
+        }, cancellationToken);
+
+        logger.LogInformation("Payment voided ({PaymentId})", id);
+
+        return await GetDetailAsync(id, cancellationToken);
+    }
+
     private async Task<(Invoice Invoice, Payment Payment)> LockAsync(Guid id, string action, CancellationToken cancellationToken)
     {
         var invoiceId = await paymentRepository.GetInvoiceIdAsync(id, cancellationToken)

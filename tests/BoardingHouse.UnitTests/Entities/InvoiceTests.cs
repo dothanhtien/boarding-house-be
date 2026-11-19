@@ -1170,4 +1170,121 @@ public class InvoiceTests
         Assert.Throws<InvalidOperationException>(() => invoice.ConfirmPayment(payment, ActorId, Later));
         Assert.Equal(0, invoice.PaidAmount);
     }
+
+    [Fact]
+    public void VoidPayment_Confirmed_TakesTheAmountOff()
+    {
+        var invoice = Create();
+        var payment = invoice.RecordPayment(Cash(1_000_000), ActorId, Now);
+        invoice.ConfirmPayment(payment, ActorId, Later);
+
+        invoice.VoidPayment(payment, "Bounced transfer", ActorId, Later);
+
+        Assert.Equal(PaymentStatus.Voided, payment.Status);
+        Assert.Equal(0, invoice.PaidAmount);
+    }
+
+    [Fact]
+    public void VoidPayment_Pending_LeavesPaidAmount()
+    {
+        var invoice = Create();
+        var confirmed = invoice.RecordPayment(Cash(1_000_000), ActorId, Now);
+        invoice.ConfirmPayment(confirmed, ActorId, Later);
+        var pending = invoice.RecordPayment(Cash(2_000_000), ActorId, Now);
+
+        invoice.VoidPayment(pending, "Typed the wrong amount", ActorId, Later);
+
+        Assert.Equal(PaymentStatus.Voided, pending.Status);
+        Assert.Equal(1_000_000, invoice.PaidAmount);
+    }
+
+    [Theory]
+    [InlineData("2026-06-08", InvoiceStatus.Partial)]
+    [InlineData("2026-06-09", InvoiceStatus.Overdue)]
+    public void VoidPayment_OfAPaidInvoice_ThenRefreshStatus_GoesBackToPartialOrOverdue(string today, InvoiceStatus expected)
+    {
+        var invoice = Create();
+        var first = invoice.RecordPayment(Cash(1_000_000), ActorId, Now);
+        var second = invoice.RecordPayment(Cash(4_355_000), ActorId, Now);
+        invoice.ConfirmPayment(first, ActorId, Later);
+        invoice.ConfirmPayment(second, ActorId, Later);
+        invoice.RefreshStatus(InvoiceDueDate, LateFeePolicy.None, ActorId, Later);
+        Assert.Equal(InvoiceStatus.Paid, invoice.Status);
+
+        invoice.VoidPayment(second, "Bounced transfer", ActorId, Later);
+        invoice.RefreshStatus(DateOnly.Parse(today), LateFeePolicy.None, ActorId, Later);
+
+        Assert.Equal(1_000_000, invoice.PaidAmount);
+        Assert.Equal(expected, invoice.Status);
+        Assert.Equal(InvoiceStatus.Paid, invoice.StatusHistories.Last().OldStatus);
+    }
+
+    [Fact]
+    public void VoidPayment_TheOnlyPaymentPastTheDueDate_BecomesOverdueAndChargesTheLateFee()
+    {
+        var invoice = Create();
+        var payment = invoice.RecordPayment(Cash(5_355_000), ActorId, Now);
+        invoice.ConfirmPayment(payment, ActorId, Later);
+        invoice.RefreshStatus(InvoiceDueDate, FivePercent, ActorId, Later);
+
+        invoice.VoidPayment(payment, "Bounced transfer", ActorId, Later);
+        invoice.RefreshStatus(InvoiceDueDate.AddDays(1), FivePercent, ActorId, Later);
+
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+        Assert.Equal(0, invoice.PaidAmount);
+        Assert.Equal(267_750, invoice.LateFeeAmount);
+        Assert.Equal(5_622_750, invoice.TotalAmount);
+    }
+
+    [Fact]
+    public void VoidPayment_TheOnlyPaymentBeforeTheDueDate_GoesBackToPending()
+    {
+        var invoice = Create();
+        var payment = invoice.RecordPayment(Cash(1_000_000), ActorId, Now);
+        invoice.ConfirmPayment(payment, ActorId, Later);
+        invoice.RefreshStatus(InvoiceDueDate, LateFeePolicy.None, ActorId, Later);
+
+        invoice.VoidPayment(payment, "Bounced transfer", ActorId, Later);
+        invoice.RefreshStatus(InvoiceDueDate, LateFeePolicy.None, ActorId, Later);
+
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+    }
+
+    [Fact]
+    public void VoidPayment_PaidAmountOutOfSync_ThrowsAndLeavesThePaymentConfirmed()
+    {
+        var invoice = Create();
+        var payment = invoice.RecordPayment(Cash(1_000_000), ActorId, Now);
+        invoice.ConfirmPayment(payment, ActorId, Later);
+        TestEntities.Set(invoice, new { PaidAmount = 0m });
+
+        Assert.Throws<InvalidOperationException>(() => invoice.VoidPayment(payment, "Bounced transfer", ActorId, Later));
+        Assert.Equal(PaymentStatus.Confirmed, payment.Status);
+    }
+
+    [Fact]
+    public void VoidPayment_PendingPaymentOfACancelledInvoice_Voids()
+    {
+        var invoice = Create();
+        var payment = invoice.RecordPayment(Cash(1_000_000), ActorId, Now);
+        invoice.Cancel("Wrong meter reading", ActorId, Later);
+
+        invoice.VoidPayment(payment, Payment.InvoiceCancelledReason, ActorId, Later);
+
+        Assert.Equal(PaymentStatus.Voided, payment.Status);
+    }
+
+    [Fact]
+    public void VoidPayment_PaymentOfAnotherInvoice_ThrowsAndLeavesItConfirmed()
+    {
+        var invoice = Create();
+        var other = Create();
+        var payment = other.RecordPayment(Cash(1_000_000), ActorId, Now);
+        other.ConfirmPayment(payment, ActorId, Later);
+
+        Assert.Throws<InvalidOperationException>(() => invoice.VoidPayment(payment, "Wrong invoice", ActorId, Later));
+
+        Assert.Equal(PaymentStatus.Confirmed, payment.Status);
+        Assert.Equal(1_000_000, other.PaidAmount);
+    }
 }

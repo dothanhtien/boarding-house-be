@@ -423,4 +423,69 @@ public class PaymentServiceTests
         Assert.Equal(2_000_000, invoice.PaidAmount);
         Assert.Equal(InvoiceStatus.Partial, invoice.Status);
     }
+
+    [Fact]
+    public async Task VoidAsync_ConfirmedPayment_TakesItOffAndRefreshesTheStatus()
+    {
+        var invoice = SetupInvoice();
+        var payment = AddPayment(invoice);
+        SetupPaymentForUpdate(payment);
+        SetupScope(PermissionActions.Confirm, Unrestricted());
+        SetupScope(PermissionActions.Void, Restricted(invoice.OrganizationId));
+        await _paymentService.ConfirmAsync(payment.Id);
+        Assert.Equal(InvoiceStatus.Partial, invoice.Status);
+
+        var result = await _paymentService.VoidAsync(payment.Id, new VoidPaymentRequest { Reason = "Bounced transfer" });
+
+        Assert.Equal(PaymentStatus.Voided, result.Status);
+        Assert.Equal("Bounced transfer", result.VoidReason);
+        Assert.Equal(_actor.Id, result.VoidedBy);
+        Assert.Equal(0, invoice.PaidAmount);
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Equal(["invoice", "payment", "invoice", "payment"], _locks);
+    }
+
+    [Fact]
+    public async Task VoidAsync_PaymentOfAnotherOrganization_ThrowsNotFound()
+    {
+        var invoice = SetupInvoice();
+        var payment = AddPayment(invoice);
+        SetupPaymentForUpdate(payment);
+        SetupScope(PermissionActions.Void, Restricted(Guid.NewGuid()));
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(
+            () => _paymentService.VoidAsync(payment.Id, new VoidPaymentRequest { Reason = "Bounced transfer" }));
+
+        Assert.Equal(NotFoundMessages.Payment(payment.Id), ex.Message);
+        Assert.Equal(PaymentStatus.Pending, payment.Status);
+    }
+
+    [Fact]
+    public async Task VoidAsync_UnknownPayment_ThrowsNotFoundWithoutLockingAnything()
+    {
+        var id = Guid.NewGuid();
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(
+            () => _paymentService.VoidAsync(id, new VoidPaymentRequest { Reason = "Bounced transfer" }));
+
+        Assert.Equal(NotFoundMessages.Payment(id), ex.Message);
+        Assert.Empty(_locks);
+    }
+
+    [Fact]
+    public async Task VoidAsync_PendingPayment_VoidsItAndLeavesThePaidAmount()
+    {
+        var invoice = SetupInvoice();
+        var payment = AddPayment(invoice);
+        SetupPaymentForUpdate(payment);
+        SetupScope(PermissionActions.Void, Restricted(invoice.OrganizationId));
+
+        var result = await _paymentService.VoidAsync(payment.Id, new VoidPaymentRequest { Reason = "Typed the wrong amount" });
+
+        Assert.Equal(PaymentStatus.Voided, result.Status);
+        Assert.Null(result.ConfirmedAt);
+        Assert.Equal(0, invoice.PaidAmount);
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+        Assert.Equal(["invoice", "payment"], _locks);
+    }
 }

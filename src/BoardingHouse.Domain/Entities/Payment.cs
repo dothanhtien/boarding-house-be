@@ -11,6 +11,7 @@ public class Payment : AuditableEntity
     public const int VoidReasonMaxLength = 1000;
     public const decimal MaxAmount = 9_999_999_999_999_999.99m;
     public const string AmountPrecisionMessage = "Amount must not exceed 18 digits in total, with at most 2 decimal places";
+    public const string InvoiceCancelledReason = "Invoice cancelled";
 
     public Guid? InvoiceId { get; private set; }
     public Invoice? Invoice { get; private set; }
@@ -73,6 +74,29 @@ public class Payment : AuditableEntity
         Status = PaymentStatus.Confirmed;
         ConfirmedBy = confirmedBy;
         ConfirmedAt = now;
+    }
+
+    public void Void(string reason, Guid? voidedBy, DateTimeOffset now)
+    {
+        if (Status == PaymentStatus.Voided)
+        {
+            throw DomainException.Conflict("The payment is already voided");
+        }
+
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new DomainException("Reason is required");
+        }
+
+        if (reason.Trim().Length > VoidReasonMaxLength)
+        {
+            throw new DomainException($"Reason must not exceed {VoidReasonMaxLength} characters");
+        }
+
+        Status = PaymentStatus.Voided;
+        VoidedBy = voidedBy;
+        VoidedAt = now;
+        VoidReason = reason.Trim();
     }
 
     private static void EnsureDetailsValid(PaymentDetails details, DateTimeOffset now)

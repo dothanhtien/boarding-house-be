@@ -290,6 +290,25 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
         return await ReadDataAsync<PaymentResponse>(response);
     }
 
+    private Task<HttpResponseMessage> VoidAsync(Guid id, string reason = "Bounced transfer", HttpClient? client = null) =>
+        (client ?? _client).PostAsJsonAsync($"/api/payments/{id}/void", new VoidPaymentRequest { Reason = reason }, JsonOptions);
+
+    private async Task<PaymentResponse> VoidOkAsync(Guid id, string reason = "Bounced transfer")
+    {
+        var response = await VoidAsync(id, reason);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ReadDataAsync<PaymentResponse>(response);
+    }
+
+    private async Task SetDueDateAsync(Guid invoiceId, DateOnly dueDate)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var invoice = await context.Invoices.SingleAsync(i => i.Id == invoiceId);
+        TestEntities.Set(invoice, new { DueDate = dueDate });
+        await context.SaveChangesAsync();
+    }
+
     [Fact]
     public async Task Record_WithoutConfirm_CreatesAPendingPaymentAndLeavesTheInvoiceUnpaid()
     {
@@ -655,5 +674,174 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
         var response = await ConfirmAsync(payment.Id, staffClient);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Void_ConfirmedPayment_TakesItOffTheInvoiceAndRecordsTheReason()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000, confirm: true));
+
+        var voided = await VoidOkAsync(payment.Id, "  Bounced transfer  ");
+
+        Assert.Equal(PaymentStatus.Voided, voided.Status);
+        Assert.Equal("Bounced transfer", voided.VoidReason);
+        Assert.Equal(_actorId, voided.VoidedBy);
+        Assert.NotNull(voided.VoidedAt);
+        Assert.NotNull(voided.ConfirmedAt);
+
+        var after = await GetInvoiceOkAsync(invoice.Id);
+        Assert.Equal(0, after.PaidAmount);
+        Assert.Equal(InvoiceStatus.Pending, after.Status);
+        var history = (await GetStatusHistoriesAsync(invoice.Id)).Last();
+        Assert.Equal(InvoiceStatus.Partial, history.OldStatus);
+        Assert.Equal(InvoiceStatus.Pending, history.NewStatus);
+        Assert.Equal(_actorId, history.ChangedBy);
+    }
+
+    [Fact]
+    public async Task Void_PaymentOfAPaidInvoicePastItsDueDate_MakesItOverdue()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(3_000_000, confirm: true));
+        await SetDueDateAsync(invoice.Id, Today.AddDays(-1));
+
+        await VoidOkAsync(payment.Id);
+
+        var after = await GetInvoiceOkAsync(invoice.Id);
+        Assert.Equal(0, after.PaidAmount);
+        Assert.Equal(InvoiceStatus.Overdue, after.Status);
+    }
+
+    [Fact]
+    public async Task Void_PendingPayment_LeavesTheInvoice()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        await RecordOkAsync(invoice.Id, Cash(1_000_000, confirm: true));
+        var pending = await RecordOkAsync(invoice.Id, Cash(500_000));
+
+        var voided = await VoidOkAsync(pending.Id, "Typed the wrong amount");
+
+        Assert.Equal(PaymentStatus.Voided, voided.Status);
+        Assert.Null(voided.ConfirmedAt);
+        var after = await GetInvoiceOkAsync(invoice.Id);
+        Assert.Equal(1_000_000, after.PaidAmount);
+        Assert.Equal(InvoiceStatus.Partial, after.Status);
+    }
+
+    [Fact]
+    public async Task Void_Twice_ReturnsConflict()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000, confirm: true));
+        await VoidOkAsync(payment.Id);
+
+        var response = await VoidAsync(payment.Id);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("The payment is already voided", await ReadTitleAsync(response));
+        Assert.Equal(0, (await GetInvoiceOkAsync(invoice.Id)).PaidAmount);
+    }
+
+    [Fact]
+    public async Task Void_ThenConfirm_ReturnsConflict()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000));
+        await VoidOkAsync(payment.Id);
+
+        var response = await ConfirmAsync(payment.Id);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Void_BlankReason_ReturnsBadRequest()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000));
+
+        var response = await VoidAsync(payment.Id, "   ");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(PaymentStatus.Pending, (await GetPaymentOkAsync(payment.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Void_OrganizationStaff_ReturnsForbidden()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000, confirm: true));
+        var staffClient = await CreateOrganizationMemberClientAsync(_organizationId);
+
+        var response = await VoidAsync(payment.Id, client: staffClient);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(PaymentStatus.Confirmed, (await GetPaymentOkAsync(payment.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Void_OrganizationAdmin_ReturnsOk()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000, confirm: true));
+        var adminClient = await CreateOrganizationMemberClientAsync(_organizationId, RoleSlugs.OrganizationAdmin);
+
+        var response = await VoidAsync(payment.Id, client: adminClient);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Void_PaymentOfAnotherOrganization_ReturnsNotFound()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000, confirm: true));
+        var otherClient = await CreateOtherOrganizationMemberClientAsync();
+
+        var response = await VoidAsync(payment.Id, client: otherClient);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    // A wrong payment is voided and recorded again: the voided amount is free for the new one
+    [Fact]
+    public async Task Void_ConfirmedPayment_ThenRecordingTheWholeAmountAgain_IsAccepted()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var wrong = await RecordOkAsync(invoice.Id, Cash(3_000_000, confirm: true));
+        await VoidOkAsync(wrong.Id, "Recorded on the wrong invoice");
+
+        var again = await RecordOkAsync(invoice.Id, Cash(3_000_000, confirm: true));
+
+        Assert.Equal(PaymentStatus.Confirmed, again.Status);
+        var after = await GetInvoiceOkAsync(invoice.Id);
+        Assert.Equal(3_000_000, after.PaidAmount);
+        Assert.Equal(InvoiceStatus.Paid, after.Status);
+    }
+
+    [Fact]
+    public async Task Void_UnknownPayment_ReturnsNotFound()
+    {
+        var id = Guid.NewGuid();
+
+        var response = await VoidAsync(id);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(NotFoundMessages.Payment(id), await ReadTitleAsync(response));
+    }
+
+    [Fact]
+    public async Task Void_PlatformStaff_ReturnsForbiddenAndLeavesItConfirmed()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000, confirm: true));
+        var staffClient = await CreatePlatformStaffClientAsync();
+
+        var response = await VoidAsync(payment.Id, client: staffClient);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(PaymentStatus.Confirmed, (await GetPaymentOkAsync(payment.Id)).Status);
+        Assert.Equal(1_000_000, (await GetInvoiceOkAsync(invoice.Id)).PaidAmount);
     }
 }
