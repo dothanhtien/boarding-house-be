@@ -67,6 +67,40 @@ public class LeaseRepositoryIntegrationTests(PostgresContainerFixture fixture)
         Assert.Single(await verify.LeaseUtilityServices.Where(s => s.LeaseId == leaseId).ToListAsync());
     }
 
+    // A moved-out tenant may still pay an old invoice; a tenant removed from a draft (soft-deleted row) may not
+    [Fact]
+    public async Task ListTenantsAsync_IncludesMovedOutTenants_ButNotRemovedOnes()
+    {
+        Guid leaseId, representativeId, movedOutId;
+        await using (var context = fixture.CreateContext())
+        {
+            var (_, staffId, tenantId) = await TestInvoices.SeedAsync(context);
+            leaseId = await context.Leases.Select(l => l.Id).SingleAsync();
+            representativeId = tenantId;
+
+            var movedOutUser = TestEntities.New<User>(new { FullName = "Moved out", PasswordHash = "hash", CreatedBy = staffId });
+            var removedUser = TestEntities.New<User>(new { FullName = "Removed", PasswordHash = "hash", CreatedBy = staffId });
+            var movedOut = new LeaseTenant(leaseId, movedOutUser, isRepresentative: false, joinedDate: null, staffId);
+            movedOut.SetLeftDate(DateOnly.FromDateTime(DateTime.UtcNow));
+            var removed = new LeaseTenant(leaseId, removedUser, isRepresentative: false, joinedDate: null, staffId);
+            removed.DeletedAt = DateTimeOffset.UtcNow;
+            removed.DeletedBy = staffId;
+            context.AddRange(movedOutUser, removedUser, movedOut, removed);
+            await context.SaveChangesAsync();
+            movedOutId = movedOutUser.Id;
+        }
+
+        await using var readContext = fixture.CreateContext();
+        var tenants = await new LeaseRepository(readContext).ListTenantsAsync(leaseId);
+
+        Assert.Equal(
+            new[] { representativeId, movedOutId }.Order(),
+            tenants.Select(t => t.UserId).Order());
+        Assert.Single(tenants, t => t.IsRepresentative && t.UserId == representativeId);
+        Assert.Empty(readContext.ChangeTracker.Entries());
+        Assert.Equal(3, await readContext.LeaseTenants.IgnoreQueryFilters().CountAsync(t => t.LeaseId == leaseId));
+    }
+
     // Draft lease with a representative, a second tenant removed again (soft-deleted row), and one utility service
     private async Task<Guid> SeedAsync()
     {

@@ -45,6 +45,7 @@ public interface ILeaseRepository : IRepository<Lease>
     Task<bool> ExistsTenantInOrganizationsAsync(Guid userId, IReadOnlySet<Guid> organizationIds, CancellationToken cancellationToken = default);
     Task<List<Lease>> ListByTenantUserIdAsync(Guid userId, IReadOnlySet<Guid>? allowedOrganizationIds, CancellationToken cancellationToken = default);
     Task<List<LeaseStatusHistory>> ListStatusHistoriesAsync(Guid leaseId, CancellationToken cancellationToken = default);
+    Task<List<LeaseTenant>> ListTenantsAsync(Guid leaseId, CancellationToken cancellationToken = default);
     Task<List<LeaseUtilityService>> ListUtilityServicesAsync(Guid leaseId, CancellationToken cancellationToken = default);
     Task<List<LeaseUtilityService>> ListUtilityServicesIncludingInactiveAsync(
         IReadOnlyCollection<Guid> leaseIds, CancellationToken cancellationToken = default);

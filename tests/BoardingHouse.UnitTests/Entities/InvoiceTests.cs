@@ -1030,4 +1030,144 @@ public class InvoiceTests
         Assert.Equal(InvoiceStatus.Cancelled, invoice.Status);
         Assert.Equal(Invoice.CancelReasonMaxLength, invoice.StatusHistories.Last().Reason!.Length);
     }
+
+    private static PaymentDetails Cash(decimal amount) =>
+        new(amount, PaymentMethod.Cash, Now, PayerUserId: null, PayerNameOverride: null, TransactionReference: null, Note: null);
+
+    [Fact]
+    public void RecordPayment_ReturnsAPendingPaymentOfTheInvoiceAndLeavesPaidAmount()
+    {
+        var invoice = Create();
+
+        var payment = invoice.RecordPayment(Cash(1_000_000), ActorId, Now);
+
+        Assert.Equal(invoice.Id, payment.InvoiceId);
+        Assert.Equal(PaymentStatus.Pending, payment.Status);
+        Assert.Equal(ActorId, payment.CreatedBy);
+        Assert.Equal(0, invoice.PaidAmount);
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+    }
+
+    [Fact]
+    public void RecordPayment_TheWholeRemainingAmount_IsAccepted()
+    {
+        var invoice = Create();
+
+        var payment = invoice.RecordPayment(Cash(5_355_000), ActorId, Now);
+
+        Assert.Equal(5_355_000, payment.Amount);
+    }
+
+    [Fact]
+    public void RecordPayment_MoreThanTheRemainingAmount_Throws()
+    {
+        var invoice = Create();
+        TestEntities.Set(invoice, new { Status = InvoiceStatus.Partial, PaidAmount = 5_000_000m });
+
+        var ex = Assert.Throws<DomainException>(() => invoice.RecordPayment(Cash(355_001), ActorId, Now));
+
+        Assert.Equal(DomainErrorKind.Validation, ex.Kind);
+        Assert.Equal("Amount must not exceed the remaining amount of the invoice (355000)", ex.Message);
+    }
+
+    [Fact]
+    public void RecordPayment_CancelledInvoice_ThrowsConflict()
+    {
+        var invoice = Create();
+        invoice.Cancel("Wrong meter reading", ActorId, Later);
+
+        var ex = Assert.Throws<DomainException>(() => invoice.RecordPayment(Cash(1_000_000), ActorId, Now));
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal("A cancelled invoice cannot take payments", ex.Message);
+    }
+
+    [Fact]
+    public void ConfirmPayment_AddsTheAmountButLeavesTheStatusToRefreshStatus()
+    {
+        var invoice = Create();
+        var payment = invoice.RecordPayment(Cash(1_000_000), ActorId, Now);
+
+        invoice.ConfirmPayment(payment, ActorId, Later);
+
+        Assert.Equal(PaymentStatus.Confirmed, payment.Status);
+        Assert.Equal(ActorId, payment.ConfirmedBy);
+        Assert.Equal(Later, payment.ConfirmedAt);
+        Assert.Equal(1_000_000, invoice.PaidAmount);
+        Assert.Equal(4_355_000, invoice.RemainingAmount);
+        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
+    }
+
+    [Theory]
+    [InlineData(1_000_000, InvoiceStatus.Partial)]
+    [InlineData(5_355_000, InvoiceStatus.Paid)]
+    public void ConfirmPayment_ThenRefreshStatus_RecordsPartialOrPaid(int amount, InvoiceStatus expected)
+    {
+        var invoice = Create();
+        var payment = invoice.RecordPayment(Cash(amount), ActorId, Now);
+        invoice.ConfirmPayment(payment, ActorId, Later);
+
+        var changed = invoice.RefreshStatus(InvoiceDueDate, LateFeePolicy.None, ActorId, Later);
+
+        Assert.True(changed);
+        Assert.Equal(expected, invoice.Status);
+        var history = invoice.StatusHistories.Last();
+        Assert.Equal(InvoiceStatus.Pending, history.OldStatus);
+        Assert.Equal(expected, history.NewStatus);
+        Assert.Equal(ActorId, history.ChangedBy);
+    }
+
+    [Fact]
+    public void ConfirmPayment_ExceedingTheRemainingAmount_ThrowsAndLeavesThePaymentPending()
+    {
+        var invoice = Create();
+        var first = invoice.RecordPayment(Cash(3_000_000), ActorId, Now);
+        var second = invoice.RecordPayment(Cash(3_000_000), ActorId, Now);
+        invoice.ConfirmPayment(first, ActorId, Later);
+
+        var ex = Assert.Throws<DomainException>(() => invoice.ConfirmPayment(second, ActorId, Later));
+
+        Assert.Equal(DomainErrorKind.Validation, ex.Kind);
+        Assert.Equal("Amount must not exceed the remaining amount of the invoice (2355000)", ex.Message);
+        Assert.Equal(PaymentStatus.Pending, second.Status);
+        Assert.Equal(3_000_000, invoice.PaidAmount);
+    }
+
+    [Fact]
+    public void ConfirmPayment_AlreadyConfirmed_ThrowsConflictBeforeCheckingTheAmount()
+    {
+        var invoice = Create();
+        var payment = invoice.RecordPayment(Cash(5_355_000), ActorId, Now);
+        invoice.ConfirmPayment(payment, ActorId, Later);
+
+        var ex = Assert.Throws<DomainException>(() => invoice.ConfirmPayment(payment, ActorId, Later));
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal("Only pending payments can be confirmed", ex.Message);
+        Assert.Equal(5_355_000, invoice.PaidAmount);
+    }
+
+    [Fact]
+    public void ConfirmPayment_CancelledInvoice_ThrowsConflict()
+    {
+        var invoice = Create();
+        var payment = invoice.RecordPayment(Cash(1_000_000), ActorId, Now);
+        invoice.Cancel("Wrong meter reading", ActorId, Later);
+
+        var ex = Assert.Throws<DomainException>(() => invoice.ConfirmPayment(payment, ActorId, Later));
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal("A cancelled invoice cannot take payments", ex.Message);
+        Assert.Equal(PaymentStatus.Pending, payment.Status);
+    }
+
+    [Fact]
+    public void ConfirmPayment_PaymentOfAnotherInvoice_Throws()
+    {
+        var invoice = Create();
+        var payment = Create().RecordPayment(Cash(1_000_000), ActorId, Now);
+
+        Assert.Throws<InvalidOperationException>(() => invoice.ConfirmPayment(payment, ActorId, Later));
+        Assert.Equal(0, invoice.PaidAmount);
+    }
 }
