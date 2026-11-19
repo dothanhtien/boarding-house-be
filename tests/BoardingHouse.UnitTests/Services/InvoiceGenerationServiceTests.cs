@@ -157,10 +157,13 @@ public class InvoiceGenerationServiceTests
                 It.IsAny<IReadOnlyList<Lease>>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(NewRun(organizationId, propertyId));
 
+        var before = DateOnly.FromDateTime(DateTime.UtcNow);
+
         await _service.GenerateForPropertyAsync(propertyId, Request());
 
+        var after = DateOnly.FromDateTime(DateTime.UtcNow);
         _invoiceGenerator.Verify(g => g.GenerateAllAsync(
-            organizationId, propertyId, June, DateOnly.FromDateTime(DateTime.UtcNow),
+            organizationId, propertyId, June, It.Is<DateOnly>(d => d >= before && d <= after),
             It.IsAny<IReadOnlyList<Lease>>(), _actor.Id, It.IsAny<CancellationToken>()), Times.Once);
     }
 

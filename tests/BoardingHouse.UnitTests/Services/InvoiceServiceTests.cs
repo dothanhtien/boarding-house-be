@@ -878,6 +878,7 @@ public class InvoiceServiceTests
         _invoiceRepository
             .Setup(r => r.GetByIdWithDetailsAsync(invoice.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(invoice);
+        var before = DateOnly.FromDateTime(DateTime.UtcNow);
 
         var result = await _invoiceService.CreateAsync(new CreateInvoiceRequest
         {
@@ -889,12 +890,13 @@ public class InvoiceServiceTests
             Notes = "Pay by transfer"
         });
 
+        var after = DateOnly.FromDateTime(DateTime.UtcNow);
         Assert.Equal(invoice.Id, result.Id);
         _invoiceGenerator.Verify(g => g.GenerateAsync(
             It.Is<InvoiceDraft>(d =>
                 d.LeaseId == invoice.LeaseId
                 && d.BillingMonth == June
-                && d.Today == DateOnly.FromDateTime(DateTime.UtcNow)
+                && d.Today >= before && d.Today <= after
                 && d.CustomLines.Single() == InvoiceLine.Custom("Faucet repair", 2, 50_000)
                 && d.DiscountAmount == 10_000
                 && d.DiscountReason == "Loyal tenant"

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Application.Persistence;
@@ -106,6 +107,7 @@ public class InvoiceGenerator(
         CancellationToken cancellationToken = default)
     {
         var startedAt = DateTimeOffset.UtcNow;
+        var startedTimestamp = Stopwatch.GetTimestamp();
         var createdCount = 0;
         var skipped = new List<InvoiceGenerationSkip>();
 
@@ -141,8 +143,9 @@ public class InvoiceGenerator(
             }
         }
 
+        var finishedAt = startedAt + Stopwatch.GetElapsedTime(startedTimestamp);
         var run = InvoiceGenerationRun.Record(
-            organizationId, propertyId, billingMonth, triggeredBy, startedAt, DateTimeOffset.UtcNow, createdCount, skipped);
+            organizationId, propertyId, billingMonth, triggeredBy, startedAt, finishedAt, createdCount, skipped);
 
         await invoiceGenerationRunRepository.AddAsync(run, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
