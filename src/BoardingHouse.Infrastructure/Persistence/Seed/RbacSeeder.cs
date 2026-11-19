@@ -57,6 +57,10 @@ public class RbacSeeder
         (PermissionResources.Invoice, PermissionActions.Create, "Preview and create an invoice for a lease"),
         (PermissionResources.Invoice, PermissionActions.Update, "Edit discount, notes, due date and custom items of an unpaid invoice"),
         (PermissionResources.Invoice, PermissionActions.Cancel, "Cancel an invoice nobody has paid yet"),
+        (PermissionResources.Payment, PermissionActions.Read, "View payments"),
+        (PermissionResources.Payment, PermissionActions.Create, "Record a cash or bank transfer payment for an invoice"),
+        (PermissionResources.Payment, PermissionActions.Confirm, "Confirm a payment (adds it to the invoice paid amount)"),
+        (PermissionResources.Payment, PermissionActions.Void, "Void a payment (a confirmed one is taken off the invoice paid amount)"),
     ];
 
     internal static readonly (string Slug, string Name, string Description, RoleScope Scope, string[] Permissions)[] RoleSeeds =
@@ -66,7 +70,7 @@ public class RbacSeeder
             [
                 "user:read", "role:read", "organization:read", "organization-setting:read",
                 "organization-member:read", "property:read", "room:read", "utility-service:read", "utility-reading:read", "lease:read", "tenant:read",
-                "invoice:read"]),
+                "invoice:read", "payment:read"]),
         (RoleSlugs.OrganizationAdmin, "Organization Admin", "Full rights within the organization", RoleScope.Organization,
             [
                 "organization:read", "organization:update", "organization-setting:read", "organization-setting:update",
@@ -77,6 +81,7 @@ public class RbacSeeder
                 "utility-reading:read", "utility-reading:create", "utility-reading:delete",
                 "lease:read", "lease:create", "lease:update", "lease:delete", "lease:activate", "lease:terminate",
                 "invoice:read", "invoice:create", "invoice:update", "invoice:cancel",
+                "payment:read", "payment:create", "payment:confirm", "payment:void",
                 "tenant:read", "tenant:create", "tenant:update"]),
         (RoleSlugs.OrganizationStaff, "Organization staff", "Manage day-to-day operations within the organization", RoleScope.Organization,
             [
@@ -88,6 +93,7 @@ public class RbacSeeder
                 "utility-reading:read", "utility-reading:create", "utility-reading:delete",
                 "lease:read", "lease:create", "lease:update", "lease:delete", "lease:activate", "lease:terminate",
                 "invoice:read", "invoice:create", "invoice:update",
+                "payment:read", "payment:create", "payment:confirm",
                 "tenant:read", "tenant:create", "tenant:update"]),
     ];
 

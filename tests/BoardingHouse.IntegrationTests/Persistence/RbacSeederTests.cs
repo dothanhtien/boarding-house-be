@@ -67,6 +67,41 @@ public class RbacSeederTests(PostgresContainerFixture fixture) : IClassFixture<P
     }
 
     [Fact]
+    public async Task SeedAsync_CreatesTheFourPaymentPermissions()
+    {
+        await using var context = fixture.CreateContext();
+
+        await RbacSeeder.SeedAsync(context);
+
+        var actions = await context.Permissions
+            .Where(p => p.Resource == "payment")
+            .Select(p => p.Action)
+            .OrderBy(a => a)
+            .ToListAsync();
+        Assert.Equal(["confirm", "create", "read", "void"], actions);
+    }
+
+    // void stays with organization admins: staff record and confirm, platform staff only reads
+    [Theory]
+    [InlineData("platform_admin", new[] { "confirm", "create", "read", "void" })]
+    [InlineData("platform_staff", new[] { "read" })]
+    [InlineData("organization_admin", new[] { "confirm", "create", "read", "void" })]
+    [InlineData("organization_staff", new[] { "confirm", "create", "read" })]
+    public async Task SeedAsync_GrantsPaymentPermissionsPerRole(string roleSlug, string[] expectedActions)
+    {
+        await using var context = fixture.CreateContext();
+
+        await RbacSeeder.SeedAsync(context);
+
+        var actions = await context.RolePermissions
+            .Where(rp => rp.Role!.Slug == roleSlug && rp.Permission!.Resource == "payment")
+            .Select(rp => rp.Permission!.Action)
+            .OrderBy(a => a)
+            .ToListAsync();
+        Assert.Equal(expectedActions, actions);
+    }
+
+    [Fact]
     public async Task SeedAsync_RunOnSeparateContexts_StillIdempotent()
     {
         int permissionCountAfterFirstRun, roleCountAfterFirstRun;

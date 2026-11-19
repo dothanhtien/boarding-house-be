@@ -8,6 +8,7 @@ public static class NotFoundMessages
     public static string LeaseUtilityService(Guid id) => $"Utility service '{id}' is not attached to the lease";
     public static string Organization(Guid id) => $"Organization '{id}' not found";
     public static string OrganizationMember(Guid id) => $"Organization member '{id}' not found";
+    public static string Payment(Guid id) => $"Payment '{id}' not found";
     public static string Property(Guid id) => $"Property '{id}' not found";
     public static string Role(Guid id) => $"Role '{id}' not found";
     public static string Room(Guid id) => $"Room '{id}' not found";

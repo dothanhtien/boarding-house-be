@@ -8,6 +8,7 @@ public static class PermissionResources
     public const string Organization = "organization";
     public const string OrganizationMember = "organization-member";
     public const string OrganizationSetting = "organization-setting";
+    public const string Payment = "payment";
     public const string Property = "property";
     public const string Role = "role";
     public const string Room = "room";
