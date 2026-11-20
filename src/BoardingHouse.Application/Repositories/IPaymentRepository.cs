@@ -8,4 +8,5 @@ public interface IPaymentRepository
     Task<Payment?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Guid?> GetInvoiceIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Payment?> GetForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<List<Payment>> ListPendingForUpdateByInvoiceIdAsync(Guid invoiceId, CancellationToken cancellationToken = default);
 }

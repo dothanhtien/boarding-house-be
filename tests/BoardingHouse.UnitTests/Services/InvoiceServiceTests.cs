@@ -24,6 +24,7 @@ public class InvoiceServiceTests
 
     private readonly Mock<ILeaseRepository> _leaseRepository = new();
     private readonly Mock<IInvoiceRepository> _invoiceRepository = new();
+    private readonly Mock<IPaymentRepository> _paymentRepository = new();
     private readonly Mock<IInvoiceGenerator> _invoiceGenerator = new();
     private readonly Mock<IPropertyRepository> _propertyRepository = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
@@ -58,10 +59,14 @@ public class InvoiceServiceTests
     {
         MapsterTestSupport.EnsureUserMappingRegistered();
         _currentUserAccessor.SetupGet(a => a.RequiredUser).Returns(_actor);
+        _paymentRepository
+            .Setup(r => r.ListPendingForUpdateByInvoiceIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Payment>());
 
         _invoiceService = new InvoiceService(
             _leaseRepository.Object,
             _invoiceRepository.Object,
+            _paymentRepository.Object,
             new InvoiceLateFeeResolver(_propertyRepository.Object, Mock.Of<IOrganizationSettingsRepository>()),
             _invoiceGenerator.Object,
             _unitOfWork.Object,
@@ -648,6 +653,29 @@ public class InvoiceServiceTests
         Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
         Assert.Equal(InvoiceStatus.Partial, invoice.Status);
         _invoiceRepository.Verify(r => r.GetByIdWithDetailsAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _paymentRepository.Verify(
+            r => r.ListPendingForUpdateByInvoiceIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CancelAsync_VoidsThePendingPaymentsAsTheCurrentUser()
+    {
+        var invoice = SetupInvoiceForUpdate(action: PermissionActions.Cancel);
+        var payment = invoice.RecordPayment(
+            new PaymentDetails(1_000_000, PaymentMethod.Cash, DateTimeOffset.UtcNow.AddMinutes(-1), null, null, null, null),
+            SentinelActors.System,
+            DateTimeOffset.UtcNow);
+        _paymentRepository
+            .Setup(r => r.ListPendingForUpdateByInvoiceIdAsync(invoice.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Payment> { payment });
+
+        await _invoiceService.CancelAsync(invoice.Id, CancelRequest);
+
+        Assert.Equal(InvoiceStatus.Cancelled, invoice.Status);
+        Assert.Equal(PaymentStatus.Voided, payment.Status);
+        Assert.Equal(Payment.InvoiceCancelledReason, payment.VoidReason);
+        Assert.Equal(_actor.Id, payment.VoidedBy);
+        Assert.Equal(0, invoice.PaidAmount);
     }
 
     private (Guid InvoiceId, Guid OrganizationId) SetupStatusHistories(params InvoiceStatusHistory[] histories)

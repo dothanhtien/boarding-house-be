@@ -161,6 +161,57 @@ public class PaymentRepositoryIntegrationTests(PostgresContainerFixture fixture)
         Assert.Null(await new PaymentRepository(context).GetForUpdateAsync(Guid.NewGuid()));
     }
 
+    [Fact]
+    public async Task ListPendingForUpdateByInvoiceIdAsync_ReturnsOnlyThePendingPaymentsOfTheInvoice_TrackedAndOrderedById()
+    {
+        var (invoiceId, staffId, _) = await SeedInvoiceAsync();
+        var (otherInvoiceId, otherStaffId, _) = await SeedInvoiceAsync();
+        var firstPending = await InsertAsync(NewPayment(invoiceId, staffId));
+        var secondPending = await InsertAsync(NewPayment(invoiceId, staffId));
+        var confirmed = NewPayment(invoiceId, staffId);
+        confirmed.Confirm(staffId, DateTimeOffset.UtcNow);
+        await InsertAsync(confirmed);
+        var voided = NewPayment(invoiceId, staffId);
+        voided.Void("Typed the wrong amount", staffId, DateTimeOffset.UtcNow);
+        await InsertAsync(voided);
+        await InsertAsync(NewPayment(otherInvoiceId, otherStaffId));
+
+        await using var context = fixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var payments = await new PaymentRepository(context).ListPendingForUpdateByInvoiceIdAsync(invoiceId);
+
+        Assert.Equal(new[] { firstPending, secondPending }.Order(), payments.Select(p => p.Id));
+        Assert.All(payments, p => Assert.Equal(EntityState.Unchanged, context.Entry(p).State));
+    }
+
+    [Fact]
+    public async Task ListPendingForUpdateByInvoiceIdAsync_LocksTheRowsUntilCommit()
+    {
+        var (invoiceId, staffId, _) = await SeedInvoiceAsync();
+        var paymentId = await InsertAsync(NewPayment(invoiceId, staffId));
+
+        await using var context = fixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        await new PaymentRepository(context).ListPendingForUpdateByInvoiceIdAsync(invoiceId);
+
+        await using var other = fixture.CreateContext();
+        await using var otherTransaction = await other.Database.BeginTransactionAsync();
+        var exception = await Assert.ThrowsAsync<PostgresException>(() => other.Database.ExecuteSqlRawAsync(
+            "SELECT id FROM payments WHERE id = {0} FOR UPDATE NOWAIT", paymentId));
+        Assert.Equal(PostgresErrorCodes.LockNotAvailable, exception.SqlState);
+    }
+
+    [Fact]
+    public async Task ListPendingForUpdateByInvoiceIdAsync_NoPendingPayments_ReturnsEmpty()
+    {
+        var (invoiceId, _, _) = await SeedInvoiceAsync();
+
+        await using var context = fixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+
+        Assert.Empty(await new PaymentRepository(context).ListPendingForUpdateByInvoiceIdAsync(invoiceId));
+    }
+
     private static Payment NewPayment(Guid invoiceId, Guid createdBy, Guid? payerUserId = null) =>
         Payment.ForInvoice(
             invoiceId,

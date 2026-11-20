@@ -18,6 +18,7 @@ namespace BoardingHouse.Application.Services;
 public class InvoiceService(
     ILeaseRepository leaseRepository,
     IInvoiceRepository invoiceRepository,
+    IPaymentRepository paymentRepository,
     InvoiceLateFeeResolver lateFeeResolver,
     IInvoiceGenerator invoiceGenerator,
     IUnitOfWork unitOfWork,
@@ -188,8 +189,14 @@ public class InvoiceService(
                 NotFoundMessages.Invoice(id),
                 ct);
 
-            // TODO: void the invoice's PENDING payments in this transaction
-            invoice.Cancel(request.Reason, currentUserAccessor.RequiredUser.Id, DateTimeOffset.UtcNow);
+            var actorId = currentUserAccessor.RequiredUser.Id;
+            var now = DateTimeOffset.UtcNow;
+            invoice.Cancel(request.Reason, actorId, now);
+
+            foreach (var payment in await paymentRepository.ListPendingForUpdateByInvoiceIdAsync(id, ct))
+            {
+                invoice.VoidPayment(payment, Payment.InvoiceCancelledReason, actorId, now);
+            }
         }, cancellationToken);
 
         logger.LogInformation("Invoice cancelled ({InvoiceId})", id);

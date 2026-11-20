@@ -309,6 +309,10 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
         await context.SaveChangesAsync();
     }
 
+    private Task<HttpResponseMessage> CancelInvoiceAsync(Guid invoiceId) =>
+        _client.PostAsJsonAsync(
+            $"/api/invoices/{invoiceId}/cancel", new CancelInvoiceRequest { Reason = "Wrong meter reading" }, JsonOptions);
+
     [Fact]
     public async Task Record_WithoutConfirm_CreatesAPendingPaymentAndLeavesTheInvoiceUnpaid()
     {
@@ -407,9 +411,7 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
     public async Task Record_ForACancelledInvoice_ReturnsConflict()
     {
         var (invoice, _) = await CreateInvoiceAsync();
-        var cancelResponse = await _client.PostAsJsonAsync(
-            $"/api/invoices/{invoice.Id}/cancel", new CancelInvoiceRequest { Reason = "Wrong meter reading" }, JsonOptions);
-        Assert.Equal(HttpStatusCode.OK, cancelResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await CancelInvoiceAsync(invoice.Id)).StatusCode);
 
         var response = await RecordAsync(invoice.Id, Cash(1_000_000));
 
@@ -843,5 +845,53 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(PaymentStatus.Confirmed, (await GetPaymentOkAsync(payment.Id)).Status);
         Assert.Equal(1_000_000, (await GetInvoiceOkAsync(invoice.Id)).PaidAmount);
+    }
+
+    [Fact]
+    public async Task CancelInvoice_WithPendingPayments_VoidsThem()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var first = await RecordOkAsync(invoice.Id, Cash(1_000_000));
+        var second = await RecordOkAsync(invoice.Id, Cash(2_000_000));
+        var (otherInvoice, _) = await CreateInvoiceAsync();
+        var untouched = await RecordOkAsync(otherInvoice.Id, Cash(1_000_000));
+
+        var response = await CancelInvoiceAsync(invoice.Id);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        foreach (var id in new[] { first.Id, second.Id })
+        {
+            var payment = await GetPaymentOkAsync(id);
+            Assert.Equal(PaymentStatus.Voided, payment.Status);
+            Assert.Equal(Payment.InvoiceCancelledReason, payment.VoidReason);
+            Assert.Equal(_actorId, payment.VoidedBy);
+        }
+        Assert.Equal(PaymentStatus.Pending, (await GetPaymentOkAsync(untouched.Id)).Status);
+    }
+
+    [Fact]
+    public async Task CancelInvoice_WithAConfirmedPayment_ReturnsConflictAndKeepsThePendingOnes()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        await RecordOkAsync(invoice.Id, Cash(1_000_000, confirm: true));
+        var pending = await RecordOkAsync(invoice.Id, Cash(500_000));
+
+        var response = await CancelInvoiceAsync(invoice.Id);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(PaymentStatus.Pending, (await GetPaymentOkAsync(pending.Id)).Status);
+    }
+
+    [Fact]
+    public async Task CancelInvoice_AfterVoidingTheConfirmedPayment_Succeeds()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000, confirm: true));
+        await VoidOkAsync(payment.Id);
+
+        var response = await CancelInvoiceAsync(invoice.Id);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(InvoiceStatus.Cancelled, (await GetInvoiceOkAsync(invoice.Id)).Status);
     }
 }

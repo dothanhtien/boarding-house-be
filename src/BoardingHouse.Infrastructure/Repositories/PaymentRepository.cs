@@ -1,12 +1,17 @@
 using Microsoft.EntityFrameworkCore;
 using BoardingHouse.Application.Repositories;
 using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Infrastructure.Persistence;
+using BoardingHouse.Infrastructure.Persistence.Converters;
 
 namespace BoardingHouse.Infrastructure.Repositories;
 
 public class PaymentRepository(AppDbContext context) : IPaymentRepository
 {
+    private static readonly string PendingStatus =
+        (string)PaymentStatusDbValueConverter.Instance.ConvertToProvider(PaymentStatus.Pending)!;
+
     public async Task AddAsync(Payment payment, CancellationToken cancellationToken = default) =>
         await context.Payments.AddAsync(payment, cancellationToken);
 
@@ -25,6 +30,12 @@ public class PaymentRepository(AppDbContext context) : IPaymentRepository
         context.Payments
             .FromSql($"SELECT * FROM payments WHERE id = {id} FOR UPDATE")
             .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<List<Payment>> ListPendingForUpdateByInvoiceIdAsync(
+        Guid invoiceId, CancellationToken cancellationToken = default) =>
+        context.Payments
+            .FromSql($"SELECT * FROM payments WHERE invoice_id = {invoiceId} AND status = {PendingStatus} ORDER BY id FOR UPDATE")
+            .ToListAsync(cancellationToken);
 
     private IQueryable<Payment> WithDetails() =>
         context.Payments
