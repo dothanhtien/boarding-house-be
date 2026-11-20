@@ -21,6 +21,23 @@ public class PaymentService(
 {
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
 
+    public async Task<List<PaymentResponse>> GetByInvoiceAsync(Guid invoiceId, CancellationToken cancellationToken = default)
+    {
+        var organizationId = await invoiceRepository.GetOrganizationIdAsync(invoiceId, cancellationToken)
+            ?? throw new AppNotFoundException(NotFoundMessages.Invoice(invoiceId));
+
+        await organizationScopeAccessor.EnsureScopeAsync(
+            organizationId,
+            PermissionResources.Payment,
+            PermissionActions.Read,
+            NotFoundMessages.Invoice(invoiceId),
+            cancellationToken);
+
+        var payments = await paymentRepository.ListByInvoiceIdAsync(invoiceId, cancellationToken);
+
+        return payments.Adapt<List<PaymentResponse>>();
+    }
+
     public async Task<PaymentResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var payment = await paymentRepository.GetByIdWithDetailsAsync(id, cancellationToken)

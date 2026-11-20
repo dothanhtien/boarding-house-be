@@ -4,6 +4,7 @@ namespace BoardingHouse.Application.Services;
 
 public interface IPaymentService
 {
+    Task<List<PaymentResponse>> GetByInvoiceAsync(Guid invoiceId, CancellationToken cancellationToken = default);
     Task<PaymentResponse> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<PaymentResponse> RecordAsync(Guid invoiceId, RecordPaymentRequest request, CancellationToken cancellationToken = default);
     Task<PaymentResponse> ConfirmAsync(Guid id, CancellationToken cancellationToken = default);

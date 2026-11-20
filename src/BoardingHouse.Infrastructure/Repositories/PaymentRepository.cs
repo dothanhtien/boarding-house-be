@@ -37,6 +37,15 @@ public class PaymentRepository(AppDbContext context) : IPaymentRepository
             .FromSql($"SELECT * FROM payments WHERE invoice_id = {invoiceId} AND status = {PendingStatus} ORDER BY id FOR UPDATE")
             .ToListAsync(cancellationToken);
 
+    public Task<List<Payment>> ListByInvoiceIdAsync(Guid invoiceId, CancellationToken cancellationToken = default) =>
+        WithDetails()
+            .AsNoTracking()
+            .Where(p => p.InvoiceId == invoiceId)
+            .OrderBy(p => p.PaymentDate)
+            .ThenBy(p => p.CreatedAt)
+            .ThenBy(p => p.Id)
+            .ToListAsync(cancellationToken);
+
     private IQueryable<Payment> WithDetails() =>
         context.Payments
             .IgnoreQueryFilters()

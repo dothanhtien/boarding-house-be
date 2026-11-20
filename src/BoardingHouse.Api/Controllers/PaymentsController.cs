@@ -12,6 +12,15 @@ namespace BoardingHouse.Api.Controllers;
 [Authorize]
 public class PaymentsController(IPaymentService paymentService) : ControllerBase
 {
+    [HttpGet("api/invoices/{invoiceId:guid}/payments")]
+    [RequireOrganizationScopedPermission(PermissionResources.Payment, PermissionActions.Read)]
+    public async Task<ActionResult<ApiResponse<List<PaymentResponse>>>> GetByInvoice(
+        Guid invoiceId, CancellationToken cancellationToken)
+    {
+        var payments = await paymentService.GetByInvoiceAsync(invoiceId, cancellationToken);
+        return Ok(new ApiResponse<List<PaymentResponse>> { Data = payments });
+    }
+
     [HttpGet("api/payments/{id:guid}")]
     [RequireOrganizationScopedPermission(PermissionResources.Payment, PermissionActions.Read)]
     public async Task<ActionResult<ApiResponse<PaymentResponse>>> GetById(Guid id, CancellationToken cancellationToken)

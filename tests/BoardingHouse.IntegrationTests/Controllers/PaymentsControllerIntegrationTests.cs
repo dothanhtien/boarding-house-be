@@ -313,6 +313,16 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
         _client.PostAsJsonAsync(
             $"/api/invoices/{invoiceId}/cancel", new CancelInvoiceRequest { Reason = "Wrong meter reading" }, JsonOptions);
 
+    private Task<HttpResponseMessage> GetByInvoiceAsync(Guid invoiceId, HttpClient? client = null) =>
+        (client ?? _client).GetAsync($"/api/invoices/{invoiceId}/payments");
+
+    private async Task<List<PaymentResponse>> GetByInvoiceOkAsync(Guid invoiceId)
+    {
+        var response = await GetByInvoiceAsync(invoiceId);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ReadDataAsync<List<PaymentResponse>>(response);
+    }
+
     [Fact]
     public async Task Record_WithoutConfirm_CreatesAPendingPaymentAndLeavesTheInvoiceUnpaid()
     {
@@ -893,5 +903,79 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(InvoiceStatus.Cancelled, (await GetInvoiceOkAsync(invoice.Id)).Status);
+    }
+
+    [Fact]
+    public async Task GetByInvoice_ReturnsEveryPaymentOfTheInvoiceByPaymentDate()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var later = await RecordOkAsync(invoice.Id, Cash(500_000) with { PaymentDate = DateTimeOffset.UtcNow.AddDays(-1) });
+        var earlier = await RecordOkAsync(invoice.Id, Cash(1_000_000, confirm: true) with { PaymentDate = DateTimeOffset.UtcNow.AddDays(-3) });
+        await VoidOkAsync(later.Id, "Typed the wrong amount");
+        var (otherInvoice, _) = await CreateInvoiceAsync();
+        await RecordOkAsync(otherInvoice.Id, Cash(1_000));
+
+        var payments = await GetByInvoiceOkAsync(invoice.Id);
+
+        Assert.Equal([earlier.Id, later.Id], payments.Select(p => p.Id));
+        Assert.Equal([PaymentStatus.Confirmed, PaymentStatus.Voided], payments.Select(p => p.Status));
+    }
+
+    [Fact]
+    public async Task GetByInvoice_InvoiceWithoutPayments_ReturnsEmpty()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+
+        Assert.Empty(await GetByInvoiceOkAsync(invoice.Id));
+    }
+
+    [Fact]
+    public async Task GetByInvoice_UnknownInvoice_ReturnsNotFound()
+    {
+        var id = Guid.NewGuid();
+
+        var response = await GetByInvoiceAsync(id);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(NotFoundMessages.Invoice(id), await ReadTitleAsync(response));
+    }
+
+    [Fact]
+    public async Task GetByInvoice_InvoiceOfAnotherOrganization_ReturnsNotFound()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        await RecordOkAsync(invoice.Id, Cash(1_000_000));
+        var otherClient = await CreateOtherOrganizationMemberClientAsync();
+
+        var response = await GetByInvoiceAsync(invoice.Id, otherClient);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetByInvoice_PlatformStaff_ReturnsThePayments()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000));
+        var staffClient = await CreatePlatformStaffClientAsync();
+
+        var response = await GetByInvoiceAsync(invoice.Id, staffClient);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal([payment.Id], (await ReadDataAsync<List<PaymentResponse>>(response)).Select(p => p.Id));
+    }
+
+    [Fact]
+    public async Task GetByInvoice_CancelledInvoice_ShowsThePaymentsItVoided()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000_000));
+        Assert.Equal(HttpStatusCode.OK, (await CancelInvoiceAsync(invoice.Id)).StatusCode);
+
+        var voided = Assert.Single(await GetByInvoiceOkAsync(invoice.Id));
+
+        Assert.Equal(payment.Id, voided.Id);
+        Assert.Equal(PaymentStatus.Voided, voided.Status);
+        Assert.Equal(Payment.InvoiceCancelledReason, voided.VoidReason);
     }
 }

@@ -488,4 +488,51 @@ public class PaymentServiceTests
         Assert.Equal(InvoiceStatus.Pending, invoice.Status);
         Assert.Equal(["invoice", "payment"], _locks);
     }
+
+    [Fact]
+    public async Task GetByInvoiceAsync_UnknownInvoice_ThrowsNotFound()
+    {
+        var id = Guid.NewGuid();
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(() => _paymentService.GetByInvoiceAsync(id));
+
+        Assert.Equal(NotFoundMessages.Invoice(id), ex.Message);
+    }
+
+    [Fact]
+    public async Task GetByInvoiceAsync_InvoiceOfAnotherOrganization_ThrowsNotFoundWithoutListing()
+    {
+        var invoice = SetupInvoice();
+        _invoiceRepository
+            .Setup(r => r.GetOrganizationIdAsync(invoice.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invoice.OrganizationId);
+        SetupScope(PermissionActions.Read, Restricted(Guid.NewGuid()));
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(() => _paymentService.GetByInvoiceAsync(invoice.Id));
+
+        Assert.Equal(NotFoundMessages.Invoice(invoice.Id), ex.Message);
+        _paymentRepository.Verify(
+            r => r.ListByInvoiceIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetByInvoiceAsync_MapsThePaymentsInTheRepositoryOrder()
+    {
+        var invoice = SetupInvoice();
+        var first = TestEntities.Set(AddPayment(invoice, amount: 1_000_000), new { Invoice = invoice });
+        var second = TestEntities.Set(AddPayment(invoice, amount: 500_000), new { Invoice = invoice });
+        _invoiceRepository
+            .Setup(r => r.GetOrganizationIdAsync(invoice.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(invoice.OrganizationId);
+        _paymentRepository
+            .Setup(r => r.ListByInvoiceIdAsync(invoice.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Payment> { first, second });
+        SetupScope(PermissionActions.Read, Restricted(invoice.OrganizationId));
+
+        var result = await _paymentService.GetByInvoiceAsync(invoice.Id);
+
+        Assert.Equal([first.Id, second.Id], result.Select(p => p.Id));
+        Assert.Equal([1_000_000m, 500_000m], result.Select(p => p.Amount));
+        Assert.All(result, p => Assert.Equal("INV-202606-0001", p.InvoiceNumber));
+    }
 }

@@ -212,10 +212,51 @@ public class PaymentRepositoryIntegrationTests(PostgresContainerFixture fixture)
         Assert.Empty(await new PaymentRepository(context).ListPendingForUpdateByInvoiceIdAsync(invoiceId));
     }
 
-    private static Payment NewPayment(Guid invoiceId, Guid createdBy, Guid? payerUserId = null) =>
+    // Same payment date → the one recorded first; ids are chosen so that ordering by id alone would flip them
+    [Fact]
+    public async Task ListByInvoiceIdAsync_ReturnsEveryPaymentOfTheInvoice_ByPaymentDateThenCreatedAt_Untracked()
+    {
+        var (invoiceId, staffId, tenantId) = await SeedInvoiceAsync();
+        var (otherInvoiceId, otherStaffId, _) = await SeedInvoiceAsync();
+        var sameDay = DateTimeOffset.UtcNow.AddDays(-1);
+        var latest = await InsertAsync(NewPayment(invoiceId, staffId, tenantId, DateTimeOffset.UtcNow.AddHours(-1)));
+        var recordedFirst = await InsertAsync(TestEntities.Set(
+            NewPayment(invoiceId, staffId, paymentDate: sameDay),
+            new { Id = Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff") }));
+        var recordedSecond = await InsertAsync(TestEntities.Set(
+            NewPayment(invoiceId, staffId, paymentDate: sameDay),
+            new { Id = Guid.Parse("00000000-0000-0000-0000-000000000001") }));
+        var voided = NewPayment(invoiceId, staffId, paymentDate: DateTimeOffset.UtcNow.AddDays(-3));
+        voided.Void("Typed the wrong amount", staffId, DateTimeOffset.UtcNow);
+        await InsertAsync(voided);
+        await InsertAsync(NewPayment(otherInvoiceId, otherStaffId));
+
+        await using var context = fixture.CreateContext();
+        var payments = await new PaymentRepository(context).ListByInvoiceIdAsync(invoiceId);
+
+        Assert.Equal([voided.Id, recordedFirst, recordedSecond, latest], payments.Select(p => p.Id));
+        Assert.All(payments, p => Assert.Equal("INV-2026-11-0001", p.Invoice!.InvoiceNumber));
+        Assert.Equal("Tenant", payments[^1].PayerUser!.FullName);
+        Assert.Empty(context.ChangeTracker.Entries());
+    }
+
+    [Fact]
+    public async Task ListByInvoiceIdAsync_SoftDeletedInvoice_ReturnsEmpty()
+    {
+        var (invoiceId, staffId, _) = await SeedInvoiceAsync();
+        await InsertAsync(NewPayment(invoiceId, staffId));
+        await SoftDeleteAsync("invoices", invoiceId);
+
+        await using var context = fixture.CreateContext();
+
+        Assert.Empty(await new PaymentRepository(context).ListByInvoiceIdAsync(invoiceId));
+    }
+
+    private static Payment NewPayment(
+        Guid invoiceId, Guid createdBy, Guid? payerUserId = null, DateTimeOffset? paymentDate = null) =>
         Payment.ForInvoice(
             invoiceId,
-            new PaymentDetails(500_000, PaymentMethod.Cash, DateTimeOffset.UtcNow.AddHours(-1), payerUserId,
+            new PaymentDetails(500_000, PaymentMethod.Cash, paymentDate ?? DateTimeOffset.UtcNow.AddHours(-1), payerUserId,
                 PayerNameOverride: null, TransactionReference: null, Note: null),
             createdBy,
             DateTimeOffset.UtcNow);
