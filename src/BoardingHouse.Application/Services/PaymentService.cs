@@ -1,5 +1,8 @@
+using System.Linq.Expressions;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.CurrentOrganization;
 using BoardingHouse.Application.Common.CurrentUser;
+using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.DTOs.Payments;
 using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Application.Persistence;
@@ -17,9 +20,56 @@ public class PaymentService(
     IUnitOfWork unitOfWork,
     IOrganizationScopeAccessor organizationScopeAccessor,
     ICurrentUserAccessor currentUserAccessor,
+    ICurrentOrganizationAccessor currentOrganizationAccessor,
     ILogger<PaymentService> logger) : IPaymentService
 {
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
+
+    private static readonly Dictionary<string, Expression<Func<Payment, object>>> SortableFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [""] = p => p.PaymentDate,
+        ["paymentDate"] = p => p.PaymentDate,
+        ["amount"] = p => p.Amount,
+        ["createdAt"] = p => p.CreatedAt
+    };
+
+    public async Task<PagedResult<PaymentResponse>> GetAllAsync(PaymentListQuery query, CancellationToken cancellationToken = default)
+    {
+        var organizationId = query.OrganizationId ?? currentOrganizationAccessor.OrganizationId;
+
+        var scope = await organizationScopeAccessor.GetScopeAsync(
+            PermissionResources.Payment, PermissionActions.Read, cancellationToken);
+
+        if (organizationId is not null && !scope.Allows(organizationId.Value))
+        {
+            throw new AppNotFoundException(NotFoundMessages.Organization(organizationId.Value));
+        }
+
+        var allowedOrganizationIds = organizationId is null && !scope.IsUnrestricted ? scope.OrganizationIds : null;
+        var sortField = SortableFields.GetValueOrDefault(query.SortBy ?? "", SortableFields[""]);
+
+        var paged = await paymentRepository.SearchAsync(
+            organizationId,
+            allowedOrganizationIds,
+            query.PropertyId,
+            query.Method,
+            query.Status,
+            query.From is { } from ? StartOfUtcDay(from) : null,
+            query.To is { } to ? StartOfUtcDay(to.AddDays(1)) : null,
+            query.Search,
+            query,
+            sortField,
+            query.SortOrder,
+            cancellationToken);
+
+        return new PagedResult<PaymentResponse>
+        {
+            Items = paged.Items.Adapt<List<PaymentResponse>>(),
+            Page = paged.Page,
+            PageSize = paged.PageSize,
+            TotalItems = paged.TotalItems
+        };
+    }
 
     public async Task<List<PaymentResponse>> GetByInvoiceAsync(Guid invoiceId, CancellationToken cancellationToken = default)
     {
@@ -190,4 +240,6 @@ public class PaymentService(
 
         return payment.Adapt<PaymentResponse>();
     }
+
+    private static DateTimeOffset StartOfUtcDay(DateOnly date) => new(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
 }

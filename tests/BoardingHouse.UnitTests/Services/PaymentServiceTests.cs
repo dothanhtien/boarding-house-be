@@ -1,7 +1,10 @@
+using System.Linq.Expressions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.CurrentOrganization;
 using BoardingHouse.Application.Common.CurrentUser;
+using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.DTOs.Payments;
 using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Application.Persistence;
@@ -25,6 +28,7 @@ public class PaymentServiceTests
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly Mock<IOrganizationScopeAccessor> _organizationScopeAccessor = new();
     private readonly Mock<ICurrentUserAccessor> _currentUserAccessor = new();
+    private readonly Mock<ICurrentOrganizationAccessor> _currentOrganizationAccessor = new();
     private readonly User _actor = NewUser("Actor");
     private readonly Dictionary<Guid, Invoice> _invoices = [];
     private readonly Dictionary<Guid, Payment> _payments = [];
@@ -63,7 +67,10 @@ public class PaymentServiceTests
             _unitOfWork.Object,
             _organizationScopeAccessor.Object,
             _currentUserAccessor.Object,
+            _currentOrganizationAccessor.Object,
             NullLogger<PaymentService>.Instance);
+
+        SetupSearchReturns([]);
     }
 
     private static User NewUser(string fullName) => TestEntities.New<User>(new
@@ -147,6 +154,35 @@ public class PaymentServiceTests
         _payments[payment.Id] = payment;
         return payment;
     }
+
+    private sealed record SearchCall(
+        Guid? OrganizationId,
+        IReadOnlySet<Guid>? AllowedOrganizationIds,
+        Guid? PropertyId,
+        PaymentMethod? Method,
+        PaymentStatus? Status,
+        DateTimeOffset? PaidFrom,
+        DateTimeOffset? PaidBefore,
+        string? Search,
+        Expression<Func<Payment, object>> SortField,
+        SortOrder SortOrder);
+
+    private SearchCall? _search;
+
+    private void SetupSearchReturns(List<Payment> items) =>
+        _paymentRepository
+            .Setup(r => r.SearchAsync(
+                It.IsAny<Guid?>(), It.IsAny<IReadOnlySet<Guid>?>(), It.IsAny<Guid?>(), It.IsAny<PaymentMethod?>(),
+                It.IsAny<PaymentStatus?>(), It.IsAny<DateTimeOffset?>(), It.IsAny<DateTimeOffset?>(), It.IsAny<string?>(),
+                It.IsAny<PageRequest>(), It.IsAny<Expression<Func<Payment, object>>>(), It.IsAny<SortOrder>(),
+                It.IsAny<CancellationToken>()))
+            .Callback((Guid? organizationId, IReadOnlySet<Guid>? allowedOrganizationIds, Guid? propertyId,
+                PaymentMethod? method, PaymentStatus? status, DateTimeOffset? paidFrom, DateTimeOffset? paidBefore,
+                string? search, PageRequest _, Expression<Func<Payment, object>> sortField, SortOrder sortOrder,
+                CancellationToken _) =>
+                _search = new SearchCall(organizationId, allowedOrganizationIds, propertyId, method, status,
+                    paidFrom, paidBefore, search, sortField, sortOrder))
+            .ReturnsAsync(new PagedResult<Payment> { Items = items, Page = 1, PageSize = 20, TotalItems = items.Count });
 
     private void SetupPaymentForUpdate(Payment payment)
     {
@@ -534,5 +570,111 @@ public class PaymentServiceTests
         Assert.Equal([first.Id, second.Id], result.Select(p => p.Id));
         Assert.Equal([1_000_000m, 500_000m], result.Select(p => p.Amount));
         Assert.All(result, p => Assert.Equal("INV-202606-0001", p.InvoiceNumber));
+    }
+
+    [Fact]
+    public async Task GetAllAsync_UnrestrictedWithoutOrganization_SearchesEveryOrganization()
+    {
+        SetupScope(PermissionActions.Read, Unrestricted());
+
+        await _paymentService.GetAllAsync(new PaymentListQuery());
+
+        Assert.Null(_search!.OrganizationId);
+        Assert.Null(_search.AllowedOrganizationIds);
+        Assert.Equal(SortOrder.Desc, _search.SortOrder);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_RestrictedWithoutOrganization_SearchesTheAllowedOrganizations()
+    {
+        var organizationId = Guid.NewGuid();
+        SetupScope(PermissionActions.Read, Restricted(organizationId));
+
+        await _paymentService.GetAllAsync(new PaymentListQuery());
+
+        Assert.Null(_search!.OrganizationId);
+        Assert.Equal([organizationId], _search.AllowedOrganizationIds!);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_OrganizationOutsideTheScope_ThrowsNotFound()
+    {
+        var organizationId = Guid.NewGuid();
+        SetupScope(PermissionActions.Read, Restricted(Guid.NewGuid()));
+
+        var ex = await Assert.ThrowsAsync<AppNotFoundException>(
+            () => _paymentService.GetAllAsync(new PaymentListQuery { OrganizationId = organizationId }));
+
+        Assert.Equal(NotFoundMessages.Organization(organizationId), ex.Message);
+        Assert.Null(_search);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_OrganizationFromTheHeader_FiltersByIt()
+    {
+        var organizationId = Guid.NewGuid();
+        _currentOrganizationAccessor.SetupGet(a => a.OrganizationId).Returns(organizationId);
+        SetupScope(PermissionActions.Read, Restricted(organizationId));
+
+        await _paymentService.GetAllAsync(new PaymentListQuery());
+
+        Assert.Equal(organizationId, _search!.OrganizationId);
+        Assert.Null(_search.AllowedOrganizationIds);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_PassesTheFiltersAndTurnsTheDatesIntoAHalfOpenUtcRange()
+    {
+        var propertyId = Guid.NewGuid();
+        SetupScope(PermissionActions.Read, Unrestricted());
+
+        await _paymentService.GetAllAsync(new PaymentListQuery
+        {
+            PropertyId = propertyId,
+            Method = PaymentMethod.BankTransfer,
+            Status = PaymentStatus.Confirmed,
+            From = new DateOnly(2026, 6, 1),
+            To = new DateOnly(2026, 6, 30),
+            Search = "INV-202606",
+            SortBy = "amount",
+            SortOrder = SortOrder.Asc
+        });
+
+        Assert.Equal(propertyId, _search!.PropertyId);
+        Assert.Equal(PaymentMethod.BankTransfer, _search.Method);
+        Assert.Equal(PaymentStatus.Confirmed, _search.Status);
+        Assert.Equal(new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero), _search.PaidFrom);
+        Assert.Equal(new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero), _search.PaidBefore);
+        Assert.Equal("INV-202606", _search.Search);
+        Assert.Equal(SortOrder.Asc, _search.SortOrder);
+        Assert.Equal("p => Convert(p.Amount, Object)", _search.SortField.ToString());
+    }
+
+    [Fact]
+    public async Task GetAllAsync_MapsTheItems()
+    {
+        var invoice = SetupInvoice();
+        var payment = TestEntities.Set(AddPayment(invoice), new { Invoice = invoice });
+        SetupSearchReturns([payment]);
+        SetupScope(PermissionActions.Read, Unrestricted());
+
+        var result = await _paymentService.GetAllAsync(new PaymentListQuery());
+
+        var item = Assert.Single(result.Items);
+        Assert.Equal(payment.Id, item.Id);
+        Assert.Equal("INV-202606-0001", item.InvoiceNumber);
+        Assert.Equal(1, result.TotalItems);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_UnknownSortByAndOnlyFrom_SortsByPaymentDateWithAnOpenEndedRange()
+    {
+        SetupScope(PermissionActions.Read, Unrestricted());
+
+        await _paymentService.GetAllAsync(new PaymentListQuery { From = new DateOnly(2026, 6, 1), SortBy = "payerName" });
+
+        Assert.Equal(new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero), _search!.PaidFrom);
+        Assert.Null(_search.PaidBefore);
+        Assert.Equal("p => Convert(p.PaymentDate, Object)", _search.SortField.ToString());
     }
 }

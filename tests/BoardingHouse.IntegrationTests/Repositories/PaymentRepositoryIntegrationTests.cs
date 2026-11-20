@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
@@ -250,6 +251,24 @@ public class PaymentRepositoryIntegrationTests(PostgresContainerFixture fixture)
         await using var context = fixture.CreateContext();
 
         Assert.Empty(await new PaymentRepository(context).ListByInvoiceIdAsync(invoiceId));
+    }
+
+    [Fact]
+    public async Task SearchAsync_SkipsPaymentsOfSoftDeletedInvoices()
+    {
+        var (deletedInvoiceId, staffId, _) = await SeedInvoiceAsync();
+        var (invoiceId, otherStaffId, _) = await SeedInvoiceAsync();
+        await InsertAsync(NewPayment(deletedInvoiceId, staffId));
+        var kept = await InsertAsync(NewPayment(invoiceId, otherStaffId));
+        await SoftDeleteAsync("invoices", deletedInvoiceId);
+
+        await using var context = fixture.CreateContext();
+        var result = await new PaymentRepository(context).SearchAsync(
+            organizationId: null, allowedOrganizationIds: null, propertyId: null, method: null, status: null,
+            paidFrom: null, paidBefore: null, search: null, new ListQuery(), p => p.PaymentDate, SortOrder.Desc);
+
+        Assert.Equal([kept], result.Items.Select(p => p.Id));
+        Assert.Equal(1, result.TotalItems);
     }
 
     private static Payment NewPayment(

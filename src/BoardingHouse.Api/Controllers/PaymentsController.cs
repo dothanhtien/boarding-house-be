@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using BoardingHouse.Api.Authorization;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.DTOs.Payments;
 using BoardingHouse.Application.Services;
 
@@ -12,6 +13,15 @@ namespace BoardingHouse.Api.Controllers;
 [Authorize]
 public class PaymentsController(IPaymentService paymentService) : ControllerBase
 {
+    [HttpGet("api/payments")]
+    [RequireOrganizationScopedPermission(PermissionResources.Payment, PermissionActions.Read)]
+    public async Task<ActionResult<ApiResponse<PagedResult<PaymentResponse>>>> GetAll(
+        [FromQuery] PaymentListQuery query, CancellationToken cancellationToken)
+    {
+        var payments = await paymentService.GetAllAsync(query, cancellationToken);
+        return Ok(new ApiResponse<PagedResult<PaymentResponse>> { Data = payments });
+    }
+
     [HttpGet("api/invoices/{invoiceId:guid}/payments")]
     [RequireOrganizationScopedPermission(PermissionResources.Payment, PermissionActions.Read)]
     public async Task<ActionResult<ApiResponse<List<PaymentResponse>>>> GetByInvoice(

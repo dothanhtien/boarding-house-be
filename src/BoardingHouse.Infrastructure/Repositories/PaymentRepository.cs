@@ -1,9 +1,12 @@
+using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
+using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.Repositories;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Infrastructure.Persistence;
 using BoardingHouse.Infrastructure.Persistence.Converters;
+using BoardingHouse.Infrastructure.Persistence.Listing;
 
 namespace BoardingHouse.Infrastructure.Repositories;
 
@@ -45,6 +48,69 @@ public class PaymentRepository(AppDbContext context) : IPaymentRepository
             .ThenBy(p => p.CreatedAt)
             .ThenBy(p => p.Id)
             .ToListAsync(cancellationToken);
+
+    public Task<PagedResult<Payment>> SearchAsync(
+        Guid? organizationId,
+        IReadOnlySet<Guid>? allowedOrganizationIds,
+        Guid? propertyId,
+        PaymentMethod? method,
+        PaymentStatus? status,
+        DateTimeOffset? paidFrom,
+        DateTimeOffset? paidBefore,
+        string? search,
+        PageRequest pageRequest,
+        Expression<Func<Payment, object>> sortField,
+        SortOrder sortOrder,
+        CancellationToken cancellationToken = default)
+    {
+        var payments = WithDetails().AsNoTracking();
+
+        if (organizationId is not null)
+        {
+            payments = payments.Where(p => p.Invoice!.OrganizationId == organizationId);
+        }
+        else if (allowedOrganizationIds is not null)
+        {
+            payments = payments.Where(p => allowedOrganizationIds.Contains(p.Invoice!.OrganizationId));
+        }
+
+        if (propertyId is not null)
+        {
+            payments = payments.Where(p => p.Invoice!.Lease!.Room!.PropertyId == propertyId);
+        }
+
+        if (method is not null)
+        {
+            payments = payments.Where(p => p.Method == method);
+        }
+
+        if (status is not null)
+        {
+            payments = payments.Where(p => p.Status == status);
+        }
+
+        if (paidFrom is not null)
+        {
+            payments = payments.Where(p => p.PaymentDate >= paidFrom);
+        }
+
+        if (paidBefore is not null)
+        {
+            payments = payments.Where(p => p.PaymentDate < paidBefore);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = LikePattern.Contains(search.Trim());
+            payments = payments.Where(p =>
+                EF.Functions.ILike(p.Invoice!.InvoiceNumber, pattern, LikePattern.EscapeCharacter)
+                || EF.Functions.ILike(p.Invoice!.Lease!.LeaseCode, pattern, LikePattern.EscapeCharacter)
+                || (p.TransactionReference != null
+                    && EF.Functions.ILike(p.TransactionReference, pattern, LikePattern.EscapeCharacter)));
+        }
+
+        return payments.ToPagedResultAsync(pageRequest, sortField, sortOrder, cancellationToken);
+    }
 
     private IQueryable<Payment> WithDetails() =>
         context.Payments

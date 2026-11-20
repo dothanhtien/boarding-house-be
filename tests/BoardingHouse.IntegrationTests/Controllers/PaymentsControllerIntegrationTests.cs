@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.DTOs.Auth;
 using BoardingHouse.Application.DTOs.Invoices;
 using BoardingHouse.Application.DTOs.Leases;
@@ -321,6 +322,20 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
         var response = await GetByInvoiceAsync(invoiceId);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return await ReadDataAsync<List<PaymentResponse>>(response);
+    }
+
+    // Noon UTC, daysAgo days before today: far from midnight, so the From/To filters are deterministic
+    private static DateTimeOffset NoonUtc(int daysAgo) =>
+        new(Today.AddDays(-daysAgo).ToDateTime(new TimeOnly(12, 0)), TimeSpan.Zero);
+
+    private Task<HttpResponseMessage> ListAsync(string queryString = "", HttpClient? client = null) =>
+        (client ?? _client).GetAsync($"/api/payments{queryString}");
+
+    private async Task<PagedResult<PaymentResponse>> ListOkAsync(string queryString = "", HttpClient? client = null)
+    {
+        var response = await ListAsync(queryString, client);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await ReadDataAsync<PagedResult<PaymentResponse>>(response);
     }
 
     [Fact]
@@ -977,5 +992,123 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
         Assert.Equal(payment.Id, voided.Id);
         Assert.Equal(PaymentStatus.Voided, voided.Status);
         Assert.Equal(Payment.InvoiceCancelledReason, voided.VoidReason);
+    }
+
+    [Fact]
+    public async Task GetAll_DefaultsToTheLatestPaymentFirst()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var older = await RecordOkAsync(invoice.Id, Cash(500_000) with { PaymentDate = NoonUtc(5) });
+        var newer = await RecordOkAsync(invoice.Id, Cash(700_000) with { PaymentDate = NoonUtc(1) });
+
+        var result = await ListOkAsync();
+
+        Assert.Equal([newer.Id, older.Id], result.Items.Select(p => p.Id));
+        Assert.Equal(2, result.TotalItems);
+    }
+
+    [Fact]
+    public async Task GetAll_FiltersByStatusMethodAndDates()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var cash = await RecordOkAsync(invoice.Id, Cash(500_000, confirm: true) with { PaymentDate = NoonUtc(10) });
+        var transfer = await RecordOkAsync(
+            invoice.Id, Cash(700_000) with { Method = PaymentMethod.BankTransfer, PaymentDate = NoonUtc(2) });
+
+        Assert.Equal([transfer.Id], (await ListOkAsync("?status=pending")).Items.Select(p => p.Id));
+        Assert.Equal([cash.Id], (await ListOkAsync("?method=cash")).Items.Select(p => p.Id));
+        Assert.Equal(
+            [transfer.Id],
+            (await ListOkAsync($"?from={Today.AddDays(-2):yyyy-MM-dd}&to={Today:yyyy-MM-dd}")).Items.Select(p => p.Id));
+        Assert.Equal(
+            [cash.Id],
+            (await ListOkAsync($"?to={Today.AddDays(-10):yyyy-MM-dd}")).Items.Select(p => p.Id));
+    }
+
+    [Fact]
+    public async Task GetAll_FiltersByPropertyAndSearch()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var secondPropertyId = await CreatePropertyAsync(_organizationId, "Second Payment Property");
+        var (secondInvoice, _) = await CreateInvoiceAsync(secondPropertyId);
+        var first = await RecordOkAsync(invoice.Id, Cash(500_000) with { TransactionReference = "FT-ALPHA-01" });
+        var second = await RecordOkAsync(secondInvoice.Id, Cash(700_000));
+
+        Assert.Equal([second.Id], (await ListOkAsync($"?propertyId={secondPropertyId}")).Items.Select(p => p.Id));
+        Assert.Equal([first.Id], (await ListOkAsync("?search=alpha")).Items.Select(p => p.Id));
+        Assert.Equal(
+            [second.Id],
+            (await ListOkAsync($"?search={secondInvoice.LeaseCode}")).Items.Select(p => p.Id));
+    }
+
+    [Fact]
+    public async Task GetAll_OrganizationMember_SeesOnlyTheirOrganization()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var own = await RecordOkAsync(invoice.Id, Cash(1_000));
+        var otherOrganizationId = await CreateOrganizationAsync("Other Payment Org");
+        var otherPropertyId = await CreatePropertyAsync(otherOrganizationId, "Other Payment Property");
+        var (otherInvoice, _) = await CreateInvoiceAsync(otherPropertyId);
+        await RecordOkAsync(otherInvoice.Id, Cash(2_000));
+        var memberClient = await CreateOrganizationMemberClientAsync(_organizationId);
+
+        var result = await ListOkAsync(client: memberClient);
+
+        Assert.Equal([own.Id], result.Items.Select(p => p.Id));
+        var response = await ListAsync($"?organizationId={otherOrganizationId}", memberClient);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetAll_ToBeforeFrom_ReturnsBadRequest()
+    {
+        var response = await ListAsync($"?from={Today:yyyy-MM-dd}&to={Today.AddDays(-1):yyyy-MM-dd}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetAll_SortsByAmountAndPages()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var middle = await RecordOkAsync(invoice.Id, Cash(500_000));
+        var smallest = await RecordOkAsync(invoice.Id, Cash(100_000));
+        await RecordOkAsync(invoice.Id, Cash(900_000));
+
+        var result = await ListOkAsync("?sortBy=amount&sortOrder=asc&page=1&pageSize=2");
+
+        Assert.Equal([smallest.Id, middle.Id], result.Items.Select(p => p.Id));
+        Assert.Equal(3, result.TotalItems);
+    }
+
+    [Fact]
+    public async Task GetAll_OrganizationHeader_IsUsedWhenTheQueryHasNoOrganization()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        await RecordOkAsync(invoice.Id, Cash(1_000));
+        var otherOrganizationId = await CreateOrganizationAsync("Header Payment Org");
+        var otherPropertyId = await CreatePropertyAsync(otherOrganizationId, "Header Payment Property");
+        var (otherInvoice, _) = await CreateInvoiceAsync(otherPropertyId);
+        var other = await RecordOkAsync(otherInvoice.Id, Cash(2_000));
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/payments");
+        request.Headers.Add("X-Organization-Id", otherOrganizationId.ToString());
+
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await ReadDataAsync<PagedResult<PaymentResponse>>(response);
+        Assert.Equal([other.Id], result.Items.Select(p => p.Id));
+    }
+
+    [Fact]
+    public async Task GetAll_SearchByInvoiceNumber_TreatsWildcardsLiterally()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var payment = await RecordOkAsync(invoice.Id, Cash(1_000));
+
+        Assert.Equal(
+            [payment.Id],
+            (await ListOkAsync($"?search={invoice.InvoiceNumber.ToLowerInvariant()}")).Items.Select(p => p.Id));
+        Assert.Empty((await ListOkAsync("?search=%25")).Items);
     }
 }
