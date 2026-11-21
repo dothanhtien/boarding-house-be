@@ -67,7 +67,8 @@ public class LateFeePolicyTests
 
         settings.Update(
             new OrganizationSettingsDetails(
-                10, new LateFeePolicy(LateFeeType.Fixed, 20_000, 2), VatRate: 8, "123", "VCB", "A", AutoGenerateInvoices: true),
+                10, new LateFeePolicy(LateFeeType.Fixed, 20_000, 2), VatRate: 8, "123", "VCB", "A", AutoGenerateInvoices: true,
+                BankBin: null),
             actor,
             now);
 
@@ -82,7 +83,8 @@ public class LateFeePolicyTests
         var settings = OrganizationSettings.DefaultsFor(Guid.NewGuid());
 
         Assert.Throws<DomainException>(() => settings.Update(
-            new OrganizationSettingsDetails(null, LateFeePolicy.None, VatRate: 101, null, null, null, AutoGenerateInvoices: false),
+            new OrganizationSettingsDetails(
+                null, LateFeePolicy.None, VatRate: 101, null, null, null, AutoGenerateInvoices: false, BankBin: null),
             Guid.NewGuid(), DateTimeOffset.UtcNow));
     }
 

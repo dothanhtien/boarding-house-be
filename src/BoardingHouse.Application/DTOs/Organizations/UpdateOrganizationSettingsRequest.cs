@@ -31,5 +31,8 @@ public record UpdateOrganizationSettingsRequest
     public Optional<string> BankAccountName { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Optional<string> BankBin { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public Optional<bool> AutoGenerateInvoices { get; init; }
 }

@@ -40,6 +40,8 @@ public static class DependencyInjection
         services.AddScoped<IInvoiceGenerationService, InvoiceGenerationService>();
         services.AddScoped<IPaymentService, PaymentService>();
 
+        services.AddScoped<IVietQrService, VietQrService>();
+
         services.AddScoped<ExpireLeasesJob>();
         services.AddScoped<MarkOverdueInvoicesJob>();
         services.AddScoped<GenerateDueInvoicesJob>();

@@ -1,5 +1,6 @@
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Domain.VietQr;
 
 namespace BoardingHouse.Domain.Entities;
 
@@ -31,7 +32,7 @@ public class OrganizationSettings
     public LateFeePolicy LateFee => new(LateFeeType, LateFeeValue, LateFeeGraceDays);
 
     public OrganizationSettingsDetails Details =>
-        new(DefaultBillingDay, LateFee, VatRate, BankAccountNumber, BankName, BankAccountName, AutoGenerateInvoices);
+        new(DefaultBillingDay, LateFee, VatRate, BankAccountNumber, BankName, BankAccountName, AutoGenerateInvoices, BankBin);
 
     private OrganizationSettings() { }
 
@@ -46,6 +47,19 @@ public class OrganizationSettings
             throw new DomainException("VatRate must be between 0 and 100");
         }
 
+        if (details.BankBin is not null)
+        {
+            if (VietQrBanks.Find(details.BankBin) is null)
+            {
+                throw new DomainException(VietQrBanks.UnknownBinMessage, field: nameof(BankBin));
+            }
+
+            if (!VietQrPayload.IsValidAccountNumber(details.BankAccountNumber))
+            {
+                throw new DomainException(VietQrPayload.InvalidAccountNumberMessage, field: nameof(BankAccountNumber));
+            }
+        }
+
         DefaultBillingDay = details.DefaultBillingDay;
         LateFeeType = details.LateFee.Type;
         LateFeeValue = details.LateFee.Value;
@@ -54,6 +68,7 @@ public class OrganizationSettings
         BankAccountNumber = details.BankAccountNumber;
         BankName = details.BankName;
         BankAccountName = details.BankAccountName;
+        BankBin = details.BankBin;
         AutoGenerateInvoices = details.AutoGenerateInvoices;
         UpdatedAt = now;
         UpdatedBy = updatedBy;
