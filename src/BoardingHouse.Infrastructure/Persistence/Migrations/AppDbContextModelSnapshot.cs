@@ -902,6 +902,11 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("bank_account_number");
 
+                    b.Property<string>("BankBin")
+                        .HasMaxLength(6)
+                        .HasColumnType("character varying(6)")
+                        .HasColumnName("bank_bin");
+
                     b.Property<string>("BankName")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -949,6 +954,8 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
 
                     b.ToTable("organization_settings", null, t =>
                         {
+                            t.HasCheckConstraint("ck_organization_settings_bank_bin_account", "bank_bin IS NULL OR bank_account_number IS NOT NULL");
+
                             t.HasCheckConstraint("ck_organization_settings_default_billing_day", "default_billing_day IS NULL OR (default_billing_day BETWEEN 1 AND 28)");
 
                             t.HasCheckConstraint("ck_organization_settings_late_fee_pair", "(late_fee_type IS NULL) = (late_fee_value IS NULL)");

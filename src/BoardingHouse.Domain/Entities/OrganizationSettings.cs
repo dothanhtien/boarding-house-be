@@ -5,6 +5,8 @@ namespace BoardingHouse.Domain.Entities;
 
 public class OrganizationSettings
 {
+    public const int BankBinLength = 6;
+
     public Guid OrganizationId { get; private set; }
     public Organization? Organization { get; private set; }
 
@@ -21,6 +23,7 @@ public class OrganizationSettings
     public string? BankAccountNumber { get; private set; }
     public string? BankName { get; private set; }
     public string? BankAccountName { get; private set; }
+    public string? BankBin { get; private set; }
 
     public DateTimeOffset? UpdatedAt { get; private set; }
     public Guid? UpdatedBy { get; private set; }
