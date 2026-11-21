@@ -955,6 +955,129 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.Payment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<DateTimeOffset?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("confirmed_at");
+
+                    b.Property<Guid?>("ConfirmedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("confirmed_by");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid?>("DepositReturnId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deposit_return_id");
+
+                    b.Property<Guid?>("InvoiceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("invoice_id");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("payment_method");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("text")
+                        .HasColumnName("note");
+
+                    b.Property<string>("PayerNameOverride")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("payer_name_override");
+
+                    b.Property<Guid?>("PayerUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("payer_user_id");
+
+                    b.Property<DateTimeOffset>("PaymentDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("payment_date");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("PENDING")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TransactionReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("transaction_reference");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("VoidReason")
+                        .HasColumnType("text")
+                        .HasColumnName("void_reason");
+
+                    b.Property<DateTimeOffset?>("VoidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("voided_at");
+
+                    b.Property<Guid?>("VoidedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("voided_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_payments");
+
+                    b.HasIndex("ConfirmedBy")
+                        .HasDatabaseName("ix_payments_confirmed_by");
+
+                    b.HasIndex("InvoiceId")
+                        .HasDatabaseName("ix_payments_invoice_id");
+
+                    b.HasIndex("PayerUserId")
+                        .HasDatabaseName("ix_payments_payer_user_id");
+
+                    b.HasIndex("VoidedBy")
+                        .HasDatabaseName("ix_payments_voided_by");
+
+                    b.HasIndex("Status", "PaymentDate")
+                        .HasDatabaseName("ix_payments_status_payment_date");
+
+                    b.ToTable("payments", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_payments_amount", "amount > 0");
+
+                            t.HasCheckConstraint("ck_payments_confirmed", "status <> 'CONFIRMED' OR confirmed_at IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_payments_payer", "payer_user_id IS NULL OR payer_name_override IS NULL");
+
+                            t.HasCheckConstraint("ck_payments_target", "(invoice_id IS NULL) <> (deposit_return_id IS NULL)");
+
+                            t.HasCheckConstraint("ck_payments_voided", "status <> 'VOIDED' OR (voided_at IS NOT NULL AND void_reason IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Permission", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2339,6 +2462,37 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_organization_settings_organizations_organization_id");
 
                     b.Navigation("Organization");
+                });
+
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.Payment", b =>
+                {
+                    b.HasOne("BoardingHouse.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ConfirmedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_payments_users_confirmed_by");
+
+                    b.HasOne("BoardingHouse.Domain.Entities.Invoice", "Invoice")
+                        .WithMany()
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_payments_invoices_invoice_id");
+
+                    b.HasOne("BoardingHouse.Domain.Entities.User", "PayerUser")
+                        .WithMany()
+                        .HasForeignKey("PayerUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_payments_users_payer_user_id");
+
+                    b.HasOne("BoardingHouse.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("VoidedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_payments_users_voided_by");
+
+                    b.Navigation("Invoice");
+
+                    b.Navigation("PayerUser");
                 });
 
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Property", b =>

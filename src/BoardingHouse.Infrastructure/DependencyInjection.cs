@@ -64,6 +64,7 @@ public static class DependencyInjection
         services.AddScoped<ITenantProfileRepository, TenantProfileRepository>();
         services.AddScoped<IInvoiceRepository, InvoiceRepository>();
         services.AddScoped<IInvoiceGenerationRunRepository, InvoiceGenerationRunRepository>();
+        services.AddScoped<IPaymentRepository, PaymentRepository>();
 
         return services;
     }

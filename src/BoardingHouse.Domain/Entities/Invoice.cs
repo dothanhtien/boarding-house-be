@@ -218,6 +218,42 @@ public class Invoice : BaseEntity
         TransitionTo(InvoiceStatus.Cancelled, changedBy, now, reason.Trim());
     }
 
+    public Payment RecordPayment(PaymentDetails details, Guid recordedBy, DateTimeOffset now)
+    {
+        EnsureCanTakePayment(details.Amount);
+
+        return Payment.ForInvoice(Id, details, recordedBy, now);
+    }
+
+    public void ConfirmPayment(Payment payment, Guid? confirmedBy, DateTimeOffset now)
+    {
+        EnsureOwns(payment);
+        payment.EnsureCanBeConfirmed();
+        EnsureCanTakePayment(payment.Amount);
+
+        payment.Confirm(confirmedBy, now);
+        PaidAmount += payment.Amount;
+    }
+
+    public void VoidPayment(Payment payment, string reason, Guid? voidedBy, DateTimeOffset now)
+    {
+        EnsureOwns(payment);
+
+        var wasConfirmed = payment.Status == PaymentStatus.Confirmed;
+        if (wasConfirmed && PaidAmount < payment.Amount)
+        {
+            throw new InvalidOperationException(
+                $"Invoice '{Id}' has paid {PaidAmount}, less than its confirmed payment '{payment.Id}' ({payment.Amount})");
+        }
+
+        payment.Void(reason, voidedBy, now);
+
+        if (wasConfirmed)
+        {
+            PaidAmount -= payment.Amount;
+        }
+    }
+
     public static string FormatNumber(BillingMonth month, int number) =>
         string.Create(CultureInfo.InvariantCulture, $"INV-{month.FirstDay:yyyyMM}-{number:D4}");
 
@@ -246,6 +282,29 @@ public class Invoice : BaseEntity
         if (details.DueDate < billingMonth.FirstDay)
         {
             throw new DomainException("DueDate must not be before the billing month");
+        }
+    }
+
+    private void EnsureOwns(Payment payment)
+    {
+        if (payment.InvoiceId != Id)
+        {
+            throw new InvalidOperationException($"Payment '{payment.Id}' does not belong to invoice '{Id}'");
+        }
+    }
+
+    private void EnsureCanTakePayment(decimal amount)
+    {
+        if (Status == InvoiceStatus.Cancelled)
+        {
+            throw DomainException.Conflict("A cancelled invoice cannot take payments");
+        }
+
+        if (amount > RemainingAmount)
+        {
+            throw new DomainException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Amount must not exceed the remaining amount of the invoice ({RemainingAmount:0.##})"));
         }
     }
 

@@ -258,6 +258,12 @@ public class LeaseRepository(AppDbContext context) : Repository<Lease>(context),
             .ThenBy(h => h.Id)
             .ToListAsync(cancellationToken);
 
+    public Task<List<LeaseTenant>> ListTenantsAsync(Guid leaseId, CancellationToken cancellationToken = default) =>
+        Context.LeaseTenants
+            .AsNoTracking()
+            .Where(t => t.LeaseId == leaseId)
+            .ToListAsync(cancellationToken);
+
     public Task<List<LeaseUtilityService>> ListUtilityServicesAsync(Guid leaseId, CancellationToken cancellationToken = default) =>
         Context.LeaseUtilityServices
             .IgnoreQueryFilters()
