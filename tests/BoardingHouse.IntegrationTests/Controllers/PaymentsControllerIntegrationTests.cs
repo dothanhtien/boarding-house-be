@@ -135,7 +135,8 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
         return (await response.Content.ReadFromJsonAsync<ApiResponse<RoomResponse>>(JsonOptions))!.Data!.Id;
     }
 
-    // Rent 3,000,000 for the current month, no deposit, no VAT, due today: PENDING. A new room + active lease each time.
+    // Rent 3,000,000 for the current month, no deposit, no VAT: PENDING. A new room + active lease each time.
+    // Created due today, then moved 30 days ahead so a run across UTC midnight cannot make the refresh mark it OVERDUE.
     private async Task<(InvoiceDetailResponse Invoice, Guid TenantId)> CreateInvoiceAsync(Guid? propertyId = null)
     {
         var roomId = await CreateRoomAsync(propertyId ?? _propertyId, $"{101 + _roomCount++}");
@@ -161,7 +162,10 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
         var invoice = await ReadDataAsync<InvoiceDetailResponse>(invoiceResponse);
         Assert.Equal(3_000_000, invoice.TotalAmount);
 
-        return (invoice, tenantId);
+        var dueDate = Today.AddDays(30);
+        await SetDueDateAsync(invoice.Id, dueDate);
+
+        return (invoice with { DueDate = dueDate }, tenantId);
     }
 
     private async Task<HttpClient> CreateOrganizationMemberClientAsync(Guid organizationId, string roleSlug = RoleSlugs.OrganizationStaff)
@@ -325,8 +329,9 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
     }
 
     // Noon UTC, daysAgo days before today: far from midnight, so the From/To filters are deterministic
-    private static DateTimeOffset NoonUtc(int daysAgo) =>
-        new(Today.AddDays(-daysAgo).ToDateTime(new TimeOnly(12, 0)), TimeSpan.Zero);
+    private static DateTimeOffset NoonUtc(int daysAgo) => NoonUtc(Today.AddDays(-daysAgo));
+
+    private static DateTimeOffset NoonUtc(DateOnly date) => new(date.ToDateTime(new TimeOnly(12, 0)), TimeSpan.Zero);
 
     private Task<HttpResponseMessage> ListAsync(string queryString = "", HttpClient? client = null) =>
         (client ?? _client).GetAsync($"/api/payments{queryString}");
@@ -1010,19 +1015,21 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
     [Fact]
     public async Task GetAll_FiltersByStatusMethodAndDates()
     {
+        // One "today" for the payment dates and the filter bounds: a run across UTC midnight cannot shift one but not the other
+        var today = Today;
         var (invoice, _) = await CreateInvoiceAsync();
-        var cash = await RecordOkAsync(invoice.Id, Cash(500_000, confirm: true) with { PaymentDate = NoonUtc(10) });
+        var cash = await RecordOkAsync(invoice.Id, Cash(500_000, confirm: true) with { PaymentDate = NoonUtc(today.AddDays(-10)) });
         var transfer = await RecordOkAsync(
-            invoice.Id, Cash(700_000) with { Method = PaymentMethod.BankTransfer, PaymentDate = NoonUtc(2) });
+            invoice.Id, Cash(700_000) with { Method = PaymentMethod.BankTransfer, PaymentDate = NoonUtc(today.AddDays(-2)) });
 
         Assert.Equal([transfer.Id], (await ListOkAsync("?status=pending")).Items.Select(p => p.Id));
         Assert.Equal([cash.Id], (await ListOkAsync("?method=cash")).Items.Select(p => p.Id));
         Assert.Equal(
             [transfer.Id],
-            (await ListOkAsync($"?from={Today.AddDays(-2):yyyy-MM-dd}&to={Today:yyyy-MM-dd}")).Items.Select(p => p.Id));
+            (await ListOkAsync($"?from={today.AddDays(-2):yyyy-MM-dd}&to={today:yyyy-MM-dd}")).Items.Select(p => p.Id));
         Assert.Equal(
             [cash.Id],
-            (await ListOkAsync($"?to={Today.AddDays(-10):yyyy-MM-dd}")).Items.Select(p => p.Id));
+            (await ListOkAsync($"?to={today.AddDays(-10):yyyy-MM-dd}")).Items.Select(p => p.Id));
     }
 
     [Fact]

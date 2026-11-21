@@ -55,7 +55,7 @@ public class PaymentService(
             query.Method,
             query.Status,
             query.From is { } from ? StartOfUtcDay(from) : null,
-            query.To is { } to ? StartOfUtcDay(to.AddDays(1)) : null,
+            query.To is { } to && to != DateOnly.MaxValue ? StartOfUtcDay(to.AddDays(1)) : null,
             query.Search,
             query,
             sortField,
@@ -117,6 +117,11 @@ public class PaymentService(
                 NotFoundMessages.Invoice(invoiceId),
                 ct);
 
+            var actorId = currentUserAccessor.RequiredUser.Id;
+            var now = DateTimeOffset.UtcNow;
+            var lateFee = await lateFeeResolver.ResolveAsync(invoice, ct);
+            invoice.RefreshStatus(Today, lateFee, actorId, now);
+
             if (request.Confirm)
             {
                 var confirmScope = await organizationScopeAccessor.GetScopeAsync(
@@ -137,15 +142,13 @@ public class PaymentService(
                 request.TransactionReference,
                 request.Note);
 
-            var actorId = currentUserAccessor.RequiredUser.Id;
-            var now = DateTimeOffset.UtcNow;
             var payment = invoice.RecordPayment(details, actorId, now);
             await paymentRepository.AddAsync(payment, ct);
 
             if (request.Confirm)
             {
                 invoice.ConfirmPayment(payment, actorId, now);
-                invoice.RefreshStatus(Today, await lateFeeResolver.ResolveAsync(invoice, ct), actorId, now);
+                invoice.RefreshStatus(Today, lateFee, actorId, now);
             }
 
             return payment.Id;
@@ -160,12 +163,12 @@ public class PaymentService(
     {
         await unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            var (invoice, payment) = await LockAsync(id, PermissionActions.Confirm, ct);
-
             var actorId = currentUserAccessor.RequiredUser.Id;
             var now = DateTimeOffset.UtcNow;
+            var (invoice, payment, lateFee) = await LockAsync(id, PermissionActions.Confirm, actorId, now, ct);
+
             invoice.ConfirmPayment(payment, actorId, now);
-            invoice.RefreshStatus(Today, await lateFeeResolver.ResolveAsync(invoice, ct), actorId, now);
+            invoice.RefreshStatus(Today, lateFee, actorId, now);
         }, cancellationToken);
 
         logger.LogInformation("Payment confirmed ({PaymentId})", id);
@@ -177,12 +180,12 @@ public class PaymentService(
     {
         await unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            var (invoice, payment) = await LockAsync(id, PermissionActions.Void, ct);
-
             var actorId = currentUserAccessor.RequiredUser.Id;
             var now = DateTimeOffset.UtcNow;
+            var (invoice, payment, lateFee) = await LockAsync(id, PermissionActions.Void, actorId, now, ct);
+
             invoice.VoidPayment(payment, request.Reason, actorId, now);
-            invoice.RefreshStatus(Today, await lateFeeResolver.ResolveAsync(invoice, ct), actorId, now);
+            invoice.RefreshStatus(Today, lateFee, actorId, now);
         }, cancellationToken);
 
         logger.LogInformation("Payment voided ({PaymentId})", id);
@@ -190,7 +193,8 @@ public class PaymentService(
         return await GetDetailAsync(id, cancellationToken);
     }
 
-    private async Task<(Invoice Invoice, Payment Payment)> LockAsync(Guid id, string action, CancellationToken cancellationToken)
+    private async Task<(Invoice Invoice, Payment Payment, LateFeePolicy LateFee)> LockAsync(
+        Guid id, string action, Guid actorId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var invoiceId = await paymentRepository.GetInvoiceIdAsync(id, cancellationToken)
             ?? throw new AppNotFoundException(NotFoundMessages.Payment(id));
@@ -208,7 +212,10 @@ public class PaymentService(
         var payment = await paymentRepository.GetForUpdateAsync(id, cancellationToken)
             ?? throw new AppNotFoundException(NotFoundMessages.Payment(id));
 
-        return (invoice, payment);
+        var lateFee = await lateFeeResolver.ResolveAsync(invoice, cancellationToken);
+        invoice.RefreshStatus(Today, lateFee, actorId, now);
+
+        return (invoice, payment, lateFee);
     }
 
     private async Task<Guid?> ResolvePayerUserIdAsync(

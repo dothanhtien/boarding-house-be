@@ -25,6 +25,7 @@ public class PaymentServiceTests
     private readonly Mock<IPaymentRepository> _paymentRepository = new();
     private readonly Mock<IInvoiceRepository> _invoiceRepository = new();
     private readonly Mock<ILeaseRepository> _leaseRepository = new();
+    private readonly Mock<IPropertyRepository> _propertyRepository = new();
     private readonly Mock<IUnitOfWork> _unitOfWork = new();
     private readonly Mock<IOrganizationScopeAccessor> _organizationScopeAccessor = new();
     private readonly Mock<ICurrentUserAccessor> _currentUserAccessor = new();
@@ -63,7 +64,7 @@ public class PaymentServiceTests
             _paymentRepository.Object,
             _invoiceRepository.Object,
             _leaseRepository.Object,
-            new InvoiceLateFeeResolver(Mock.Of<IPropertyRepository>(), Mock.Of<IOrganizationSettingsRepository>()),
+            new InvoiceLateFeeResolver(_propertyRepository.Object, Mock.Of<IOrganizationSettingsRepository>()),
             _unitOfWork.Object,
             _organizationScopeAccessor.Object,
             _currentUserAccessor.Object,
@@ -441,6 +442,52 @@ public class PaymentServiceTests
         Assert.Equal(_actor.Id, invoice.StatusHistories.Last().ChangedBy);
     }
 
+    // Due yesterday, mark-overdue-invoices has not run yet: the 100,000 late fee is owed on top of the 3,000,000
+    private Invoice SetupPastDueInvoiceNotYetMarkedOverdue()
+    {
+        var invoice = SetupInvoice();
+        TestEntities.Set(invoice, new { DueDate = Today.AddDays(-1) });
+        var property = Property.Create(
+            Guid.NewGuid(),
+            new PropertyDetails("Sunrise House", null, null, null, null, null, IsActive: true, DefaultBillingDay: null,
+                new LateFeePolicy(LateFeeType.Fixed, 100_000, null)),
+            SentinelActors.System);
+        _propertyRepository
+            .Setup(r => r.GetByLeaseIdAsync(invoice.LeaseId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(property);
+        return invoice;
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_PastDueInvoiceNotYetMarkedOverdue_AddsTheLateFeeBeforeTakingThePayment()
+    {
+        var invoice = SetupPastDueInvoiceNotYetMarkedOverdue();
+        var payment = AddPayment(invoice, amount: 3_000_000);
+        SetupPaymentForUpdate(payment);
+        SetupScope(PermissionActions.Confirm, Unrestricted());
+
+        await _paymentService.ConfirmAsync(payment.Id);
+
+        Assert.Equal(100_000, invoice.LateFeeAmount);
+        Assert.Equal(3_100_000, invoice.TotalAmount);
+        Assert.Equal(3_000_000, invoice.PaidAmount);
+        Assert.Equal(InvoiceStatus.Overdue, invoice.Status);
+    }
+
+    [Fact]
+    public async Task RecordAsync_PastDueInvoiceNotYetMarkedOverdue_AcceptsTheAmountIncludingTheLateFee()
+    {
+        var invoice = SetupPastDueInvoiceNotYetMarkedOverdue();
+        SetupTenants(invoice);
+        SetupScope(PermissionActions.Create, Unrestricted());
+        SetupScope(PermissionActions.Confirm, Unrestricted());
+
+        await _paymentService.RecordAsync(invoice.Id, Cash(3_100_000, confirm: true));
+
+        Assert.Equal(3_100_000, invoice.PaidAmount);
+        Assert.Equal(InvoiceStatus.Paid, invoice.Status);
+    }
+
     [Fact]
     public async Task ConfirmAsync_ExceedingTheRemainingAmount_ThrowsAndLeavesThePaymentPending()
     {
@@ -676,5 +723,15 @@ public class PaymentServiceTests
         Assert.Equal(new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero), _search!.PaidFrom);
         Assert.Null(_search.PaidBefore);
         Assert.Equal("p => Convert(p.PaymentDate, Object)", _search.SortField.ToString());
+    }
+
+    [Fact]
+    public async Task GetAllAsync_ToIsTheLastRepresentableDate_SearchesWithoutAnUpperBound()
+    {
+        SetupScope(PermissionActions.Read, Unrestricted());
+
+        await _paymentService.GetAllAsync(new PaymentListQuery { To = DateOnly.MaxValue });
+
+        Assert.Null(_search!.PaidBefore);
     }
 }
