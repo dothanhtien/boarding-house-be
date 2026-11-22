@@ -84,7 +84,8 @@ public class OrganizationSettingsService(
                 request.BankAccountNumber.OrKeep(current.BankAccountNumber),
                 request.BankName.OrKeep(current.BankName),
                 request.BankAccountName.OrKeep(current.BankAccountName),
-                request.AutoGenerateInvoices.OrKeep(current.AutoGenerateInvoices)),
+                request.AutoGenerateInvoices.OrKeep(current.AutoGenerateInvoices),
+                request.BankBin.OrKeep(current.BankBin)),
             currentUserAccessor.RequiredUser.Id,
             DateTimeOffset.UtcNow);
     }

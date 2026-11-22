@@ -1,10 +1,16 @@
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Domain.VietQr;
 
 namespace BoardingHouse.Domain.Entities;
 
 public class OrganizationSettings
 {
+    public const int BankBinLength = 6;
+    public const string VndCurrency = "VND";
+    public const string BankAccountNotConfiguredMessage = "Bank account is not configured";
+    public const string VietQrCurrencyMessage = "VietQR only supports VND";
+
     public Guid OrganizationId { get; private set; }
     public Organization? Organization { get; private set; }
 
@@ -14,13 +20,14 @@ public class OrganizationSettings
     public int? LateFeeGraceDays { get; private set; }
 
     public decimal? VatRate { get; private set; }
-    public string Currency { get; private set; } = "VND";
+    public string Currency { get; private set; } = VndCurrency;
 
     public bool AutoGenerateInvoices { get; private set; }
 
     public string? BankAccountNumber { get; private set; }
     public string? BankName { get; private set; }
     public string? BankAccountName { get; private set; }
+    public string? BankBin { get; private set; }
 
     public DateTimeOffset? UpdatedAt { get; private set; }
     public Guid? UpdatedBy { get; private set; }
@@ -28,7 +35,7 @@ public class OrganizationSettings
     public LateFeePolicy LateFee => new(LateFeeType, LateFeeValue, LateFeeGraceDays);
 
     public OrganizationSettingsDetails Details =>
-        new(DefaultBillingDay, LateFee, VatRate, BankAccountNumber, BankName, BankAccountName, AutoGenerateInvoices);
+        new(DefaultBillingDay, LateFee, VatRate, BankAccountNumber, BankName, BankAccountName, AutoGenerateInvoices, BankBin);
 
     private OrganizationSettings() { }
 
@@ -43,6 +50,19 @@ public class OrganizationSettings
             throw new DomainException("VatRate must be between 0 and 100");
         }
 
+        if (details.BankBin is not null)
+        {
+            if (VietQrBanks.Find(details.BankBin) is null)
+            {
+                throw new DomainException(VietQrBanks.UnknownBinMessage, field: nameof(BankBin));
+            }
+
+            if (!VietQrPayload.IsValidAccountNumber(details.BankAccountNumber))
+            {
+                throw new DomainException(VietQrPayload.InvalidAccountNumberMessage, field: nameof(BankAccountNumber));
+            }
+        }
+
         DefaultBillingDay = details.DefaultBillingDay;
         LateFeeType = details.LateFee.Type;
         LateFeeValue = details.LateFee.Value;
@@ -51,8 +71,24 @@ public class OrganizationSettings
         BankAccountNumber = details.BankAccountNumber;
         BankName = details.BankName;
         BankAccountName = details.BankAccountName;
+        BankBin = details.BankBin;
         AutoGenerateInvoices = details.AutoGenerateInvoices;
         UpdatedAt = now;
         UpdatedBy = updatedBy;
+    }
+
+    public VietQrAccount GetVietQrAccount()
+    {
+        if (BankAccountNumber is null || BankBin is null || VietQrBanks.Find(BankBin) is not { } bank)
+        {
+            throw DomainException.Conflict(BankAccountNotConfiguredMessage);
+        }
+
+        if (Currency != VndCurrency)
+        {
+            throw DomainException.Conflict(VietQrCurrencyMessage);
+        }
+
+        return new VietQrAccount(bank, BankAccountNumber, BankAccountName);
     }
 }

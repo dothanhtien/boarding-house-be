@@ -18,6 +18,7 @@ public class OrganizationSettingsConfiguration : IEntityTypeConfiguration<Organi
         builder.Property(s => s.BankAccountNumber).HasMaxLength(50);
         builder.Property(s => s.BankName).HasMaxLength(100);
         builder.Property(s => s.BankAccountName).HasMaxLength(100);
+        builder.Property(s => s.BankBin).HasMaxLength(OrganizationSettings.BankBinLength);
 
         builder.Property(s => s.LateFeeType)
             .HasConversion(LateFeeTypeDbValueConverter.Instance)
@@ -31,6 +32,9 @@ public class OrganizationSettingsConfiguration : IEntityTypeConfiguration<Organi
             t.HasCheckConstraint(
                 "ck_organization_settings_late_fee_pair",
                 "(late_fee_type IS NULL) = (late_fee_value IS NULL)");
+            t.HasCheckConstraint(
+                "ck_organization_settings_bank_bin_account",
+                "bank_bin IS NULL OR bank_account_number IS NOT NULL");
         });
 
         builder.HasOne(s => s.Organization)

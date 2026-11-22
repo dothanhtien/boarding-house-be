@@ -1,4 +1,5 @@
 using FluentValidation;
+using BoardingHouse.Domain.VietQr;
 
 namespace BoardingHouse.Application.DTOs.Organizations;
 
@@ -44,6 +45,11 @@ public class UpdateOrganizationSettingsRequestValidator : AbstractValidator<Upda
             .MaximumLength(50).WithMessage("Bank account number exceeds 50 characters")
             .When(x => x.BankAccountNumber is { IsSet: true, Value: not null })
             .OverridePropertyName("BankAccountNumber");
+
+        RuleFor(x => x.BankBin.Value)
+            .Must(bin => VietQrBanks.Find(bin!) is not null).WithMessage(VietQrBanks.UnknownBinMessage)
+            .When(x => x.BankBin is { IsSet: true, Value: not null })
+            .OverridePropertyName("BankBin");
 
         RuleFor(x => x.BankName.Value)
             .MaximumLength(100).WithMessage("Bank name exceeds 100 characters")

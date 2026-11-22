@@ -1287,4 +1287,91 @@ public class InvoiceTests
         Assert.Equal(PaymentStatus.Confirmed, payment.Status);
         Assert.Equal(1_000_000, other.PaidAmount);
     }
+
+    [Fact]
+    public void GetAmountToRequest_UnpaidInvoice_ReturnsTheTotal()
+    {
+        var invoice = Create();
+
+        Assert.Equal(5_355_000, invoice.GetAmountToRequest());
+    }
+
+    [Fact]
+    public void GetAmountToRequest_AfterAConfirmedPayment_ReturnsTheRemainingAmount()
+    {
+        var invoice = Create();
+        var payment = invoice.RecordPayment(Cash(1_000_000), ActorId, Now);
+        invoice.ConfirmPayment(payment, ActorId, Later);
+
+        Assert.Equal(4_355_000, invoice.GetAmountToRequest());
+    }
+
+    [Fact]
+    public void GetAmountToRequest_RemainingAmountWithAFraction_RoundsDown()
+    {
+        var invoice = Create();
+        TestEntities.Set(invoice, new { Status = InvoiceStatus.Partial, PaidAmount = 0.5m });
+
+        Assert.Equal(5_354_999, invoice.GetAmountToRequest());
+    }
+
+    [Fact]
+    public void GetAmountToRequest_OverdueInvoice_ReturnsTheRemainingAmount()
+    {
+        var invoice = Create();
+        TestEntities.Set(invoice, new { Status = InvoiceStatus.Overdue });
+
+        Assert.Equal(5_355_000, invoice.GetAmountToRequest());
+    }
+
+    [Fact]
+    public void GetAmountToRequest_DoesNotChangeTheInvoice()
+    {
+        var invoice = Create();
+        var historyCount = invoice.StatusHistories.Count;
+
+        invoice.GetAmountToRequest();
+
+        Assert.Equal((InvoiceStatus.Pending, 0m), (invoice.Status, invoice.PaidAmount));
+        Assert.Equal(historyCount, invoice.StatusHistories.Count);
+    }
+
+    [Fact]
+    public void GetAmountToRequest_PaidInvoice_ThrowsConflict()
+    {
+        var invoice = Create();
+        TestEntities.Set(invoice, new { Status = InvoiceStatus.Paid, PaidAmount = 5_355_000m });
+
+        var ex = Assert.Throws<DomainException>(() => invoice.GetAmountToRequest());
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal(Invoice.AlreadyPaidMessage, ex.Message);
+    }
+
+    [Fact]
+    public void GetAmountToRequest_CancelledInvoice_ThrowsTheSameConflictAsRecordPayment()
+    {
+        var invoice = Create();
+        invoice.Cancel("Wrong meter reading", ActorId, Later);
+
+        var ex = Assert.Throws<DomainException>(() => invoice.GetAmountToRequest());
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal(Invoice.CancelledMessage, ex.Message);
+        Assert.Equal(ex.Message, Assert.Throws<DomainException>(() => invoice.RecordPayment(Cash(1_000), ActorId, Now)).Message);
+    }
+
+    [Theory]
+    [InlineData(5_355_000)] // fully paid, status not refreshed yet
+    [InlineData(5_354_999.5)] // less than 1 VND left
+    public void GetAmountToRequest_NothingWholeLeftToPay_ThrowsConflict(decimal paidAmount)
+    {
+        var invoice = Create();
+        TestEntities.Set(invoice, new { Status = InvoiceStatus.Partial, PaidAmount = paidAmount });
+
+        var ex = Assert.Throws<DomainException>(() => invoice.GetAmountToRequest());
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal(Invoice.NothingLeftToPayMessage, ex.Message);
+    }
 }

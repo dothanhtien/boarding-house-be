@@ -7,4 +7,5 @@ public sealed record OrganizationSettingsDetails(
     string? BankAccountNumber,
     string? BankName,
     string? BankAccountName,
-    bool AutoGenerateInvoices);
+    bool AutoGenerateInvoices,
+    string? BankBin);

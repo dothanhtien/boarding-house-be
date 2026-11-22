@@ -12,6 +12,7 @@ using BoardingHouse.IntegrationTests.Fixtures;
 using BoardingHouse.Application.DTOs.Auth;
 using BoardingHouse.Application.DTOs.Organizations;
 using BoardingHouse.Application.DTOs.Users;
+using BoardingHouse.Domain.VietQr;
 
 namespace BoardingHouse.IntegrationTests.Controllers;
 
@@ -447,5 +448,141 @@ public class OrganizationSettingsControllerIntegrationTests(PostgresApiFactory f
             new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_BankBinWithAccountNumber_SavesAndReturnsIt()
+    {
+        var organizationId = await CreateOrganizationAsync();
+
+        var settings = await PatchSettingsAsync(organizationId, new UpdateOrganizationSettingsRequest
+        {
+            BankBin = "970436",
+            BankAccountNumber = "0011001234567",
+            BankAccountName = "NGUYEN VAN A"
+        });
+
+        Assert.Equal(("970436", "0011001234567"), (settings.BankBin, settings.BankAccountNumber));
+        Assert.Equal("970436", (await GetSettingsAsync(organizationId)).BankBin);
+    }
+
+    [Fact]
+    public async Task GetSettings_NeverUpdated_BankBinIsNull()
+    {
+        var organizationId = await CreateOrganizationAsync();
+
+        Assert.Null((await GetSettingsAsync(organizationId)).BankBin);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_OnlyBankBinAfterTheAccountNumber_Returns200()
+    {
+        var organizationId = await CreateOrganizationAsync();
+        await PatchSettingsAsync(organizationId, new UpdateOrganizationSettingsRequest { BankAccountNumber = "0011001234567" });
+
+        var settings = await PatchSettingsAsync(organizationId, new UpdateOrganizationSettingsRequest { BankBin = "970436" });
+
+        Assert.Equal(("970436", "0011001234567"), (settings.BankBin, settings.BankAccountNumber));
+    }
+
+    [Fact]
+    public async Task UpdateSettings_OtherFieldOnly_KeepsTheBankBin()
+    {
+        var organizationId = await CreateOrganizationAsync();
+        await PatchSettingsAsync(organizationId, new UpdateOrganizationSettingsRequest
+        {
+            BankBin = "970436",
+            BankAccountNumber = "0011001234567"
+        });
+
+        var settings = await PatchSettingsAsync(organizationId, new UpdateOrganizationSettingsRequest { VatRate = 8 });
+
+        Assert.Equal("970436", settings.BankBin);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_UnknownBankBin_Returns400()
+    {
+        var organizationId = await CreateOrganizationAsync();
+
+        var response = await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
+        {
+            BankBin = "000000",
+            BankAccountNumber = "0011001234567"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(
+            VietQrBanks.UnknownBinMessage,
+            document.RootElement.GetProperty("errors").GetProperty("bankBin")[0].GetString());
+        Assert.Null((await GetSettingsAsync(organizationId)).BankAccountNumber);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_BankBinWithoutAccountNumber_Returns400AndSavesNothing()
+    {
+        var organizationId = await CreateOrganizationAsync();
+
+        var response = await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
+        {
+            BankBin = "970436"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(VietQrPayload.InvalidAccountNumberMessage, document.RootElement.GetProperty("title").GetString());
+        Assert.Null((await GetSettingsAsync(organizationId)).BankBin);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_BankBinWithAFreeTextAccountNumber_Returns400()
+    {
+        var organizationId = await CreateOrganizationAsync();
+
+        var response = await _client.PatchAsJsonAsync($"/api/organizations/{organizationId}/settings", new UpdateOrganizationSettingsRequest
+        {
+            BankBin = "970436",
+            BankAccountNumber = "0011 001 234567"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_ClearingTheAccountNumberWhileTheBankBinIsSet_Returns400()
+    {
+        var organizationId = await CreateOrganizationAsync();
+        await PatchSettingsAsync(organizationId, new UpdateOrganizationSettingsRequest
+        {
+            BankBin = "970436",
+            BankAccountNumber = "0011001234567"
+        });
+
+        var response = await _client.PatchAsync(
+            $"/api/organizations/{organizationId}/settings",
+            new StringContent("""{ "bankAccountNumber": null }""", System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("0011001234567", (await GetSettingsAsync(organizationId)).BankAccountNumber);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_ClearingBankBinAndAccountNumber_Returns200()
+    {
+        var organizationId = await CreateOrganizationAsync();
+        await PatchSettingsAsync(organizationId, new UpdateOrganizationSettingsRequest
+        {
+            BankBin = "970436",
+            BankAccountNumber = "0011001234567"
+        });
+
+        var response = await _client.PatchAsync(
+            $"/api/organizations/{organizationId}/settings",
+            new StringContent("""{ "bankBin": null, "bankAccountNumber": null }""", System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var settings = await GetSettingsAsync(organizationId);
+        Assert.Equal(((string?)null, (string?)null), (settings.BankBin, settings.BankAccountNumber));
     }
 }
