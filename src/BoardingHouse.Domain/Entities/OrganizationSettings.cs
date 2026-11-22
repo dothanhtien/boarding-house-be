@@ -7,6 +7,9 @@ namespace BoardingHouse.Domain.Entities;
 public class OrganizationSettings
 {
     public const int BankBinLength = 6;
+    public const string VndCurrency = "VND";
+    public const string BankAccountNotConfiguredMessage = "Bank account is not configured";
+    public const string VietQrCurrencyMessage = "VietQR only supports VND";
 
     public Guid OrganizationId { get; private set; }
     public Organization? Organization { get; private set; }
@@ -17,7 +20,7 @@ public class OrganizationSettings
     public int? LateFeeGraceDays { get; private set; }
 
     public decimal? VatRate { get; private set; }
-    public string Currency { get; private set; } = "VND";
+    public string Currency { get; private set; } = VndCurrency;
 
     public bool AutoGenerateInvoices { get; private set; }
 
@@ -72,5 +75,20 @@ public class OrganizationSettings
         AutoGenerateInvoices = details.AutoGenerateInvoices;
         UpdatedAt = now;
         UpdatedBy = updatedBy;
+    }
+
+    public VietQrAccount GetVietQrAccount()
+    {
+        if (BankAccountNumber is null || BankBin is null || VietQrBanks.Find(BankBin) is not { } bank)
+        {
+            throw DomainException.Conflict(BankAccountNotConfiguredMessage);
+        }
+
+        if (Currency != VndCurrency)
+        {
+            throw DomainException.Conflict(VietQrCurrencyMessage);
+        }
+
+        return new VietQrAccount(bank, BankAccountNumber, BankAccountName);
     }
 }

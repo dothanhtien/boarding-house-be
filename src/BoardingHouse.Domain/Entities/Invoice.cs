@@ -13,6 +13,9 @@ public class Invoice : BaseEntity
     public const int NotesMaxLength = 2000;
     public const int CancelReasonMaxLength = 1000;
     public const string OverdueReason = "Past due date";
+    public const string CancelledMessage = "A cancelled invoice cannot take payments";
+    public const string AlreadyPaidMessage = "The invoice is already paid";
+    public const string NothingLeftToPayMessage = "The invoice has nothing left to pay";
 
     public Guid OrganizationId { get; private set; }
     public Organization? Organization { get; private set; }
@@ -254,6 +257,19 @@ public class Invoice : BaseEntity
         }
     }
 
+    public decimal GetAmountToRequest()
+    {
+        EnsureNotCancelled();
+
+        if (Status == InvoiceStatus.Paid)
+        {
+            throw DomainException.Conflict(AlreadyPaidMessage);
+        }
+
+        var amount = decimal.Floor(RemainingAmount);
+        return amount >= 1 ? amount : throw DomainException.Conflict(NothingLeftToPayMessage);
+    }
+
     public static string FormatNumber(BillingMonth month, int number) =>
         string.Create(CultureInfo.InvariantCulture, $"INV-{month.FirstDay:yyyyMM}-{number:D4}");
 
@@ -295,16 +311,21 @@ public class Invoice : BaseEntity
 
     private void EnsureCanTakePayment(decimal amount)
     {
-        if (Status == InvoiceStatus.Cancelled)
-        {
-            throw DomainException.Conflict("A cancelled invoice cannot take payments");
-        }
+        EnsureNotCancelled();
 
         if (amount > RemainingAmount)
         {
             throw new DomainException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"Amount must not exceed the remaining amount of the invoice ({RemainingAmount:0.##})"));
+        }
+    }
+
+    private void EnsureNotCancelled()
+    {
+        if (Status == InvoiceStatus.Cancelled)
+        {
+            throw DomainException.Conflict(CancelledMessage);
         }
     }
 

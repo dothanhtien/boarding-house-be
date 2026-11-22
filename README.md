@@ -197,6 +197,29 @@ dotnet ef database update \
   --project src/BoardingHouse.Infrastructure --startup-project src/BoardingHouse.Api
 ```
 
+## Bank transfers (VietQR)
+
+Invoices can show a [VietQR](https://vietqr.net/) code the tenant scans with any Vietnamese banking app. The code is
+built by the API (NAPAS EMVCo payload): no outside service is called and nothing leaves the system.
+
+1. Pick the receiving bank from `GET /api/vietqr/banks` and save it with the account in the organization settings:
+
+   ```http
+   PATCH /api/organizations/{organizationId}/settings
+   { "bankBin": "970436", "bankAccountNumber": "0011001234567", "bankAccountName": "NGUYEN VAN A" }
+   ```
+
+   `bankBin` needs an account number of 1–19 letters or digits (no spaces or dashes).
+2. `GET /api/invoices/{id}/payment-qr` returns the `payload` for the amount still to pay (rounded down to whole VND),
+   with the invoice number as the transfer note (`INV-202611-0001` → `INV2026110001`). A paid or cancelled invoice,
+   one with less than 1 VND left, an organization without a bank account and a currency other than VND get `409`.
+3. The frontend renders `payload` as a QR image (any QR library). After the money arrives, staff record a
+   `bankTransfer` payment (`POST /api/invoices/{id}/payments`).
+
+The bank list is a constant (`Domain/VietQr/VietQrBanks.cs`, taken from `https://api.vietqr.io/v2/banks`): add a bank
+there when NAPAS adds one. Do not remove a BIN an organization may have saved: its settings could no longer be
+updated and its QR codes would return `409` until an admin picks another bank.
+
 ## Background jobs
 
 Recurring jobs run on [Hangfire](https://www.hangfire.io/) inside the API process, with Postgres as storage. Hangfire

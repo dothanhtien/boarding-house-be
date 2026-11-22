@@ -1,6 +1,7 @@
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.VietQr;
+using BoardingHouse.UnitTests.Common;
 
 namespace BoardingHouse.UnitTests.Entities;
 
@@ -135,5 +136,69 @@ public class OrganizationSettingsTests
         Update(settings, settings.Details with { BankBin = null, BankAccountNumber = null });
 
         Assert.Equal(((string?)null, (string?)null), (settings.BankBin, settings.BankAccountNumber));
+    }
+
+    [Fact]
+    public void GetVietQrAccount_BankConfigured_ReturnsTheBankAndAccount()
+    {
+        var settings = NewSettings();
+        Update(settings, settings.Details with
+        {
+            BankBin = "970436", BankAccountNumber = "0011001234567", BankAccountName = "NGUYEN VAN A"
+        });
+
+        var account = settings.GetVietQrAccount();
+
+        Assert.Equal(new VietQrAccount(VietQrBanks.Find("970436")!, "0011001234567", "NGUYEN VAN A"), account);
+    }
+
+    [Fact]
+    public void GetVietQrAccount_WithoutAccountName_ReturnsANullName()
+    {
+        var account = NewSettingsWithBank().GetVietQrAccount();
+
+        Assert.Null(account.AccountName);
+    }
+
+    [Fact]
+    public void GetVietQrAccount_DefaultSettings_ThrowsConflict()
+    {
+        var ex = Assert.Throws<DomainException>(() => NewSettings().GetVietQrAccount());
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal(OrganizationSettings.BankAccountNotConfiguredMessage, ex.Message);
+    }
+
+    [Fact]
+    public void GetVietQrAccount_AccountNumberWithoutBankBin_ThrowsConflict()
+    {
+        var settings = NewSettings();
+        Update(settings, settings.Details with { BankAccountNumber = "0011001234567", BankName = "Vietcombank" });
+
+        var ex = Assert.Throws<DomainException>(() => settings.GetVietQrAccount());
+
+        Assert.Equal(OrganizationSettings.BankAccountNotConfiguredMessage, ex.Message);
+    }
+
+    [Fact]
+    public void GetVietQrAccount_BankBinNoLongerListed_ThrowsConflict()
+    {
+        // Saved while the BIN was still in VietQrBanks
+        var settings = TestEntities.Set(NewSettings(), new { BankBin = "000000", BankAccountNumber = "0011001234567" });
+
+        var ex = Assert.Throws<DomainException>(() => settings.GetVietQrAccount());
+
+        Assert.Equal(OrganizationSettings.BankAccountNotConfiguredMessage, ex.Message);
+    }
+
+    [Fact]
+    public void GetVietQrAccount_CurrencyOtherThanVnd_ThrowsConflict()
+    {
+        var settings = TestEntities.Set(NewSettingsWithBank(), new { Currency = "USD" });
+
+        var ex = Assert.Throws<DomainException>(() => settings.GetVietQrAccount());
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal(OrganizationSettings.VietQrCurrencyMessage, ex.Message);
     }
 }
