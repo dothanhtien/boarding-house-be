@@ -31,7 +31,7 @@ public class TenantPortalQueries(AppDbContext context, IStorageProvider storageP
         var active = total == 0
             ? 0
             : await stays
-                .Where(s => s.LeaseStatus == LeaseStatus.Active && (s.To == null || s.To >= today))
+                .Where(s => s.LeaseStatus == LeaseStatus.Active && s.From <= today && (s.To == null || s.To >= today))
                 .Select(s => s.LeaseId)
                 .Distinct()
                 .CountAsync(cancellationToken);

@@ -428,6 +428,22 @@ public class TenantPortalControllerIntegrationTests(PostgresApiFactory factory)
     }
 
     [Fact]
+    public async Task GetTenancy_TenantMovingInLater_IsNotActiveYet()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-AB", new DateOnly(2026, 1, 1), tenantB, tenantA);
+        var tomorrow = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(1);
+        await SetTenantDatesAsync(leaseId, tenantA, joinedDate: tomorrow, leftDate: null);
+
+        var tenancy = await ReadDataAsync<TenancyResponse>(await client.GetAsync("/api/me/tenancy"));
+
+        // the stay has not started: the lease counts as theirs, but not as where they live today
+        Assert.Equal(0, tenancy.ActiveLeaseCount);
+        Assert.Equal(1, tenancy.TotalLeaseCount);
+    }
+
+    [Fact]
     public async Task GetTenancy_TenantWhoRejoinedSameLease_CountedOnce()
     {
         var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
