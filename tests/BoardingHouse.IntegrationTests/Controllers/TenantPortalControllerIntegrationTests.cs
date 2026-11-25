@@ -178,7 +178,7 @@ public class TenantPortalControllerIntegrationTests(PostgresApiFactory factory)
     }
 
     private async Task AddInvoiceItemAsync(
-        Guid invoiceId, string description, decimal amount, int sortOrder, InvoiceItemSourceType sourceType)
+        Guid invoiceId, string description, decimal amount, int sortOrder, InvoiceItemSourceType sourceType, Guid? sourceId = null)
     {
         using var scope = factory.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -191,10 +191,99 @@ public class TenantPortalControllerIntegrationTests(PostgresApiFactory factory)
             Amount = amount,
             SortOrder = sortOrder,
             SourceType = sourceType,
-            SourceId = (Guid?)Guid.NewGuid(),
+            SourceId = sourceId ?? Guid.NewGuid(),
             CreatedAt = DateTimeOffset.UtcNow
         }));
         await context.SaveChangesAsync();
+    }
+
+    private async Task<Guid> SeedElectricityServiceAsync()
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var service = TestEntities.New<UtilityService>(new
+        {
+            PropertyId = _propertyId,
+            Name = "Electricity",
+            Type = UtilityType.Electricity,
+            Unit = "kWh",
+            BillingMethod = UtilityBillingMethod.Metered,
+            DefaultUnitPrice = 3_500m,
+            CreatedBy = _staffId
+        });
+        context.UtilityServices.Add(service);
+        await context.SaveChangesAsync();
+        return service.Id;
+    }
+
+    // latest: null makes each month an independent row (unique index is (room_id, reading_month, service_id))
+    private async Task<Guid> SeedReadingAsync(Guid leaseId, Guid serviceId, DateOnly month)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var reading = UtilityReading.Record(
+            _room.Id, serviceId, readOn: month, BillingMonth.FromFirstDay(month), latest: null,
+            initialPreviousValue: 100, currentValue: 150, billedLeaseId: leaseId, DateTimeOffset.UtcNow, _staffId);
+        context.UtilityReadings.Add(reading);
+        await context.SaveChangesAsync();
+        return reading.Id;
+    }
+
+    private async Task<string> AttachReadingImageAsync(Guid readingId)
+    {
+        var storageKey = $"test/utility-readings/{Guid.NewGuid():N}";
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        context.MediaAssets.Add(TestEntities.New<MediaAsset>(new
+        {
+            OrganizationId = _organizationId,
+            FileName = "meter.png",
+            StorageProvider = StorageProvider.Cloudinary,
+            StorageKey = storageKey,
+            FileUrl = $"https://storage.test/{storageKey}",
+            MimeType = "image/png",
+            FileSize = 3L,
+            EntityType = MediaAssetEntityType.UtilityReadingImage,
+            EntityId = readingId,
+            CreatedBy = SentinelActors.System
+        }));
+        await context.SaveChangesAsync();
+        return storageKey;
+    }
+
+    private async Task SoftDeleteReadingAsync(Guid readingId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var reading = await context.UtilityReadings.SingleAsync(r => r.Id == readingId);
+        context.UtilityReadings.Remove(reading);
+        await context.SaveChangesAsync();
+    }
+
+    private async Task<Guid> SeedWaterServiceAsync()
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var service = TestEntities.New<UtilityService>(new
+        {
+            PropertyId = _propertyId,
+            Name = "Water",
+            Type = UtilityType.Water,
+            Unit = "m3",
+            BillingMethod = UtilityBillingMethod.Metered,
+            DefaultUnitPrice = 20_000m,
+            CreatedBy = _staffId
+        });
+        context.UtilityServices.Add(service);
+        await context.SaveChangesAsync();
+        return service.Id;
+    }
+
+    private async Task<string> GetInvoiceNumberAsync(Guid invoiceId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await context.Invoices.Where(i => i.Id == invoiceId).Select(i => i.InvoiceNumber).SingleAsync();
     }
 
     private async Task SoftDeleteLeaseAsync(Guid leaseId)
@@ -654,5 +743,137 @@ public class TenantPortalControllerIntegrationTests(PostgresApiFactory factory)
         Assert.Equal(
             ["amount", "description", "quantity", "sourceType", "unitPrice"],
             item.EnumerateObject().Select(p => p.Name).Order().ToArray());
+    }
+
+    [Fact]
+    public async Task GetUtilityReadings_TenantWhoMovedOut_SeesOnlyMonthsLivedThere()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-AB", new DateOnly(2026, 1, 1), tenantB, tenantA);
+        await SetTenantDatesAsync(leaseId, tenantA, joinedDate: null, leftDate: new DateOnly(2026, 6, 15));
+        var electricity = await SeedElectricityServiceAsync();
+        var june = await SeedReadingAsync(leaseId, electricity, new DateOnly(2026, 6, 1));
+        await SeedReadingAsync(leaseId, electricity, new DateOnly(2026, 7, 1));
+
+        var response = await client.GetAsync($"/api/me/leases/{leaseId}/utility-readings");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var page = await ReadDataAsync<PagedResult<MyUtilityReadingResponse>>(response);
+        var reading = Assert.Single(page.Items);
+        Assert.Equal(june, reading.Id);
+        Assert.Equal(("Electricity", 50m), (reading.ServiceName, reading.Consumption));
+        Assert.Null(reading.ImageUrl);
+        Assert.Null(reading.InvoiceNumber);
+    }
+
+    [Fact]
+    public async Task GetUtilityReadings_TenantWhoRejoined_DoesNotSeeMonthsBetweenStays()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-AB", new DateOnly(2026, 1, 1), tenantB, tenantA);
+        await RejoinAsync(leaseId, tenantA, leftDate: new DateOnly(2026, 3, 10), rejoinedDate: new DateOnly(2026, 5, 20));
+        var electricity = await SeedElectricityServiceAsync();
+        var march = await SeedReadingAsync(leaseId, electricity, new DateOnly(2026, 3, 1));
+        await SeedReadingAsync(leaseId, electricity, new DateOnly(2026, 4, 1));
+        var may = await SeedReadingAsync(leaseId, electricity, new DateOnly(2026, 5, 1));
+
+        var page = await ReadDataAsync<PagedResult<MyUtilityReadingResponse>>(
+            await client.GetAsync($"/api/me/leases/{leaseId}/utility-readings"));
+
+        Assert.Equal([may, march], page.Items.Select(r => r.Id));
+    }
+
+    [Fact]
+    public async Task GetUtilityReadings_WithImageAndInvoice_ReturnsUrlAndLiveInvoiceNumber()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+        var electricity = await SeedElectricityServiceAsync();
+        var readingId = await SeedReadingAsync(leaseId, electricity, new DateOnly(2026, 2, 1));
+        var storageKey = await AttachReadingImageAsync(readingId);
+        // billed on an invoice that was cancelled, then on its replacement (cancelled ones are not "live")
+        var cancelled = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 2, 1), InvoiceStatus.Cancelled);
+        await AddInvoiceItemAsync(cancelled, "Electricity", 175_000m, sortOrder: 1, InvoiceItemSourceType.Utility, sourceId: readingId);
+        var replacement = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 2, 1));
+        await AddInvoiceItemAsync(replacement, "Electricity", 175_000m, sortOrder: 1, InvoiceItemSourceType.Utility, sourceId: readingId);
+        var replacementNumber = await GetInvoiceNumberAsync(replacement);
+
+        var page = await ReadDataAsync<PagedResult<MyUtilityReadingResponse>>(
+            await client.GetAsync($"/api/me/leases/{leaseId}/utility-readings"));
+
+        var reading = Assert.Single(page.Items);
+        Assert.Equal($"https://storage.test/{storageKey}", reading.ImageUrl);
+        Assert.Equal(replacementNumber, reading.InvoiceNumber);
+    }
+
+    [Fact]
+    public async Task GetUtilityReadings_FilterByServiceAndMonths()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+        var electricity = await SeedElectricityServiceAsync();
+        var water = await SeedWaterServiceAsync();
+        await SeedReadingAsync(leaseId, electricity, new DateOnly(2026, 1, 1));
+        var february = await SeedReadingAsync(leaseId, electricity, new DateOnly(2026, 2, 1));
+        var march = await SeedReadingAsync(leaseId, electricity, new DateOnly(2026, 3, 1));
+        await SeedReadingAsync(leaseId, electricity, new DateOnly(2026, 4, 1));
+        await SeedReadingAsync(leaseId, water, new DateOnly(2026, 2, 1));
+
+        var page = await ReadDataAsync<PagedResult<MyUtilityReadingResponse>>(await client.GetAsync(
+            $"/api/me/leases/{leaseId}/utility-readings?serviceId={electricity}&from=2026-02-01&to=2026-03-01"));
+
+        Assert.Equal([march, february], page.Items.Select(r => r.Id));
+    }
+
+    [Fact]
+    public async Task GetUtilityReadings_SoftDeletedReading_NotListed()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+        var electricity = await SeedElectricityServiceAsync();
+        var deleted = await SeedReadingAsync(leaseId, electricity, new DateOnly(2026, 2, 1));
+        await SoftDeleteReadingAsync(deleted);
+
+        var page = await ReadDataAsync<PagedResult<MyUtilityReadingResponse>>(
+            await client.GetAsync($"/api/me/leases/{leaseId}/utility-readings"));
+
+        // the query uses IgnoreQueryFilters: this fails if its explicit DeletedAt check is dropped
+        Assert.Empty(page.Items);
+    }
+
+    [Fact]
+    public async Task GetUtilityReadings_OfAnotherTenantsLease_Returns404()
+    {
+        var (client, _) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-B", new DateOnly(2026, 1, 1), tenantB);
+
+        var response = await client.GetAsync($"/api/me/leases/{leaseId}/utility-readings");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetUtilityReadings_OfDraftLease_Returns404()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var draft = await SeedLeaseAsync(LeaseStatus.Draft, "HD-DRAFT", new DateOnly(2026, 1, 1), tenantA);
+
+        var response = await client.GetAsync($"/api/me/leases/{draft}/utility-readings");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetUtilityReadings_ToBeforeFrom_Returns400()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+
+        var response = await client.GetAsync($"/api/me/leases/{leaseId}/utility-readings?from=2026-06-01&to=2026-05-01");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 }

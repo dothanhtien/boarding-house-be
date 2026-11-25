@@ -48,4 +48,12 @@ public class TenantPortalController(ITenantPortalService tenantPortalService) : 
         var invoice = await tenantPortalService.GetInvoiceAsync(id, cancellationToken);
         return Ok(new ApiResponse<MyInvoiceDetailResponse> { Data = invoice });
     }
+
+    [HttpGet("leases/{id:guid}/utility-readings")]
+    public async Task<ActionResult<ApiResponse<PagedResult<MyUtilityReadingResponse>>>> GetUtilityReadings(
+    Guid id, [FromQuery] MyUtilityReadingListQuery query, CancellationToken cancellationToken)
+    {
+        var readings = await tenantPortalService.GetUtilityReadingsAsync(id, query, cancellationToken);
+        return Ok(new ApiResponse<PagedResult<MyUtilityReadingResponse>> { Data = readings });
+    }
 }

@@ -32,4 +32,16 @@ public class TenantPortalService(
         await tenantPortalQueries.GetInvoiceAsync(CurrentUserId, invoiceId, cancellationToken)
             ?? throw new AppNotFoundException(NotFoundMessages.Invoice(invoiceId));
 
+    public async Task<PagedResult<MyUtilityReadingResponse>> GetUtilityReadingsAsync(
+        Guid leaseId, MyUtilityReadingListQuery query, CancellationToken cancellationToken = default)
+    {
+        var userId = CurrentUserId;
+
+        if (!await tenantPortalQueries.IsLeaseVisibleAsync(userId, leaseId, cancellationToken))
+        {
+            throw new AppNotFoundException(NotFoundMessages.Lease(leaseId));
+        }
+
+        return await tenantPortalQueries.SearchUtilityReadingsAsync(userId, leaseId, query, cancellationToken);
+    }
 }

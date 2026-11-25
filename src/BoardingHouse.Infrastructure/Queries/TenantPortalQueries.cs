@@ -3,6 +3,7 @@ using System.Linq.Expressions;
 using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.DTOs.TenantPortal;
 using BoardingHouse.Application.Queries;
+using BoardingHouse.Application.Services.Storage;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
@@ -11,7 +12,7 @@ using BoardingHouse.Infrastructure.Persistence.Listing;
 
 namespace BoardingHouse.Infrastructure.Queries;
 
-public class TenantPortalQueries(AppDbContext context) : ITenantPortalQueries
+public class TenantPortalQueries(AppDbContext context, IStorageProvider storageProvider) : ITenantPortalQueries
 {
 
     private sealed class Stay
@@ -155,6 +156,84 @@ public class TenantPortalQueries(AppDbContext context) : ITenantPortalQueries
             .ToListAsync(cancellationToken);
 
         return new MyInvoiceDetailResponse(invoice) { Items = items };
+    }
+
+    public Task<bool> IsLeaseVisibleAsync(Guid userId, Guid leaseId, CancellationToken cancellationToken = default) =>
+        StaysOf(userId).AnyAsync(s => s.LeaseId == leaseId, cancellationToken);
+
+    public async Task<PagedResult<MyUtilityReadingResponse>> SearchUtilityReadingsAsync(
+        Guid userId, Guid leaseId, MyUtilityReadingListQuery query, CancellationToken cancellationToken = default)
+    {
+        var stays = StaysOf(userId).Where(s => s.LeaseId == leaseId);
+        var liveUtilityItems = InvoiceItemQueries.Live(context).Where(i => i.SourceType == InvoiceItemSourceType.Utility);
+        var images = context.MediaAssets
+            .Where(m => m.EntityType == MediaAssetEntityType.UtilityReadingImage && m.DeletedAt == null);
+
+        var readings = context.UtilityReadings
+            .IgnoreQueryFilters()
+            .Where(r => r.BilledLeaseId == leaseId
+                && r.DeletedAt == null
+                && stays.Any(s => s.From < EF.Property<DateOnly>(r, nameof(UtilityReading.ReadingMonth)).AddMonths(1)
+                    && (s.To == null || s.To >= EF.Property<DateOnly>(r, nameof(UtilityReading.ReadingMonth)))));
+
+        if (query.ServiceId is not null)
+        {
+            readings = readings.Where(r => r.ServiceId == query.ServiceId);
+        }
+
+        if (query.From is { } from)
+        {
+            var fromMonth = BillingMonth.FromFirstDay(from);
+            readings = readings.Where(r => r.ReadingMonth >= fromMonth);
+        }
+
+        if (query.To is { } to)
+        {
+            var toMonth = BillingMonth.FromFirstDay(to);
+            readings = readings.Where(r => r.ReadingMonth <= toMonth);
+        }
+
+        var page = await readings.ToPagedResultAsync(
+            query,
+            r => r.ReadingMonth,
+            SortOrder.Desc,
+            q => q
+                .LeftJoin(images, r => r.Id, m => m.EntityId, (r, m) => new { Reading = r, Media = m })
+                .Select(x => new
+                {
+                    Response = new MyUtilityReadingResponse
+                    {
+                        Id = x.Reading.Id,
+                        ServiceId = x.Reading.ServiceId,
+                        ServiceName = x.Reading.Service!.Name,
+                        Unit = x.Reading.Service.Unit,
+                        ReadOn = x.Reading.ReadOn,
+                        ReadingMonth = x.Reading.ReadingMonth.FirstDay,
+                        PreviousValue = x.Reading.PreviousValue,
+                        CurrentValue = x.Reading.CurrentValue,
+                        Consumption = x.Reading.Consumption,
+                        InvoiceNumber = liveUtilityItems
+                            .Where(i => i.SourceId == x.Reading.Id)
+                            .Select(i => i.Invoice!.InvoiceNumber)
+                            .FirstOrDefault()
+                    },
+                    StorageKey = x.Media == null ? null : x.Media.StorageKey,
+                    MimeType = x.Media == null ? null : x.Media.MimeType
+                }),
+            cancellationToken);
+
+        return new PagedResult<MyUtilityReadingResponse>
+        {
+            Items = page.Items
+                .Select(x => x.Response with
+                {
+                    ImageUrl = x.StorageKey is null ? null : storageProvider.GetUrl(x.StorageKey, x.MimeType!)
+                })
+                .ToList(),
+            Page = page.Page,
+            PageSize = page.PageSize,
+            TotalItems = page.TotalItems
+        };
     }
 
     private IQueryable<Stay> StaysOf(Guid userId) =>

@@ -59,4 +59,28 @@ public class TenantPortalServiceTests
         await Assert.ThrowsAsync<AppNotFoundException>(() => _service.GetInvoiceAsync(invoiceId));
         _queries.Verify(q => q.GetInvoiceAsync(_userId, invoiceId, It.IsAny<CancellationToken>()));
     }
+
+    [Fact]
+    public async Task GetUtilityReadingsAsync_LeaseNotVisible_ThrowsNotFound_WithoutSearching()
+    {
+        var leaseId = Guid.NewGuid();
+
+        await Assert.ThrowsAsync<AppNotFoundException>(
+            () => _service.GetUtilityReadingsAsync(leaseId, new MyUtilityReadingListQuery()));
+        _queries.Verify(q => q.IsLeaseVisibleAsync(_userId, leaseId, It.IsAny<CancellationToken>()));
+        _queries.Verify(q => q.SearchUtilityReadingsAsync(
+            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<MyUtilityReadingListQuery>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetUtilityReadingsAsync_LeaseVisible_SearchesForCurrentUser()
+    {
+        var leaseId = Guid.NewGuid();
+        var query = new MyUtilityReadingListQuery();
+        _queries.Setup(q => q.IsLeaseVisibleAsync(_userId, leaseId, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        await _service.GetUtilityReadingsAsync(leaseId, query);
+
+        _queries.Verify(q => q.SearchUtilityReadingsAsync(_userId, leaseId, query, It.IsAny<CancellationToken>()));
+    }
 }

@@ -13,4 +13,7 @@ public interface ITenantPortalQueries
     Task<PagedResult<MyInvoiceResponse>> SearchInvoicesAsync(
         Guid userId, MyInvoiceListQuery query, CancellationToken cancellationToken = default);
     Task<MyInvoiceDetailResponse?> GetInvoiceAsync(Guid userId, Guid invoiceId, CancellationToken cancellationToken = default);
+    Task<bool> IsLeaseVisibleAsync(Guid userId, Guid leaseId, CancellationToken cancellationToken = default);
+    Task<PagedResult<MyUtilityReadingResponse>> SearchUtilityReadingsAsync(
+        Guid userId, Guid leaseId, MyUtilityReadingListQuery query, CancellationToken cancellationToken = default);
 }
