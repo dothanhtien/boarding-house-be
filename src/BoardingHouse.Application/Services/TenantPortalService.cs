@@ -24,4 +24,12 @@ public class TenantPortalService(
     public async Task<MyLeaseDetailResponse> GetLeaseAsync(Guid leaseId, CancellationToken cancellationToken = default) =>
         await tenantPortalQueries.GetLeaseAsync(CurrentUserId, leaseId, cancellationToken)
             ?? throw new AppNotFoundException(NotFoundMessages.Lease(leaseId));
+
+    public Task<PagedResult<MyInvoiceResponse>> GetInvoicesAsync(MyInvoiceListQuery query, CancellationToken cancellationToken = default) =>
+        tenantPortalQueries.SearchInvoicesAsync(CurrentUserId, query, cancellationToken);
+
+    public async Task<MyInvoiceDetailResponse> GetInvoiceAsync(Guid invoiceId, CancellationToken cancellationToken = default) =>
+        await tenantPortalQueries.GetInvoiceAsync(CurrentUserId, invoiceId, cancellationToken)
+            ?? throw new AppNotFoundException(NotFoundMessages.Invoice(invoiceId));
+
 }

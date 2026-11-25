@@ -152,6 +152,51 @@ public class TenantPortalControllerIntegrationTests(PostgresApiFactory factory)
         await context.SaveChangesAsync();
     }
 
+    private async Task<Guid> SeedInvoiceAsync(
+        Guid leaseId, DateOnly billingMonth, InvoiceStatus status = InvoiceStatus.Pending, decimal paidAmount = 0)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var invoice = TestEntities.New<Invoice>(new
+        {
+            OrganizationId = _organizationId,
+            LeaseId = leaseId,
+            // unique per organization: a random suffix could collide and make the test flaky
+            InvoiceNumber = $"INV-{billingMonth:yyyy-MM}-{Guid.NewGuid():N}"[..24],
+            BillingMonth = BillingMonth.FromFirstDay(billingMonth),
+            DueDate = billingMonth.AddDays(9),
+            Subtotal = 3_000_000m,
+            TotalAmount = 3_000_000m,
+            PaidAmount = paidAmount,
+            Status = status,
+            Notes = "internal note",
+            CreatedBy = _staffId
+        });
+        context.Invoices.Add(invoice);
+        await context.SaveChangesAsync();
+        return invoice.Id;
+    }
+
+    private async Task AddInvoiceItemAsync(
+        Guid invoiceId, string description, decimal amount, int sortOrder, InvoiceItemSourceType sourceType)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        context.InvoiceItems.Add(TestEntities.New<InvoiceItem>(new
+        {
+            InvoiceId = invoiceId,
+            Description = description,
+            Quantity = 1m,
+            UnitPrice = amount,
+            Amount = amount,
+            SortOrder = sortOrder,
+            SourceType = sourceType,
+            SourceId = (Guid?)Guid.NewGuid(),
+            CreatedAt = DateTimeOffset.UtcNow
+        }));
+        await context.SaveChangesAsync();
+    }
+
     private async Task SoftDeleteLeaseAsync(Guid leaseId)
     {
         using var scope = factory.Services.CreateScope();
@@ -441,5 +486,173 @@ public class TenantPortalControllerIntegrationTests(PostgresApiFactory factory)
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Empty((await ReadDataAsync<PagedResult<MyLeaseResponse>>(response)).Items);
+    }
+
+    [Fact]
+    public async Task GetInvoices_TenantWhoMovedOut_DoesNotSeeLaterMonths()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-AB", new DateOnly(2026, 1, 1), tenantB, tenantA);
+        await SetTenantDatesAsync(leaseId, tenantA, joinedDate: null, leftDate: new DateOnly(2026, 6, 15));
+        var june = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 6, 1));
+        var july = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 7, 1));
+
+        var list = await ReadDataAsync<PagedResult<MyInvoiceResponse>>(await client.GetAsync("/api/me/invoices"));
+
+        Assert.Equal([june], list.Items.Select(i => i.Id));
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/me/invoices/{july}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task GetInvoices_TenantWhoJoinedLater_DoesNotSeeEarlierMonths()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-AB", new DateOnly(2026, 1, 1), tenantB, tenantA);
+        await SetTenantDatesAsync(leaseId, tenantA, joinedDate: new DateOnly(2026, 8, 20), leftDate: null);
+        await SeedInvoiceAsync(leaseId, new DateOnly(2026, 7, 1));
+        var august = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 8, 1));
+
+        var list = await ReadDataAsync<PagedResult<MyInvoiceResponse>>(await client.GetAsync("/api/me/invoices"));
+
+        Assert.Equal([august], list.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetInvoices_TenantWhoRejoined_SeesOnlyMonthsLivedThere()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-AB", new DateOnly(2026, 1, 1), tenantB, tenantA);
+        await RejoinAsync(leaseId, tenantA, leftDate: new DateOnly(2026, 3, 10), rejoinedDate: new DateOnly(2026, 5, 20));
+        var march = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 3, 1));
+        await SeedInvoiceAsync(leaseId, new DateOnly(2026, 4, 1));
+        var may = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 5, 1));
+
+        var invoices = await ReadDataAsync<PagedResult<MyInvoiceResponse>>(await client.GetAsync("/api/me/invoices"));
+
+        // April (moved out) is not visible
+        Assert.Equal([may, march], invoices.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetInvoices_StayBoundaries_OneDayInTheMonthIsEnough()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-AB", new DateOnly(2026, 1, 1), tenantB, tenantA);
+        // moved in on the last day of January, left on the first day of March
+        await SetTenantDatesAsync(leaseId, tenantA, joinedDate: new DateOnly(2026, 1, 31), leftDate: new DateOnly(2026, 3, 1));
+        await SeedInvoiceAsync(leaseId, new DateOnly(2025, 12, 1));
+        var january = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 1, 1));
+        var february = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 2, 1));
+        var march = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 3, 1));
+        await SeedInvoiceAsync(leaseId, new DateOnly(2026, 4, 1));
+
+        var invoices = await ReadDataAsync<PagedResult<MyInvoiceResponse>>(await client.GetAsync("/api/me/invoices"));
+
+        // same rule as Domain StayPeriod.Covers (StayPeriodTests), here as SQL
+        Assert.Equal([march, february, january], invoices.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetInvoices_OfDraftLease_NotVisible()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var draft = await SeedLeaseAsync(LeaseStatus.Draft, "HD-DRAFT", new DateOnly(2026, 1, 1), tenantA);
+        var invoiceId = await SeedInvoiceAsync(draft, new DateOnly(2026, 1, 1));
+
+        var invoices = await ReadDataAsync<PagedResult<MyInvoiceResponse>>(await client.GetAsync("/api/me/invoices"));
+
+        Assert.Empty(invoices.Items);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/me/invoices/{invoiceId}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task GetInvoices_FilterByLeaseAndBillingMonth()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var older = await SeedLeaseAsync(LeaseStatus.Expired, "HD-2025", new DateOnly(2025, 1, 1), tenantA);
+        var current = await SeedLeaseAsync(LeaseStatus.Active, "HD-2026", new DateOnly(2026, 1, 1), tenantA);
+        var others = await SeedLeaseAsync(LeaseStatus.Expired, "HD-B", new DateOnly(2024, 1, 1), tenantB);
+        var olderJune = await SeedInvoiceAsync(older, new DateOnly(2025, 6, 1));
+        var currentJune = await SeedInvoiceAsync(current, new DateOnly(2026, 6, 1));
+        await SeedInvoiceAsync(current, new DateOnly(2026, 7, 1));
+        await SeedInvoiceAsync(others, new DateOnly(2024, 6, 1));
+
+        var byLease = await ReadDataAsync<PagedResult<MyInvoiceResponse>>(await client.GetAsync($"/api/me/invoices?leaseId={older}"));
+        var byMonth = await ReadDataAsync<PagedResult<MyInvoiceResponse>>(await client.GetAsync("/api/me/invoices?billingMonth=2026-06-01"));
+        var othersLease = await ReadDataAsync<PagedResult<MyInvoiceResponse>>(await client.GetAsync($"/api/me/invoices?leaseId={others}"));
+
+        Assert.Equal([olderJune], byLease.Items.Select(i => i.Id));
+        Assert.Equal([currentJune], byMonth.Items.Select(i => i.Id));
+        Assert.Empty(othersLease.Items);
+    }
+
+    [Fact]
+    public async Task GetInvoices_HidesCancelledUnlessAskedFor()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+        var cancelled = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 2, 1), InvoiceStatus.Cancelled);
+        var pending = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 3, 1));
+
+        var all = await ReadDataAsync<PagedResult<MyInvoiceResponse>>(await client.GetAsync("/api/me/invoices"));
+        var onlyCancelled = await ReadDataAsync<PagedResult<MyInvoiceResponse>>(await client.GetAsync("/api/me/invoices?status=cancelled"));
+
+        Assert.Equal([pending], all.Items.Select(i => i.Id));
+        Assert.Equal([cancelled], onlyCancelled.Items.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task GetInvoices_BillingMonthNotFirstDay_Returns400()
+    {
+        var (client, _) = await RegisterAndLoginAsync("Tenant A");
+
+        var response = await client.GetAsync("/api/me/invoices?billingMonth=2026-06-15");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetInvoice_ReturnsItemsInOrder_AndRemainingAmount()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+        var invoiceId = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 2, 1), InvoiceStatus.Partial, paidAmount: 1_000_000m);
+        await AddInvoiceItemAsync(invoiceId, "Water", 200_000m, sortOrder: 2, InvoiceItemSourceType.Utility);
+        await AddInvoiceItemAsync(invoiceId, "Rent", 2_800_000m, sortOrder: 1, InvoiceItemSourceType.Rent);
+
+        var invoice = await ReadDataAsync<MyInvoiceDetailResponse>(await client.GetAsync($"/api/me/invoices/{invoiceId}"));
+
+        Assert.Equal(new DateOnly(2026, 2, 1), invoice.BillingMonth);
+        Assert.Equal("HD-A", invoice.LeaseCode);
+        Assert.Equal("Property A", invoice.PropertyName);
+        Assert.Equal(2_000_000m, invoice.RemainingAmount);
+        Assert.Equal(["Rent", "Water"], invoice.Items.Select(i => i.Description));
+    }
+
+    [Fact]
+    public async Task GetInvoice_DoesNotExposeInternalFields()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+        var invoiceId = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 2, 1));
+        await AddInvoiceItemAsync(invoiceId, "Rent", 3_000_000m, sortOrder: 1, InvoiceItemSourceType.Rent);
+
+        var json = await (await client.GetAsync($"/api/me/invoices/{invoiceId}")).Content.ReadAsStringAsync();
+
+        using var document = JsonDocument.Parse(json);
+        var data = document.RootElement.GetProperty("data");
+        Assert.False(data.TryGetProperty("notes", out _));
+        Assert.False(data.TryGetProperty("createdBy", out _));
+        Assert.DoesNotContain("internal note", json);
+        // no item id / sourceId (staff InvoiceItemResponse has them)
+        var item = Assert.Single(data.GetProperty("items").EnumerateArray());
+        Assert.Equal(
+            ["amount", "description", "quantity", "sourceType", "unitPrice"],
+            item.EnumerateObject().Select(p => p.Name).Order().ToArray());
     }
 }

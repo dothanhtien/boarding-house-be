@@ -40,4 +40,23 @@ public class TenantPortalServiceTests
         await Assert.ThrowsAsync<AppNotFoundException>(() => _service.GetLeaseAsync(leaseId));
         _queries.Verify(q => q.GetLeaseAsync(_userId, leaseId, It.IsAny<CancellationToken>()));
     }
+
+    [Fact]
+    public async Task GetInvoicesAsync_ScopesToCurrentUser()
+    {
+        var query = new MyInvoiceListQuery();
+
+        await _service.GetInvoicesAsync(query);
+
+        _queries.Verify(q => q.SearchInvoicesAsync(_userId, query, It.IsAny<CancellationToken>()));
+    }
+
+    [Fact]
+    public async Task GetInvoiceAsync_NotVisible_ThrowsNotFound()
+    {
+        var invoiceId = Guid.NewGuid();
+
+        await Assert.ThrowsAsync<AppNotFoundException>(() => _service.GetInvoiceAsync(invoiceId));
+        _queries.Verify(q => q.GetInvoiceAsync(_userId, invoiceId, It.IsAny<CancellationToken>()));
+    }
 }

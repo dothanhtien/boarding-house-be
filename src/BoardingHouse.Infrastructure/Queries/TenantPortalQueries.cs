@@ -3,6 +3,7 @@ using System.Linq.Expressions;
 using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.DTOs.TenantPortal;
 using BoardingHouse.Application.Queries;
+using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
 using BoardingHouse.Infrastructure.Persistence;
@@ -105,6 +106,57 @@ public class TenantPortalQueries(AppDbContext context) : ITenantPortalQueries
         };
     }
 
+    public Task<PagedResult<MyInvoiceResponse>> SearchInvoicesAsync(
+        Guid userId, MyInvoiceListQuery query, CancellationToken cancellationToken = default)
+    {
+        var invoices = VisibleInvoices(userId);
+
+        if (query.LeaseId is not null)
+        {
+            invoices = invoices.Where(i => i.LeaseId == query.LeaseId);
+        }
+
+        invoices = query.Status is not null
+            ? invoices.Where(i => i.Status == query.Status)
+            : invoices.Where(i => i.Status != InvoiceStatus.Cancelled);
+
+        if (query.BillingMonth is { } day)
+        {
+            var month = BillingMonth.FromFirstDay(day);
+            invoices = invoices.Where(i => i.BillingMonth == month);
+        }
+
+        return invoices.ToPagedResultAsync(
+            query, i => i.BillingMonth, SortOrder.Desc, page => page.Select(ToMyInvoice), cancellationToken);
+    }
+
+    public async Task<MyInvoiceDetailResponse?> GetInvoiceAsync(Guid userId, Guid invoiceId, CancellationToken cancellationToken = default)
+    {
+        var invoice = await VisibleInvoices(userId)
+            .Where(i => i.Id == invoiceId)
+            .Select(ToMyInvoice)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (invoice is null)
+        {
+            return null;
+        }
+
+        var items = await context.InvoiceItems
+            .Where(item => item.InvoiceId == invoiceId)
+            .OrderBy(item => item.SortOrder)
+            .Select(item => new MyInvoiceItemResponse
+            {
+                Description = item.Description,
+                Quantity = item.Quantity,
+                UnitPrice = item.UnitPrice,
+                Amount = item.Amount,
+                SourceType = item.SourceType
+            })
+            .ToListAsync(cancellationToken);
+
+        return new MyInvoiceDetailResponse(invoice) { Items = items };
+    }
+
     private IQueryable<Stay> StaysOf(Guid userId) =>
         context.LeaseTenants
             .IgnoreQueryFilters()
@@ -151,5 +203,41 @@ public class TenantPortalQueries(AppDbContext context) : ITenantPortalQueries
             .OrderBy(t => t.JoinedDate ?? l.StartDate)
             .Select(t => new MyStayResponse { JoinedDate = t.JoinedDate ?? l.StartDate, LeftDate = t.LeftDate })
             .ToList()
+    };
+
+    private IQueryable<Invoice> VisibleInvoices(Guid userId)
+    {
+        var stays = StaysOf(userId);
+        return context.Invoices
+            .IgnoreQueryFilters()
+            .Where(i => i.DeletedAt == null
+                && stays.Any(s => s.LeaseId == i.LeaseId
+                    && s.From < EF.Property<DateOnly>(i, nameof(Invoice.BillingMonth)).AddMonths(1)
+                    && (s.To == null || s.To >= EF.Property<DateOnly>(i, nameof(Invoice.BillingMonth)))));
+    }
+
+    private static readonly Expression<Func<Invoice, MyInvoiceResponse>> ToMyInvoice = i => new MyInvoiceResponse
+    {
+        Id = i.Id,
+        OrganizationId = i.OrganizationId,
+        OrganizationName = i.Organization!.Name,
+        PropertyName = i.Lease!.Room!.Property!.Name,
+        RoomNumber = i.Lease.Room.RoomNumber,
+        LeaseId = i.LeaseId,
+        LeaseCode = i.Lease.LeaseCode,
+        InvoiceNumber = i.InvoiceNumber,
+        BillingMonth = i.BillingMonth.FirstDay,
+        DueDate = i.DueDate,
+        Subtotal = i.Subtotal,
+        VatRate = i.VatRate,
+        VatAmount = i.VatAmount,
+        LateFeeAmount = i.LateFeeAmount,
+        DiscountAmount = i.DiscountAmount,
+        DiscountReason = i.DiscountReason,
+        TotalAmount = i.TotalAmount,
+        PaidAmount = i.PaidAmount,
+        RemainingAmount = i.TotalAmount - i.PaidAmount,
+        Status = i.Status,
+        SentAt = i.SentAt
     };
 }
