@@ -83,23 +83,46 @@ public class TenantPortalControllerIntegrationTests(PostgresApiFactory factory)
         (await response.Content.ReadFromJsonAsync<ApiResponse<T>>(JsonOptions))!.Data!;
 
     // A lease in _room with the given tenants (first one is the representative), moved to `status`
+    private Task<Guid> SeedLeaseAsync(
+        LeaseStatus status, string leaseCode, DateOnly startDate, params Guid[] tenantUserIds) =>
+        SeedLeaseAsync(status, leaseCode, startDate, services: [], tenantUserIds);
+
+    // Same, with utility services of _propertyId created and attached to the lease
     private async Task<Guid> SeedLeaseAsync(
-        LeaseStatus status, string leaseCode, DateOnly startDate, params Guid[] tenantUserIds)
+        LeaseStatus status,
+        string leaseCode,
+        DateOnly startDate,
+        IReadOnlyList<(UtilityType Type, UtilityServiceDetails Details, decimal? UnitPriceOverride)> services,
+        params Guid[] tenantUserIds)
     {
         using var scope = factory.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var users = await context.Users.Where(u => tenantUserIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id);
         var room = await context.Rooms.SingleAsync(r => r.Id == _room.Id);
+        var selections = services
+            .Select(s => new LeaseUtilityServiceSelection(
+                UtilityService.Create(_propertyId, s.Type, s.Details, _staffId), s.UnitPriceOverride, Quantity: 1))
+            .ToList();
+        context.UtilityServices.AddRange(selections.Select(s => s.Service));
 
         var lease = Lease.CreateDraft(
             _organizationId, room, previousLeaseId: null, leaseCode, startDate, startDate.AddYears(1), billingDay: null,
             monthlyRent: 3_000_000, depositAmount: 3_000_000,
             tenantUserIds.Select((id, index) => new TenantChange { UserId = id, IsRepresentative = index == 0 }).ToList(),
-            users, [], DateTimeOffset.UtcNow, _staffId);
+            users, selections, DateTimeOffset.UtcNow, _staffId);
         TestEntities.Set(lease, new { Status = status });
         context.Leases.Add(lease);
         await context.SaveChangesAsync();
         return lease.Id;
+    }
+
+    private async Task DeactivateUtilityServiceAsync(string name)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var service = await context.UtilityServices.SingleAsync(s => s.Name == name);
+        TestEntities.Set(service, new { IsActive = false });
+        await context.SaveChangesAsync();
     }
 
     private async Task SetTenantDatesAsync(Guid leaseId, Guid userId, DateOnly? joinedDate, DateOnly? leftDate)
@@ -267,5 +290,156 @@ public class TenantPortalControllerIntegrationTests(PostgresApiFactory factory)
         var response = await factory.CreateClient().GetAsync("/api/me/tenancy");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetLeases_ReturnsOnlyCallersNonDraftLeases()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var mine = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+        await SeedLeaseAsync(LeaseStatus.Draft, "HD-A-DRAFT", new DateOnly(2026, 6, 1), tenantA);
+        await SeedLeaseAsync(LeaseStatus.Expired, "HD-B", new DateOnly(2025, 1, 1), tenantB);
+
+        var response = await client.GetAsync("/api/me/leases");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var page = await ReadDataAsync<PagedResult<MyLeaseResponse>>(response);
+        var lease = Assert.Single(page.Items);
+        Assert.Equal(mine, lease.Id);
+        Assert.Equal("Org A", lease.OrganizationName);
+        Assert.Equal("101", lease.RoomNumber);
+        Assert.True(lease.IsRepresentative);
+        var stay = Assert.Single(lease.MyStays);
+        Assert.Equal(new DateOnly(2026, 1, 1), stay.JoinedDate); // JoinedDate null = lease start date
+        Assert.Null(stay.LeftDate);
+    }
+
+    [Fact]
+    public async Task GetLeases_FilterByStatus_NewestFirst()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var active = await SeedLeaseAsync(LeaseStatus.Active, "HD-ACTIVE", new DateOnly(2026, 1, 1), tenantA);
+        var older = await SeedLeaseAsync(LeaseStatus.Expired, "HD-2024", new DateOnly(2024, 1, 1), tenantA);
+        var newer = await SeedLeaseAsync(LeaseStatus.Expired, "HD-2025", new DateOnly(2025, 1, 1), tenantA);
+
+        var all = await ReadDataAsync<PagedResult<MyLeaseResponse>>(await client.GetAsync("/api/me/leases"));
+        var expired = await ReadDataAsync<PagedResult<MyLeaseResponse>>(await client.GetAsync("/api/me/leases?status=expired"));
+
+        Assert.Equal([active, newer, older], all.Items.Select(l => l.Id));
+        Assert.Equal([newer, older], expired.Items.Select(l => l.Id));
+        Assert.Equal(2, expired.TotalItems);
+    }
+
+    [Fact]
+    public async Task GetLeases_TenantWhoRejoined_ListsBothStays()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-AB", new DateOnly(2026, 1, 1), tenantB, tenantA);
+        await RejoinAsync(leaseId, tenantA, leftDate: new DateOnly(2026, 3, 10), rejoinedDate: new DateOnly(2026, 5, 20));
+
+        var leases = await ReadDataAsync<PagedResult<MyLeaseResponse>>(await client.GetAsync("/api/me/leases"));
+        var detail = await client.GetAsync($"/api/me/leases/{leaseId}");
+
+        var lease = Assert.Single(leases.Items);
+        Assert.Equal(
+            [(new DateOnly(2026, 1, 1), (DateOnly?)new DateOnly(2026, 3, 10)), (new DateOnly(2026, 5, 20), null)],
+            lease.MyStays.Select(s => (s.JoinedDate, s.LeftDate)));
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetLease_OfAnotherTenant_Returns404()
+    {
+        var (client, _) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var othersLease = await SeedLeaseAsync(LeaseStatus.Active, "HD-B", new DateOnly(2026, 1, 1), tenantB);
+
+        var response = await client.GetAsync($"/api/me/leases/{othersLease}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetLease_Draft_Returns404()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var draft = await SeedLeaseAsync(LeaseStatus.Draft, "HD-DRAFT", new DateOnly(2026, 1, 1), tenantA);
+
+        var response = await client.GetAsync($"/api/me/leases/{draft}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetLease_RoommatesExposeNameOnly()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-AB", new DateOnly(2026, 1, 1), tenantA, tenantB);
+
+        var response = await client.GetAsync($"/api/me/leases/{leaseId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var tenants = document.RootElement.GetProperty("data").GetProperty("tenants");
+        Assert.Equal(2, tenants.GetArrayLength());
+        foreach (var tenant in tenants.EnumerateArray())
+        {
+            Assert.Equal(
+                ["fullName", "isRepresentative", "joinedDate", "leftDate"],
+                tenant.EnumerateObject().Select(p => p.Name).Order().ToArray());
+        }
+    }
+
+    [Fact]
+    public async Task GetLease_UtilityServices_OnlyBillableOnes_WithEffectivePrice()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var leaseId = await SeedLeaseAsync(
+            LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1),
+            [
+                (UtilityType.Water, new UtilityServiceDetails("Water", UtilityBillingMethod.Metered, "m3", 20_000, IsActive: true), 15_000m),
+                (UtilityType.Internet, new UtilityServiceDetails("Internet", UtilityBillingMethod.Fixed, "month", 100_000, IsActive: true), null)
+            ],
+            tenantA);
+        await DeactivateUtilityServiceAsync("Internet");
+
+        var lease = await ReadDataAsync<MyLeaseDetailResponse>(await client.GetAsync($"/api/me/leases/{leaseId}"));
+
+        // the deactivated price-list entry is not billable (LeaseUtilityService.IsBillable); the override wins
+        var service = Assert.Single(lease.UtilityServices);
+        Assert.Equal("Water", service.Name);
+        Assert.Equal(UtilityBillingMethod.Metered, service.BillingMethod);
+        Assert.Equal(15_000m, service.UnitPrice);
+        Assert.Equal(1, service.Quantity);
+    }
+
+    [Fact]
+    public async Task GetLeases_StaffWhoIsAlsoTenantElsewhere_SeesOnlyOwnLeases_IgnoringOrganizationHeader()
+    {
+        var (client, staffTenant) = await RegisterAndLoginAsync("Staff Tenant");
+        await factory.GrantPlatformAdminRoleAsync(staffTenant);
+        var (_, other) = await RegisterAndLoginAsync("Other");
+        var mine = await SeedLeaseAsync(LeaseStatus.Active, "HD-MINE", new DateOnly(2026, 1, 1), staffTenant);
+        await SeedLeaseAsync(LeaseStatus.Expired, "HD-OTHER", new DateOnly(2025, 1, 1), other);
+        client.DefaultRequestHeaders.Add("X-Organization-Id", _organizationId.ToString());
+
+        var page = await ReadDataAsync<PagedResult<MyLeaseResponse>>(await client.GetAsync("/api/me/leases"));
+
+        Assert.Equal([mine], page.Items.Select(l => l.Id));
+    }
+
+    [Fact]
+    public async Task GetLeases_StaffWhoIsNotTenant_ReturnsEmptyPage()
+    {
+        var (client, staff) = await RegisterAndLoginAsync("Staff");
+        await factory.GrantPlatformAdminRoleAsync(staff);
+
+        var response = await client.GetAsync("/api/me/leases");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty((await ReadDataAsync<PagedResult<MyLeaseResponse>>(response)).Items);
     }
 }
