@@ -1,6 +1,8 @@
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.CurrentUser;
 using BoardingHouse.Application.DTOs.VietQr;
 using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Queries;
 using BoardingHouse.Application.Repositories;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.VietQr;
@@ -10,7 +12,9 @@ namespace BoardingHouse.Application.Services;
 public class VietQrService(
     IInvoiceRepository invoiceRepository,
     IOrganizationSettingsRepository organizationSettingsRepository,
-    IOrganizationScopeAccessor organizationScopeAccessor) : IVietQrService
+    IOrganizationScopeAccessor organizationScopeAccessor,
+    ITenantPortalQueries tenantPortalQueries,
+    ICurrentUserAccessor currentUserAccessor) : IVietQrService
 {
     public List<VietQrBankResponse> GetBanks() =>
         VietQrBanks.All
@@ -28,6 +32,19 @@ public class VietQrService(
             PermissionActions.Read,
             NotFoundMessages.Invoice(invoiceId),
             cancellationToken);
+
+        return await BuildResponseAsync(invoice, cancellationToken);
+    }
+
+    public async Task<InvoicePaymentQrResponse> GetMyInvoicePaymentQrAsync(Guid invoiceId, CancellationToken cancellationToken = default)
+    {
+        if (!await tenantPortalQueries.IsInvoiceVisibleAsync(currentUserAccessor.RequiredUser.Id, invoiceId, cancellationToken))
+        {
+            throw new AppNotFoundException(NotFoundMessages.Invoice(invoiceId));
+        }
+
+        var invoice = await invoiceRepository.GetByIdAsync(invoiceId, cancellationToken)
+            ?? throw new AppNotFoundException(NotFoundMessages.Invoice(invoiceId));
 
         return await BuildResponseAsync(invoice, cancellationToken);
     }

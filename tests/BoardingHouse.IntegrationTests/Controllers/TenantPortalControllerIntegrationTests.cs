@@ -9,8 +9,10 @@ using BoardingHouse.Api.Common;
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.DTOs.Auth;
+using BoardingHouse.Application.DTOs.Organizations;
 using BoardingHouse.Application.DTOs.TenantPortal;
 using BoardingHouse.Application.DTOs.Users;
+using BoardingHouse.Application.DTOs.VietQr;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
 using BoardingHouse.Domain.Entities.Enums;
@@ -284,6 +286,22 @@ public class TenantPortalControllerIntegrationTests(PostgresApiFactory factory)
         using var scope = factory.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         return await context.Invoices.Where(i => i.Id == invoiceId).Select(i => i.InvoiceNumber).SingleAsync();
+    }
+
+    // The organization's bank account, set by a platform admin like VietQrControllerIntegrationTests.ConfigureBankAccountAsync.
+    // Permissions are read per request (IRolePermissionCache), so a token issued before the grant still works.
+    private async Task ConfigureBankAccountAsync()
+    {
+        var (admin, adminId) = await RegisterAndLoginAsync("Admin");
+        await factory.GrantPlatformAdminRoleAsync(adminId);
+
+        var response = await admin.PatchAsJsonAsync($"/api/organizations/{_organizationId}/settings", new UpdateOrganizationSettingsRequest
+        {
+            BankBin = "970422",
+            BankAccountNumber = "0123456789",
+            BankAccountName = "NGUYEN VAN A"
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     // Payment has no factory outside Invoice.RecordPayment (needs the loaded aggregate): build the row the way EF does,
@@ -1003,5 +1021,78 @@ public class TenantPortalControllerIntegrationTests(PostgresApiFactory factory)
         }
 
         Assert.DoesNotContain("staff void reason", json);
+    }
+
+    [Fact]
+    public async Task GetPaymentQr_OwnInvoice_ReturnsQr()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+        var invoiceId = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 2, 1));
+        await ConfigureBankAccountAsync();
+
+        var response = await client.GetAsync($"/api/me/invoices/{invoiceId}/payment-qr");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var qr = await ReadDataAsync<InvoicePaymentQrResponse>(response);
+        Assert.Equal(invoiceId, qr.InvoiceId);
+        Assert.Equal(3_000_000m, qr.Amount);
+        Assert.Equal(("970422", "0123456789"), (qr.BankBin, qr.AccountNumber));
+    }
+
+    [Fact]
+    public async Task GetPaymentQr_PartiallyPaidInvoice_RequestsTheRemainingAmount()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+        var invoiceId = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 2, 1), InvoiceStatus.Partial, paidAmount: 1_200_000m);
+        await ConfigureBankAccountAsync();
+
+        var qr = await ReadDataAsync<InvoicePaymentQrResponse>(await client.GetAsync($"/api/me/invoices/{invoiceId}/payment-qr"));
+
+        Assert.Equal(1_800_000m, qr.Amount);
+    }
+
+    [Fact]
+    public async Task GetPaymentQr_OfAnotherTenantsInvoice_Returns404()
+    {
+        var (client, _) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-B", new DateOnly(2026, 1, 1), tenantB);
+        var invoiceId = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 2, 1));
+        await ConfigureBankAccountAsync();
+
+        var response = await client.GetAsync($"/api/me/invoices/{invoiceId}/payment-qr");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetPaymentQr_InvoiceOfMonthAfterMovingOut_Returns404()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-AB", new DateOnly(2026, 1, 1), tenantB, tenantA);
+        await SetTenantDatesAsync(leaseId, tenantA, joinedDate: null, leftDate: new DateOnly(2026, 6, 15));
+        var july = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 7, 1));
+        await ConfigureBankAccountAsync();
+
+        var response = await client.GetAsync($"/api/me/invoices/{july}/payment-qr");
+
+        // same lease, but not one of the caller's months: the next tenant's rent is not theirs to pay
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetPaymentQr_OwnCancelledInvoice_Returns409()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+        var invoiceId = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 2, 1), InvoiceStatus.Cancelled);
+        await ConfigureBankAccountAsync();
+
+        var response = await client.GetAsync($"/api/me/invoices/{invoiceId}/payment-qr");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 }

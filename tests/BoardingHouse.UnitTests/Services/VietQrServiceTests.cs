@@ -1,6 +1,8 @@
 using Moq;
 using BoardingHouse.Application.Common;
+using BoardingHouse.Application.Common.CurrentUser;
 using BoardingHouse.Application.Exceptions;
+using BoardingHouse.Application.Queries;
 using BoardingHouse.Application.Repositories;
 using BoardingHouse.Application.Services;
 using BoardingHouse.Domain.Common;
@@ -23,7 +25,10 @@ public class VietQrServiceTests
     private readonly Mock<IInvoiceRepository> _invoiceRepository = new();
     private readonly Mock<IOrganizationSettingsRepository> _organizationSettingsRepository = new();
     private readonly Mock<IOrganizationScopeAccessor> _organizationScopeAccessor = new();
+    private readonly Mock<ITenantPortalQueries> _tenantPortalQueries = new();
+    private readonly Mock<ICurrentUserAccessor> _currentUserAccessor = new();
     private readonly Guid _organizationId = Guid.NewGuid();
+    private readonly Guid _tenantUserId = Guid.NewGuid();
     private readonly VietQrService _vietQrService;
 
     public VietQrServiceTests()
@@ -32,10 +37,16 @@ public class VietQrServiceTests
             .Setup(a => a.GetScopeAsync(PermissionResources.Invoice, PermissionActions.Read, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Restricted(_organizationId));
 
+        _currentUserAccessor
+            .SetupGet(a => a.RequiredUser)
+            .Returns(TestEntities.New<User>(new { Id = _tenantUserId, FullName = "Tenant" }));
+
         _vietQrService = new VietQrService(
             _invoiceRepository.Object,
             _organizationSettingsRepository.Object,
-            _organizationScopeAccessor.Object);
+            _organizationScopeAccessor.Object,
+            _tenantPortalQueries.Object,
+            _currentUserAccessor.Object);
     }
 
     private static OrganizationScope Restricted(params Guid[] organizationIds) =>
@@ -171,5 +182,35 @@ public class VietQrServiceTests
         Assert.Equal(NotFoundMessages.Invoice(invoice.Id), exception.Message);
         _organizationSettingsRepository.Verify(
             r => r.GetByOrganizationIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetMyInvoicePaymentQrAsync_InvoiceNotVisible_ThrowsNotFound_WithoutLoadingIt()
+    {
+        var invoiceId = Guid.NewGuid();
+
+        var exception = await Assert.ThrowsAsync<AppNotFoundException>(() => _vietQrService.GetMyInvoicePaymentQrAsync(invoiceId));
+
+        Assert.Equal(NotFoundMessages.Invoice(invoiceId), exception.Message);
+        _tenantPortalQueries.Verify(q => q.IsInvoiceVisibleAsync(_tenantUserId, invoiceId, It.IsAny<CancellationToken>()));
+        _invoiceRepository.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetMyInvoicePaymentQrAsync_VisibleInvoice_ReturnsQr_WithoutOrganizationScope()
+    {
+        var invoice = SetupInvoice();
+        SetupSettings();
+        _tenantPortalQueries
+            .Setup(q => q.IsInvoiceVisibleAsync(_tenantUserId, invoice.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var response = await _vietQrService.GetMyInvoicePaymentQrAsync(invoice.Id);
+
+        // same QR as the staff endpoint; a tenant has no invoice:read grant, so no scope check
+        Assert.Equal(VietcombankPayload3M, response.Payload);
+        Assert.Equal(3_000_000m, response.Amount);
+        _organizationScopeAccessor.Verify(
+            a => a.GetScopeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

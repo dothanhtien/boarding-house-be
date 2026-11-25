@@ -158,6 +158,9 @@ public class TenantPortalQueries(AppDbContext context, IStorageProvider storageP
         return new MyInvoiceDetailResponse(invoice) { Items = items };
     }
 
+    public Task<bool> IsInvoiceVisibleAsync(Guid userId, Guid invoiceId, CancellationToken cancellationToken = default) =>
+        VisibleInvoices(userId).AnyAsync(i => i.Id == invoiceId, cancellationToken);
+
     public Task<bool> IsLeaseVisibleAsync(Guid userId, Guid leaseId, CancellationToken cancellationToken = default) =>
         StaysOf(userId).AnyAsync(s => s.LeaseId == leaseId, cancellationToken);
 

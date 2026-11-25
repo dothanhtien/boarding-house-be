@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Application.Common.Listing;
 using BoardingHouse.Application.DTOs.TenantPortal;
+using BoardingHouse.Application.DTOs.VietQr;
 using BoardingHouse.Application.Services;
 
 namespace BoardingHouse.Api.Controllers;
@@ -10,7 +11,9 @@ namespace BoardingHouse.Api.Controllers;
 [ApiController]
 [Route("api/me")]
 [Authorize]
-public class TenantPortalController(ITenantPortalService tenantPortalService) : ControllerBase
+public class TenantPortalController(
+    ITenantPortalService tenantPortalService,
+    IVietQrService vietQrService) : ControllerBase
 {
     [HttpGet("tenancy")]
     public async Task<ActionResult<ApiResponse<TenancyResponse>>> GetTenancy(CancellationToken cancellationToken)
@@ -47,6 +50,14 @@ public class TenantPortalController(ITenantPortalService tenantPortalService) : 
     {
         var invoice = await tenantPortalService.GetInvoiceAsync(id, cancellationToken);
         return Ok(new ApiResponse<MyInvoiceDetailResponse> { Data = invoice });
+    }
+
+    [HttpGet("invoices/{id:guid}/payment-qr")]
+    public async Task<ActionResult<ApiResponse<InvoicePaymentQrResponse>>> GetInvoicePaymentQr(
+        Guid id, CancellationToken cancellationToken)
+    {
+        var qr = await vietQrService.GetMyInvoicePaymentQrAsync(id, cancellationToken);
+        return Ok(new ApiResponse<InvoicePaymentQrResponse> { Data = qr });
     }
 
     [HttpGet("leases/{id:guid}/utility-readings")]
