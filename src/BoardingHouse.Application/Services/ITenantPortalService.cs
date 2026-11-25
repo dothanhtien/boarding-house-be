@@ -12,4 +12,5 @@ public interface ITenantPortalService
     Task<MyInvoiceDetailResponse> GetInvoiceAsync(Guid invoiceId, CancellationToken cancellationToken = default);
     Task<PagedResult<MyUtilityReadingResponse>> GetUtilityReadingsAsync(
         Guid leaseId, MyUtilityReadingListQuery query, CancellationToken cancellationToken = default);
+    Task<PagedResult<MyPaymentResponse>> GetPaymentsAsync(MyPaymentListQuery query, CancellationToken cancellationToken = default);
 }

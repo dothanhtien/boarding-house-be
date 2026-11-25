@@ -83,4 +83,14 @@ public class TenantPortalServiceTests
 
         _queries.Verify(q => q.SearchUtilityReadingsAsync(_userId, leaseId, query, It.IsAny<CancellationToken>()));
     }
+
+    [Fact]
+    public async Task GetPaymentsAsync_ScopesToCurrentUser()
+    {
+        var query = new MyPaymentListQuery();
+
+        await _service.GetPaymentsAsync(query);
+
+        _queries.Verify(q => q.SearchPaymentsAsync(_userId, query, It.IsAny<CancellationToken>()));
+    }
 }

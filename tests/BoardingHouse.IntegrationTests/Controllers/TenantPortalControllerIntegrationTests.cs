@@ -286,6 +286,41 @@ public class TenantPortalControllerIntegrationTests(PostgresApiFactory factory)
         return await context.Invoices.Where(i => i.Id == invoiceId).Select(i => i.InvoiceNumber).SingleAsync();
     }
 
+    // Payment has no factory outside Invoice.RecordPayment (needs the loaded aggregate): build the row the way EF does,
+    // like PaymentPersistenceTests.NewPayment. A voided payment gets the void columns its check constraint requires.
+    private async Task<Guid> SeedPaymentAsync(
+        Guid invoiceId,
+        PaymentStatus status = PaymentStatus.Pending,
+        DateTimeOffset? paymentDate = null,
+        Guid? payerUserId = null,
+        string? payerNameOverride = null,
+        string? note = null)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var now = DateTimeOffset.UtcNow;
+        var payment = TestEntities.New<Payment>(new
+        {
+            InvoiceId = (Guid?)invoiceId,
+            PayerUserId = payerUserId,
+            PayerNameOverride = payerNameOverride,
+            Amount = 500_000m,
+            Method = PaymentMethod.Cash,
+            Status = status,
+            PaymentDate = paymentDate ?? now,
+            ConfirmedBy = status == PaymentStatus.Pending ? null : (Guid?)_staffId,
+            ConfirmedAt = status == PaymentStatus.Pending ? null : (DateTimeOffset?)now,
+            VoidedBy = status == PaymentStatus.Voided ? (Guid?)_staffId : null,
+            VoidedAt = status == PaymentStatus.Voided ? (DateTimeOffset?)now : null,
+            VoidReason = status == PaymentStatus.Voided ? "staff void reason" : null,
+            Note = note,
+            CreatedBy = _staffId
+        });
+        context.Payments.Add(payment);
+        await context.SaveChangesAsync();
+        return payment.Id;
+    }
+
     private async Task SoftDeleteLeaseAsync(Guid leaseId)
     {
         using var scope = factory.Services.CreateScope();
@@ -875,5 +910,98 @@ public class TenantPortalControllerIntegrationTests(PostgresApiFactory factory)
         var response = await client.GetAsync($"/api/me/leases/{leaseId}/utility-readings?from=2026-06-01&to=2026-05-01");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetPayments_OnlyPaymentsOfVisibleInvoices()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var leaseA = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+        var leaseB = await SeedLeaseAsync(LeaseStatus.Expired, "HD-B", new DateOnly(2025, 1, 1), tenantB);
+        var mine = await SeedPaymentAsync(await SeedInvoiceAsync(leaseA, new DateOnly(2026, 2, 1)), note: "internal note");
+        await SeedPaymentAsync(await SeedInvoiceAsync(leaseB, new DateOnly(2025, 2, 1)));
+
+        var response = await client.GetAsync("/api/me/payments");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+        var page = JsonSerializer.Deserialize<ApiResponse<PagedResult<MyPaymentResponse>>>(json, JsonOptions)!.Data!;
+        var payment = Assert.Single(page.Items);
+        Assert.Equal(mine, payment.Id);
+        Assert.Equal(("HD-A", "Property A", "101"), (payment.LeaseCode, payment.PropertyName, payment.RoomNumber));
+        Assert.DoesNotContain("internal note", json);
+    }
+
+    [Fact]
+    public async Task GetPayments_TenantWhoMovedOut_DoesNotSeePaymentsOfLaterMonths()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-AB", new DateOnly(2026, 1, 1), tenantB, tenantA);
+        await SetTenantDatesAsync(leaseId, tenantA, joinedDate: null, leftDate: new DateOnly(2026, 6, 15));
+        var june = await SeedPaymentAsync(await SeedInvoiceAsync(leaseId, new DateOnly(2026, 6, 1)));
+        await SeedPaymentAsync(await SeedInvoiceAsync(leaseId, new DateOnly(2026, 7, 1)));
+
+        var page = await ReadDataAsync<PagedResult<MyPaymentResponse>>(await client.GetAsync("/api/me/payments"));
+
+        Assert.Equal([june], page.Items.Select(p => p.Id));
+    }
+
+    [Fact]
+    public async Task GetPayments_FilterByInvoiceAndStatus_NewestFirst()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+        var february = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 2, 1));
+        var march = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 3, 1));
+        var day = new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        var older = await SeedPaymentAsync(february, PaymentStatus.Confirmed, paymentDate: day);
+        var newer = await SeedPaymentAsync(february, PaymentStatus.Confirmed, paymentDate: day.AddDays(5));
+        var voided = await SeedPaymentAsync(february, PaymentStatus.Voided, paymentDate: day.AddDays(1));
+        await SeedPaymentAsync(march, PaymentStatus.Confirmed, paymentDate: day.AddDays(10));
+
+        var confirmed = await ReadDataAsync<PagedResult<MyPaymentResponse>>(
+            await client.GetAsync($"/api/me/payments?invoiceId={february}&status=confirmed"));
+        var all = await ReadDataAsync<PagedResult<MyPaymentResponse>>(
+            await client.GetAsync($"/api/me/payments?invoiceId={february}"));
+
+        Assert.Equal([newer, older], confirmed.Items.Select(p => p.Id));
+        Assert.Equal([newer, voided, older], all.Items.Select(p => p.Id));
+    }
+
+    [Fact]
+    public async Task GetPayments_PayerName_OverrideOrUserName()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+        var invoiceId = await SeedInvoiceAsync(leaseId, new DateOnly(2026, 2, 1));
+        var day = new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        await SeedPaymentAsync(invoiceId, paymentDate: day, payerUserId: tenantA);
+        await SeedPaymentAsync(invoiceId, paymentDate: day.AddDays(1), payerNameOverride: "Mother of Tenant A");
+        await SeedPaymentAsync(invoiceId, paymentDate: day.AddDays(2));
+
+        var page = await ReadDataAsync<PagedResult<MyPaymentResponse>>(await client.GetAsync("/api/me/payments"));
+
+        Assert.Equal([null, "Mother of Tenant A", "Tenant A"], page.Items.Select(p => p.PayerName));
+    }
+
+    [Fact]
+    public async Task GetPayments_DoesNotExposeStaffFields()
+    {
+        var (client, tenantA) = await RegisterAndLoginAsync("Tenant A");
+        var leaseId = await SeedLeaseAsync(LeaseStatus.Active, "HD-A", new DateOnly(2026, 1, 1), tenantA);
+        await SeedPaymentAsync(await SeedInvoiceAsync(leaseId, new DateOnly(2026, 2, 1)), PaymentStatus.Voided, note: "internal note");
+
+        var json = await (await client.GetAsync("/api/me/payments")).Content.ReadAsStringAsync();
+
+        using var document = JsonDocument.Parse(json);
+        var payment = Assert.Single(document.RootElement.GetProperty("data").GetProperty("items").EnumerateArray());
+        foreach (var hidden in new[] { "note", "voidReason", "confirmedBy", "voidedBy", "createdBy", "payerUserId" })
+        {
+            Assert.False(payment.TryGetProperty(hidden, out _), hidden);
+        }
+
+        Assert.DoesNotContain("staff void reason", json);
     }
 }

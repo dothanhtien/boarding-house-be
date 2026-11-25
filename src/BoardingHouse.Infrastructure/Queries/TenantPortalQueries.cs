@@ -236,6 +236,50 @@ public class TenantPortalQueries(AppDbContext context, IStorageProvider storageP
         };
     }
 
+    public Task<PagedResult<MyPaymentResponse>> SearchPaymentsAsync(
+        Guid userId, MyPaymentListQuery query, CancellationToken cancellationToken = default)
+    {
+        var visibleInvoices = VisibleInvoices(userId);
+        var payments = context.Payments
+            .IgnoreQueryFilters()
+            .Where(p => visibleInvoices.Any(i => i.Id == p.InvoiceId));
+
+        if (query.InvoiceId is not null)
+        {
+            payments = payments.Where(p => p.InvoiceId == query.InvoiceId);
+        }
+
+        if (query.Status is not null)
+        {
+            payments = payments.Where(p => p.Status == query.Status);
+        }
+
+        return payments.ToPagedResultAsync(
+            query,
+            p => p.PaymentDate,
+            SortOrder.Desc,
+            page => page.Select(p => new MyPaymentResponse
+            {
+                Id = p.Id,
+                OrganizationId = p.Invoice!.OrganizationId,
+                OrganizationName = p.Invoice.Organization!.Name,
+                PropertyName = p.Invoice.Lease!.Room!.Property!.Name,
+                RoomNumber = p.Invoice.Lease.Room.RoomNumber,
+                LeaseCode = p.Invoice.Lease.LeaseCode,
+                InvoiceId = p.InvoiceId!.Value,
+                InvoiceNumber = p.Invoice.InvoiceNumber,
+                PayerName = p.PayerNameOverride ?? p.PayerUser!.FullName,
+                Amount = p.Amount,
+                Method = p.Method,
+                Status = p.Status,
+                TransactionReference = p.TransactionReference,
+                PaymentDate = p.PaymentDate,
+                ConfirmedAt = p.ConfirmedAt,
+                VoidedAt = p.VoidedAt
+            }),
+            cancellationToken);
+    }
+
     private IQueryable<Stay> StaysOf(Guid userId) =>
         context.LeaseTenants
             .IgnoreQueryFilters()

@@ -44,4 +44,7 @@ public class TenantPortalService(
 
         return await tenantPortalQueries.SearchUtilityReadingsAsync(userId, leaseId, query, cancellationToken);
     }
+
+    public Task<PagedResult<MyPaymentResponse>> GetPaymentsAsync(MyPaymentListQuery query, CancellationToken cancellationToken = default) =>
+        tenantPortalQueries.SearchPaymentsAsync(CurrentUserId, query, cancellationToken);
 }

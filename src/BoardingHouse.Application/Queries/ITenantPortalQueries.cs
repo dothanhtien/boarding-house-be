@@ -16,4 +16,6 @@ public interface ITenantPortalQueries
     Task<bool> IsLeaseVisibleAsync(Guid userId, Guid leaseId, CancellationToken cancellationToken = default);
     Task<PagedResult<MyUtilityReadingResponse>> SearchUtilityReadingsAsync(
         Guid userId, Guid leaseId, MyUtilityReadingListQuery query, CancellationToken cancellationToken = default);
+    Task<PagedResult<MyPaymentResponse>> SearchPaymentsAsync(
+        Guid userId, MyPaymentListQuery query, CancellationToken cancellationToken = default);
 }

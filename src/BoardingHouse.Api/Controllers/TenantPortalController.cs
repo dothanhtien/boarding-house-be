@@ -56,4 +56,12 @@ public class TenantPortalController(ITenantPortalService tenantPortalService) : 
         var readings = await tenantPortalService.GetUtilityReadingsAsync(id, query, cancellationToken);
         return Ok(new ApiResponse<PagedResult<MyUtilityReadingResponse>> { Data = readings });
     }
+
+    [HttpGet("payments")]
+    public async Task<ActionResult<ApiResponse<PagedResult<MyPaymentResponse>>>> GetPayments(
+        [FromQuery] MyPaymentListQuery query, CancellationToken cancellationToken)
+    {
+        var payments = await tenantPortalService.GetPaymentsAsync(query, cancellationToken);
+        return Ok(new ApiResponse<PagedResult<MyPaymentResponse>> { Data = payments });
+    }
 }
