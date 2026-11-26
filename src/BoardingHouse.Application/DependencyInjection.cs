@@ -41,6 +41,7 @@ public static class DependencyInjection
         services.AddScoped<IPaymentService, PaymentService>();
 
         services.AddScoped<IVietQrService, VietQrService>();
+        services.AddScoped<ITenantPortalService, TenantPortalService>();
 
         services.AddScoped<ExpireLeasesJob>();
         services.AddScoped<MarkOverdueInvoicesJob>();

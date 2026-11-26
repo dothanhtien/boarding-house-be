@@ -118,9 +118,9 @@ public class Lease : BaseEntity
         }
     }
 
-    public int CountTenantsIn(BillingMonth month) =>
-        Tenants.Count(t =>
-            (t.JoinedDate ?? StartDate) <= month.LastDay && (t.LeftDate is null || t.LeftDate >= month.FirstDay));
+    public StayPeriod StayOf(LeaseTenant tenant) => new(tenant.JoinedDate ?? StartDate, tenant.LeftDate);
+
+    public int CountTenantsIn(BillingMonth month) => Tenants.Count(t => StayOf(t).Covers(month));
 
     public void Update(
         LeaseTerms terms,

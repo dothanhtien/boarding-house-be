@@ -220,6 +220,24 @@ The bank list is a constant (`Domain/VietQr/VietQrBanks.cs`, taken from `https:/
 there when NAPAS adds one. Do not remove a BIN an organization may have saved: its settings could no longer be
 updated and its QR codes would return `409` until an admin picks another bank.
 
+## Tenant portal
+
+Tenants are ordinary users added to a lease (`lease_tenants.user_id`); they have no role. The read-only endpoints under
+`/api/me/...` only need a signed-in user and return the caller's own data across every organization:
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/me/tenancy` | `activeLeaseCount`, `totalLeaseCount`: call it after login to decide whether to show the tenant space |
+| `GET /api/me/leases`, `GET /api/me/leases/{id}` | the caller's leases (never drafts), with their stays and roommates' names |
+| `GET /api/me/leases/{id}/utility-readings` | meter readings of the months the caller lived there |
+| `GET /api/me/invoices`, `GET /api/me/invoices/{id}` | invoices of those months (cancelled ones only with `status=cancelled`) |
+| `GET /api/me/invoices/{id}/payment-qr` | the VietQR code for the amount left to pay |
+| `GET /api/me/payments` | payments of those invoices |
+
+A tenant sees a month when one of their stays (`joined_date`, or the lease start, to `left_date`) covers at least one
+day of it. Anything else, including a lease or invoice id of someone else, is `404`. The `X-Organization-Id` header is
+ignored here; a user who is also staff keeps their RBAC permissions on the management API.
+
 ## Background jobs
 
 Recurring jobs run on [Hangfire](https://www.hangfire.io/) inside the API process, with Postgres as storage. Hangfire

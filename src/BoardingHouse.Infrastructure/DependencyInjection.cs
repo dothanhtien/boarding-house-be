@@ -16,6 +16,8 @@ using BoardingHouse.Infrastructure.Services;
 using BoardingHouse.Infrastructure.Services.Caching;
 using BoardingHouse.Infrastructure.Services.Storage;
 using BoardingHouse.Infrastructure.Services.Throttling;
+using BoardingHouse.Application.Queries;
+using BoardingHouse.Infrastructure.Queries;
 
 namespace BoardingHouse.Infrastructure;
 
@@ -65,6 +67,8 @@ public static class DependencyInjection
         services.AddScoped<IInvoiceRepository, InvoiceRepository>();
         services.AddScoped<IInvoiceGenerationRunRepository, InvoiceGenerationRunRepository>();
         services.AddScoped<IPaymentRepository, PaymentRepository>();
+
+        services.AddScoped<ITenantPortalQueries, TenantPortalQueries>();
 
         return services;
     }
