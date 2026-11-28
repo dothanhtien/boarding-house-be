@@ -163,37 +163,96 @@ public class OnlinePaymentService(
         // Anonymous request from the gateway: every write is the system's
         currentUserAccessor.IsSystemActor = true;
 
-        var adapter = gateways.SingleOrDefault(g => g.Gateway == gateway)
-            ?? throw new AppNotFoundException($"Payment gateway '{gateway}' is not supported");
+        var adapter = GetCallbackAdapter(gateway);
 
-        GatewayCallbackData? data = null;
+        GatewayCallbackData data;
         try
         {
             data = adapter.ParseCallback(callback);
-            var parsed = data;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Payment gateway callback could not be read ({Gateway})", gateway);
+            return adapter.BuildCallbackResponse(GatewayCallbackOutcome.Error);
+        }
 
-            var outcome = await unitOfWork.ExecuteInTransactionAsync(
-                ct => ProcessCallbackAsync(adapter, callback, parsed, ct), cancellationToken);
+        var outcome = await RunCallbackAsync(adapter, callback, data, PaymentTransactionType.Callback, cancellationToken);
+        return adapter.BuildCallbackResponse(outcome);
+    }
 
-            return adapter.BuildCallbackResponse(outcome);
+    public async Task<OnlinePaymentReturnResponse> HandleMyReturnAsync(
+        PaymentGateway gateway, OnlinePaymentReturnRequest request, CancellationToken cancellationToken = default)
+    {
+        var userId = currentUserAccessor.RequiredUser.Id;
+        var adapter = GetCallbackAdapter(gateway);
+        var callback = new GatewayCallback(request.Params!, Body: null);
+        var data = adapter.ParseCallback(callback);
+        var paymentId = data.PaymentId ?? throw new AppNotFoundException("Payment reference not found");
+        var invoiceId = await paymentRepository.GetInvoiceIdAsync(paymentId, cancellationToken);
+        if (invoiceId is null
+            || !await tenantPortalQueries.IsInvoiceVisibleAsync(userId, invoiceId.Value, cancellationToken))
+        {
+            throw new AppNotFoundException(NotFoundMessages.Payment(paymentId));
+        }
+
+        var outcome = await RunCallbackAsync(adapter, callback, data, PaymentTransactionType.Return, cancellationToken);
+
+        var payment = await paymentRepository.GetByIdWithDetailsAsync(paymentId, cancellationToken)
+            ?? throw new InvalidOperationException($"Payment '{paymentId}' disappeared while its return was handled");
+
+        logger.LogInformation(
+            "Online payment return handled ({PaymentId}, {Gateway}, sent by user {UserId}): {Outcome}, payment {PaymentStatus}",
+            paymentId, gateway, userId, outcome, payment.Status);
+
+        return new OnlinePaymentReturnResponse
+        {
+            PaymentId = paymentId,
+            InvoiceId = invoiceId.Value,
+            Outcome = outcome,
+            PaymentStatus = payment.Status
+        };
+    }
+
+    private async Task<GatewayCallbackOutcome> RunCallbackAsync(
+        IPaymentGateway adapter,
+        GatewayCallback callback,
+        GatewayCallbackData data,
+        PaymentTransactionType source,
+        CancellationToken cancellationToken)
+    {
+        currentUserAccessor.IsSystemActor = true;
+
+        try
+        {
+            return await unitOfWork.ExecuteInTransactionAsync(
+                ct => ProcessCallbackAsync(adapter, callback, data, source, ct), cancellationToken);
         }
         catch (UniqueConstraintViolationException ex)
             when (ex.ConstraintName == UniqueIndexNames.PaymentTransactionGatewayGatewayTransactionId)
         {
-            // The same IPN delivered twice at once: the other delivery committed first
+            // The same transaction delivered twice at once (two IPNs, or the IPN and the return): the other committed first
             unitOfWork.DiscardChanges();
-            return adapter.BuildCallbackResponse(GatewayCallbackOutcome.AlreadyProcessed);
+            return GatewayCallbackOutcome.AlreadyProcessed;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             unitOfWork.DiscardChanges();
-            logger.LogError(ex, "Payment gateway callback failed ({Gateway}, payment {PaymentId})", gateway, data?.PaymentId);
-            return adapter.BuildCallbackResponse(GatewayCallbackOutcome.Error);
+            logger.LogError(
+                ex, "Payment gateway {Source} failed ({Gateway}, payment {PaymentId})", source, adapter.Gateway, data.PaymentId);
+            return GatewayCallbackOutcome.Error;
         }
     }
 
+    private IPaymentGateway GetCallbackAdapter(PaymentGateway gateway) =>
+        gateways.SingleOrDefault(g => g.Gateway == gateway)
+            ?? throw new AppNotFoundException($"Payment gateway '{gateway}' is not supported");
+
     private async Task<GatewayCallbackOutcome> ProcessCallbackAsync(
-        IPaymentGateway adapter, GatewayCallback callback, GatewayCallbackData data, CancellationToken ct)
+        IPaymentGateway adapter,
+        GatewayCallback callback,
+        GatewayCallbackData data,
+        PaymentTransactionType source,
+        CancellationToken ct)
     {
         var gateway = adapter.Gateway;
         var now = DateTimeOffset.UtcNow;
@@ -205,7 +264,7 @@ public class OnlinePaymentService(
 
         if (invoice is null || payment is null || payment.Method != gateway.ToPaymentMethod())
         {
-            await RecordCallbackAsync(null, gateway, PaymentTransactionStatus.Failed, data, UnknownPaymentError, false, now, ct);
+            await RecordCallbackAsync(null, gateway, PaymentTransactionStatus.Failed, data, UnknownPaymentError, false, now, source, ct);
             logger.LogWarning("Payment gateway callback for an unknown payment ({Gateway}, {PaymentId})", gateway, data.PaymentId);
             return GatewayCallbackOutcome.PaymentNotFound;
         }
@@ -217,7 +276,7 @@ public class OnlinePaymentService(
             || !adapter.VerifyCallback(
                 callback, new GatewayCredentials(account.MerchantCode, secretProtector.Unprotect(account.SecretEncrypted))))
         {
-            await RecordCallbackAsync(payment.Id, gateway, PaymentTransactionStatus.Failed, data, InvalidSignatureError, false, now, ct);
+            await RecordCallbackAsync(payment.Id, gateway, PaymentTransactionStatus.Failed, data, InvalidSignatureError, false, now, source, ct);
             logger.LogWarning("Payment gateway callback with an invalid signature ({Gateway}, {PaymentId})", gateway, payment.Id);
             return GatewayCallbackOutcome.InvalidSignature;
         }
@@ -233,7 +292,7 @@ public class OnlinePaymentService(
         if (data.Amount != payment.Amount)
         {
             await RecordCallbackAsync(
-                payment.Id, gateway, PaymentTransactionStatus.Failed, data, AmountMismatchError, data.IsSuccess, now, ct);
+                payment.Id, gateway, PaymentTransactionStatus.Failed, data, AmountMismatchError, data.IsSuccess, now, source, ct);
             logger.Log(
                 data.IsSuccess ? LogLevel.Error : LogLevel.Warning,
                 "Payment gateway reported {ReportedAmount} for payment {PaymentId} of {Amount} ({Gateway})",
@@ -249,7 +308,7 @@ public class OnlinePaymentService(
                 invoice.VoidPayment(payment, Payment.GatewayFailedReason, voidedBy: null, now);
             }
 
-            await RecordCallbackAsync(payment.Id, gateway, PaymentTransactionStatus.Failed, data, null, false, now, ct);
+            await RecordCallbackAsync(payment.Id, gateway, PaymentTransactionStatus.Failed, data, null, false, now, source, ct);
             return GatewayCallbackOutcome.Received;
         }
 
@@ -277,15 +336,13 @@ public class OnlinePaymentService(
             }
             catch (DomainException ex)
             {
-                // Cancelled invoice, or already paid (cash, another online payment): the money is at the merchant but
-                // cannot count on this invoice
                 invoice.VoidPayment(payment, Payment.GatewayNotAppliedReason, voidedBy: null, now);
                 notApplied = ex.Message;
             }
         }
 
         await RecordCallbackAsync(
-            payment.Id, gateway, PaymentTransactionStatus.Success, data, notApplied, notApplied is not null, now, ct);
+            payment.Id, gateway, PaymentTransactionStatus.Success, data, notApplied, notApplied is not null, now, source, ct);
 
         if (notApplied is null)
         {
@@ -311,10 +368,12 @@ public class OnlinePaymentService(
         string? error,
         bool needsReview,
         DateTimeOffset now,
+        PaymentTransactionType source,
         CancellationToken cancellationToken) =>
         paymentTransactionRepository.AddAsync(
             PaymentTransaction.Callback(
-                paymentId, gateway, status, data.GatewayTransactionId, data.Amount, data.Payload, error, needsReview, now),
+                paymentId, gateway, status, data.GatewayTransactionId, data.Amount, data.Payload, error, needsReview, now,
+                source),
             cancellationToken);
 
     private async Task RecordCheckoutFailureAsync(

@@ -56,4 +56,20 @@ public class PaymentTransactionTests
     public void Callback_Pending_Throws() =>
         Assert.Throws<ArgumentOutOfRangeException>(() => PaymentTransaction.Callback(
             null, PaymentGateway.VnPay, PaymentTransactionStatus.Pending, null, null, "{}", null, false, Now));
+
+    [Fact]
+    public void Callback_FromTheReturnPage_IsRecordedAsAReturn()
+    {
+        var transaction = PaymentTransaction.Callback(
+            Guid.NewGuid(), PaymentGateway.VnPay, PaymentTransactionStatus.Success, "14123456", 3_000_000m, "{}",
+            error: null, needsReview: false, Now, PaymentTransactionType.Return);
+
+        Assert.Equal(PaymentTransactionType.Return, transaction.Type);
+    }
+
+    [Fact]
+    public void Callback_AsACheckout_Throws() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => PaymentTransaction.Callback(
+            null, PaymentGateway.VnPay, PaymentTransactionStatus.Failed, null, null, "{}", null, false, Now,
+            PaymentTransactionType.Checkout));
 }

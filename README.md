@@ -244,8 +244,8 @@ ignored here; a user who is also staff keeps their RBAC permissions on the manag
 ## Online payments (VNPay)
 
 Tenants can pay an invoice through [VNPay](https://vnpay.vn/); the money goes straight to the organization's own
-VNPay merchant account. Only VNPay's signed server-to-server call (IPN) confirms a payment — the page the tenant
-returns to does not.
+VNPay merchant account. A payment is confirmed only by a result VNPay signed with the merchant's secret: mainly its
+server-to-server call (IPN), or the same signed parameters the tenant's browser brings back from the return page.
 
 1. **API config** — the payment page and the frontend page the tenant comes back to:
 
@@ -256,9 +256,7 @@ returns to does not.
 
    `appsettings.Development.json` points to the sandbox. The API does not start without both values.
    Each payment link sends the tenant back to `ReturnUrl` with `invoiceId=<invoice id>` added to its query (`&` if
-   `ReturnUrl` already has one); VNPay appends its own `vnp_*` parameters. The page only shows that invoice again
-   (`GET /api/me/invoices/{invoiceId}`, polling a few seconds since the IPN may arrive after the redirect): the
-   `vnp_*` parameters on the URL are for display only and never confirm anything.
+   `ReturnUrl` already has one); VNPay appends its own `vnp_*` parameters (see step 5).
 2. **Merchant account per organization** (`organization-setting:update`):
 
    ```http
@@ -278,6 +276,19 @@ returns to does not.
    and returns a link valid for 15 minutes (clicking again returns the same link). The IPN confirms it (invoice paid),
    or voids it when the tenant cancels; the `void-expired-online-payments` job voids payments still pending 30
    minutes after they were created.
+5. **Return page** — a backup for an IPN that is late or never arrives (e.g. locally without a tunnel). The page
+   posts every query parameter of its URL, as strings, to `POST /api/me/payments/vnpay/return`:
+
+   ```json
+   { "params": { "invoiceId": "d067cfa0-...", "vnp_Amount": "624000000", "vnp_TxnRef": "22473deb...", "vnp_SecureHash": "93d3..." } }
+   ```
+
+   The API checks the signature and handles it exactly like the IPN (same checks, same result; a transaction is
+   applied once, whichever arrives first), then answers `{ paymentId, invoiceId, outcome, paymentStatus }` —
+   `outcome` is `received`, `alreadyProcessed`, `invalidSignature`, `invalidAmount`, `paymentNotFound` or `error`,
+   always with `200`. It is `404` only if the payment is not on one of the caller's invoices. The page then reads
+   `GET /api/me/invoices/{invoiceId}` until it is `paid` (polling a few seconds); never show "paid" just because the
+   URL says `vnp_ResponseCode=00`. Rows from this path are `payment_transactions.type = 'RETURN'`.
 
 Every request to and callback from a gateway is kept in `payment_transactions` (signatures masked). Money that
 arrives but cannot be applied — the payment had expired, or the invoice was already paid or cancelled — is saved with

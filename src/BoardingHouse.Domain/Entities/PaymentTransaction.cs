@@ -80,18 +80,24 @@ public class PaymentTransaction : Entity
         string webhookPayload,
         string? error,
         bool needsReview,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        PaymentTransactionType source = PaymentTransactionType.Callback)
     {
         if (status == PaymentTransactionStatus.Pending)
         {
             throw new ArgumentOutOfRangeException(nameof(status), status, "A callback is either a success or a failure");
         }
 
+        if (source == PaymentTransactionType.Checkout)
+        {
+            throw new ArgumentOutOfRangeException(nameof(source), source, "A callback comes from the IPN or the return page");
+        }
+
         return new PaymentTransaction
         {
             PaymentId = paymentId,
             Gateway = gateway,
-            Type = PaymentTransactionType.Callback,
+            Type = source,
             Status = status,
             GatewayTransactionId = gatewayTransactionId,
             Amount = amount,

@@ -411,4 +411,76 @@ public class OnlinePaymentServiceTests
         await Assert.ThrowsAsync<OperationCanceledException>(
             () => _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback));
     }
+
+    private static OnlinePaymentReturnRequest ReturnRequest() =>
+        new() { Params = new Dictionary<string, string> { ["vnp_TxnRef"] = "x", ["invoiceId"] = Guid.NewGuid().ToString() } };
+
+    private Payment SetupReturnFor(bool visible)
+    {
+        var payment = _invoice.RecordPayment(
+            new PaymentDetails(3_000_000, PaymentMethod.VnPay, DateTimeOffset.UtcNow, null, null, null, null),
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow);
+        _gateway
+            .Setup(g => g.ParseCallback(It.IsAny<GatewayCallback>()))
+            .Returns(new GatewayCallbackData(payment.Id, "14123456", 3_000_000m, IsSuccess: true, "{}"));
+        _paymentRepository
+            .Setup(r => r.GetInvoiceIdAsync(payment.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_invoice.Id);
+        _paymentRepository
+            .Setup(r => r.GetByIdWithDetailsAsync(payment.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(payment);
+        _tenantPortalQueries
+            .Setup(q => q.IsInvoiceVisibleAsync(_currentUserAccessor.User!.Id, _invoice.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(visible);
+        _payment = payment; // what GetForUpdateAsync hands back under the lock
+        return payment;
+    }
+
+    [Fact]
+    public async Task HandleMyReturn_UnsupportedGateway_Returns404()
+    {
+        await Assert.ThrowsAsync<AppNotFoundException>(
+            () => _service.HandleMyReturnAsync((PaymentGateway)99, ReturnRequest()));
+    }
+
+    [Fact]
+    public async Task HandleMyReturn_NoPaymentReference_Returns404()
+    {
+        _gateway
+            .Setup(g => g.ParseCallback(It.IsAny<GatewayCallback>()))
+            .Returns(new GatewayCallbackData(null, null, null, IsSuccess: false, "{}"));
+
+        await Assert.ThrowsAsync<AppNotFoundException>(() => _service.HandleMyReturnAsync(PaymentGateway.VnPay, ReturnRequest()));
+
+        Assert.Empty(_transactions);
+    }
+
+    [Fact]
+    public async Task HandleMyReturn_PaymentOfSomeoneElsesInvoice_Returns404BeforeWritingAnything()
+    {
+        SetupReturnFor(visible: false);
+
+        await Assert.ThrowsAsync<AppNotFoundException>(() => _service.HandleMyReturnAsync(PaymentGateway.VnPay, ReturnRequest()));
+
+        Assert.Empty(_transactions);
+        Assert.False(_currentUserAccessor.IsSystemActor);
+        _gateway.Verify(g => g.VerifyCallback(It.IsAny<GatewayCallback>(), It.IsAny<GatewayCredentials>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleMyReturn_GoesThroughTheIpnChecksAndRecordsAReturn()
+    {
+        var payment = SetupReturnFor(visible: true);
+        // Signature rejected: the shared checks ran, under the system actor, and the row says where it came from
+        _gateway.Setup(g => g.VerifyCallback(It.IsAny<GatewayCallback>(), It.IsAny<GatewayCredentials>())).Returns(false);
+
+        var response = await _service.HandleMyReturnAsync(PaymentGateway.VnPay, ReturnRequest());
+
+        Assert.Equal((payment.Id, _invoice.Id), (response.PaymentId, response.InvoiceId));
+        Assert.Equal((GatewayCallbackOutcome.InvalidSignature, PaymentStatus.Pending), (response.Outcome, response.PaymentStatus));
+        var transaction = Assert.Single(_transactions);
+        Assert.Equal((PaymentTransactionType.Return, PaymentTransactionStatus.Failed), (transaction.Type, transaction.Status));
+        Assert.True(_currentUserAccessor.IsSystemActor);
+    }
 }

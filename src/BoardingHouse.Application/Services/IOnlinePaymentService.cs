@@ -9,8 +9,8 @@ public interface IOnlinePaymentService
     Task<List<PaymentGateway>> GetMyGatewaysAsync(Guid invoiceId, CancellationToken cancellationToken = default);
     Task<OnlineCheckoutResponse> CreateMyCheckoutAsync(
         Guid invoiceId, CreateOnlineCheckoutRequest request, string clientIp, CancellationToken cancellationToken = default);
-
-    // Never throws for a bad callback: the gateway always gets the answer its spec expects
     Task<GatewayHttpResponse> HandleCallbackAsync(
         PaymentGateway gateway, GatewayCallback callback, CancellationToken cancellationToken = default);
+    Task<OnlinePaymentReturnResponse> HandleMyReturnAsync(
+        PaymentGateway gateway, OnlinePaymentReturnRequest request, CancellationToken cancellationToken = default);
 }

@@ -79,6 +79,14 @@ public class TenantPortalController(
         return Ok(new ApiResponse<OnlineCheckoutResponse> { Data = checkout });
     }
 
+    [HttpPost("payments/{gateway}/return")]
+    public async Task<ActionResult<ApiResponse<OnlinePaymentReturnResponse>>> HandleOnlinePaymentReturn(
+        PaymentGateway gateway, OnlinePaymentReturnRequest request, CancellationToken cancellationToken)
+    {
+        var result = await onlinePaymentService.HandleMyReturnAsync(gateway, request, cancellationToken);
+        return Ok(new ApiResponse<OnlinePaymentReturnResponse> { Data = result });
+    }
+
     [HttpGet("leases/{id:guid}/utility-readings")]
     public async Task<ActionResult<ApiResponse<PagedResult<MyUtilityReadingResponse>>>> GetUtilityReadings(
     Guid id, [FromQuery] MyUtilityReadingListQuery query, CancellationToken cancellationToken)

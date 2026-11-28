@@ -11,6 +11,7 @@ using BoardingHouse.Application.DTOs.Auth;
 using BoardingHouse.Application.DTOs.PaymentGateways;
 using BoardingHouse.Application.DTOs.Users;
 using BoardingHouse.Application.Jobs;
+using BoardingHouse.Application.Services.PaymentGateways;
 using BoardingHouse.Application.Services.Security;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
@@ -662,5 +663,159 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
 
         Assert.Equal(PaymentStatus.Voided, (await PaymentAsync(paymentId)).Status);
         Assert.True(Assert.Single(await CallbacksAsync()).NeedsReview);
+    }
+
+    // What the frontend posts from the return page: VNPay's signed vnp_* fields plus our invoiceId, all as strings
+    private static Dictionary<string, string> ReturnParams(
+        Dictionary<string, string> fields, Guid invoiceId, string secret = Secret) =>
+        new(fields)
+        {
+            [VnPayGateway.InvoiceIdParameter] = invoiceId.ToString(),
+            [VnPaySignature.SecureHashTypeField] = "HmacSHA512",
+            [VnPaySignature.SecureHashField] = VnPaySignature.Sign(VnPaySignature.BuildData(fields), secret)
+        };
+
+    private static Task<HttpResponseMessage> SendReturnAsync(HttpClient client, Dictionary<string, string> @params) =>
+        client.PostAsJsonAsync("/api/me/payments/vnpay/return", new { @params });
+
+    private Task<List<PaymentTransaction>> ReturnsAsync() =>
+        QueryAsync(c => c.PaymentTransactions
+            .Where(t => t.Type == PaymentTransactionType.Return)
+            .OrderBy(t => t.CreatedAt)
+            .ToListAsync());
+
+    [Fact]
+    public async Task Return_Valid_ConfirmsThePaymentAndPaysTheInvoice()
+    {
+        var (client, invoiceId, paymentId) = await StartCheckoutAsync();
+
+        var response = await SendReturnAsync(client, ReturnParams(IpnFields(paymentId), invoiceId));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await ReadDataAsync<OnlinePaymentReturnResponse>(response);
+        Assert.Equal((paymentId, invoiceId), (result.PaymentId, result.InvoiceId));
+        Assert.Equal((GatewayCallbackOutcome.Received, PaymentStatus.Confirmed), (result.Outcome, result.PaymentStatus));
+
+        // The gateway confirmed it, not the tenant
+        var payment = await PaymentAsync(paymentId);
+        Assert.Equal((PaymentStatus.Confirmed, "14123456"), (payment.Status, payment.TransactionReference));
+        Assert.Null(payment.ConfirmedBy);
+        Assert.Equal(SentinelActors.System, payment.UpdatedBy);
+        Assert.Equal(InvoiceStatus.Paid, await QueryAsync(c => c.Invoices.Where(i => i.Id == invoiceId).Select(i => i.Status).SingleAsync()));
+
+        var row = Assert.Single(await ReturnsAsync());
+        Assert.Equal((PaymentTransactionStatus.Success, "14123456"), (row.Status, row.GatewayTransactionId));
+        Assert.Empty(await CallbacksAsync());
+    }
+
+    [Fact]
+    public async Task Return_ThenIpn_IpnAnswers02AndCountsOnce()
+    {
+        var (client, invoiceId, paymentId) = await StartCheckoutAsync();
+        await SendReturnAsync(client, ReturnParams(IpnFields(paymentId), invoiceId));
+
+        Assert.Equal("02", await SendIpnAsync(IpnFields(paymentId)));
+
+        Assert.Equal(3_000_000m, await QueryAsync(c => c.Invoices.Where(i => i.Id == invoiceId).Select(i => i.PaidAmount).SingleAsync()));
+        Assert.Single(await ReturnsAsync());
+        Assert.Empty(await CallbacksAsync());
+    }
+
+    [Fact]
+    public async Task Ipn_ThenReturn_ReturnIsAlreadyProcessed()
+    {
+        var (client, invoiceId, paymentId) = await StartCheckoutAsync();
+        await SendIpnAsync(IpnFields(paymentId));
+
+        var result = await ReadDataAsync<OnlinePaymentReturnResponse>(
+            await SendReturnAsync(client, ReturnParams(IpnFields(paymentId), invoiceId)));
+
+        Assert.Equal((GatewayCallbackOutcome.AlreadyProcessed, PaymentStatus.Confirmed), (result.Outcome, result.PaymentStatus));
+        Assert.Equal(3_000_000m, await QueryAsync(c => c.Invoices.Where(i => i.Id == invoiceId).Select(i => i.PaidAmount).SingleAsync()));
+        Assert.Empty(await ReturnsAsync());
+    }
+
+    [Fact]
+    public async Task Return_WrongSignature_ChangesNothing()
+    {
+        var (client, invoiceId, paymentId) = await StartCheckoutAsync();
+
+        var response = await SendReturnAsync(client, ReturnParams(IpnFields(paymentId), invoiceId, secret: "OTHERSECRET"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await ReadDataAsync<OnlinePaymentReturnResponse>(response);
+        Assert.Equal((GatewayCallbackOutcome.InvalidSignature, PaymentStatus.Pending), (result.Outcome, result.PaymentStatus));
+        Assert.Equal(PaymentStatus.Pending, (await PaymentAsync(paymentId)).Status);
+        Assert.Equal("Invalid signature", Assert.Single(await ReturnsAsync()).Error);
+    }
+
+    [Fact]
+    public async Task Return_TamperedAmount_IsRejectedBySignature()
+    {
+        var (client, invoiceId, paymentId) = await StartCheckoutAsync();
+        var @params = ReturnParams(IpnFields(paymentId), invoiceId);
+        @params["vnp_Amount"] = "100";
+
+        var result = await ReadDataAsync<OnlinePaymentReturnResponse>(await SendReturnAsync(client, @params));
+
+        Assert.Equal(GatewayCallbackOutcome.InvalidSignature, result.Outcome);
+        Assert.Equal(PaymentStatus.Pending, (await PaymentAsync(paymentId)).Status);
+    }
+
+    [Fact]
+    public async Task Return_ForAnotherTenantsPayment_Returns404AndWritesNothing()
+    {
+        var (_, invoiceId, paymentId) = await StartCheckoutAsync();
+        var (other, _) = await RegisterAndLoginAsync("Tenant B");
+
+        var response = await SendReturnAsync(other, ReturnParams(IpnFields(paymentId), invoiceId));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(PaymentStatus.Pending, (await PaymentAsync(paymentId)).Status);
+        Assert.Empty(await ReturnsAsync());
+    }
+
+    [Fact]
+    public async Task Return_UnknownPaymentReference_Returns404()
+    {
+        var (client, invoiceId, _) = await StartCheckoutAsync();
+
+        var response = await SendReturnAsync(client, ReturnParams(IpnFields(Guid.NewGuid()), invoiceId));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(await ReturnsAsync());
+    }
+
+    [Fact]
+    public async Task Return_Cancelled_VoidsThePayment()
+    {
+        var (client, invoiceId, paymentId) = await StartCheckoutAsync();
+
+        var result = await ReadDataAsync<OnlinePaymentReturnResponse>(
+            await SendReturnAsync(client, ReturnParams(IpnFields(paymentId, responseCode: "24"), invoiceId)));
+
+        Assert.Equal((GatewayCallbackOutcome.Received, PaymentStatus.Voided), (result.Outcome, result.PaymentStatus));
+        var payment = await PaymentAsync(paymentId);
+        Assert.Equal((PaymentStatus.Voided, Payment.GatewayFailedReason), (payment.Status, payment.VoidReason));
+    }
+
+    [Fact]
+    public async Task Return_WithoutParams_Returns400()
+    {
+        var (client, _, _) = await StartCheckoutAsync();
+
+        var response = await client.PostAsJsonAsync("/api/me/payments/vnpay/return", new { });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Return_Anonymous_Returns401()
+    {
+        var (_, invoiceId, paymentId) = await StartCheckoutAsync();
+
+        var response = await SendReturnAsync(factory.CreateClient(), ReturnParams(IpnFields(paymentId), invoiceId));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 }

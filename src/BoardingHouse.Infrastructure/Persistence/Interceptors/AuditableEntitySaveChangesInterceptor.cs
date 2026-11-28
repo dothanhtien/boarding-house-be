@@ -29,8 +29,9 @@ public class AuditableEntitySaveChangesInterceptor(
         if (context is null) return;
 
         var now = DateTimeOffset.UtcNow;
-        var userId = currentUserAccessor.User?.Id
-            ?? (currentUserAccessor.IsSystemActor ? SentinelActors.System : null);
+        // A system write wins over the signed-in user: the gateway result a tenant forwards from the return page is
+        // applied by the system, not by the tenant
+        var userId = currentUserAccessor.IsSystemActor ? SentinelActors.System : currentUserAccessor.User?.Id;
         var warnedEntities = new HashSet<object>();
 
         ConvertDeletesToSoftDeletes(context, now, userId, warnedEntities);

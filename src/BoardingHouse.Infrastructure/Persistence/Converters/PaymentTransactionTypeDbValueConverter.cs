@@ -9,6 +9,7 @@ public static class PaymentTransactionTypeDbValueConverter
         new Dictionary<PaymentTransactionType, string>
         {
             [PaymentTransactionType.Checkout] = "CHECKOUT",
-            [PaymentTransactionType.Callback] = "CALLBACK"
+            [PaymentTransactionType.Callback] = "CALLBACK",
+            [PaymentTransactionType.Return] = "RETURN"
         });
 }
