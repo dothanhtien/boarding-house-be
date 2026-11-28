@@ -10,6 +10,7 @@ using BoardingHouse.Api.Common;
 using BoardingHouse.Application.DTOs.Auth;
 using BoardingHouse.Application.DTOs.PaymentGateways;
 using BoardingHouse.Application.DTOs.Users;
+using BoardingHouse.Application.Jobs;
 using BoardingHouse.Application.Services.Security;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
@@ -187,6 +188,19 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
             .Where(t => t.Type == PaymentTransactionType.Callback)
             .OrderBy(t => t.CreatedAt)
             .ToListAsync());
+
+    // Integration tests call the job directly: the Hangfire server is off (BackgroundJobs:Enabled = false)
+    private async Task RunExpiryJobAsync()
+    {
+        using var scope = factory.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<VoidExpiredOnlinePaymentsJob>().RunAsync();
+    }
+
+    private Task AgePaymentAsync(Guid paymentId, TimeSpan age) =>
+        ExecuteAsync(c => c.Database.ExecuteSqlAsync(
+            $"UPDATE payments SET created_at = {DateTimeOffset.UtcNow - age} WHERE id = {paymentId}"));
+
+    private Task<Payment> PaymentAsync(Guid paymentId) => QueryAsync(c => c.Payments.SingleAsync(p => p.Id == paymentId));
 
     [Fact]
     public async Task GetGateways_ActiveVnPay_ListsIt()
@@ -579,5 +593,74 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         Assert.Equal(["00", "02"], codes.Order());
         Assert.Equal(3_000_000m, await QueryAsync(c => c.Invoices.Where(i => i.Id == invoiceId).Select(i => i.PaidAmount).SingleAsync()));
         Assert.Single(await CallbacksAsync());
+    }
+
+    [Fact]
+    public async Task ExpiryJob_VoidsAGatewayPaymentPendingForMoreThan30Minutes()
+    {
+        var (client, invoiceId, paymentId) = await StartCheckoutAsync();
+        await AgePaymentAsync(paymentId, TimeSpan.FromMinutes(31));
+
+        await RunExpiryJobAsync();
+
+        var payment = await PaymentAsync(paymentId);
+        Assert.Equal((PaymentStatus.Voided, Payment.GatewayExpiredReason), (payment.Status, payment.VoidReason));
+        Assert.Null(payment.VoidedBy);
+        Assert.Equal(SentinelActors.System, payment.UpdatedBy);
+
+        var next = await ReadDataAsync<OnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
+        Assert.NotEqual(paymentId, next.PaymentId);
+    }
+
+    [Fact]
+    public async Task ExpiryJob_KeepsAPaymentWithinTheGracePeriod()
+    {
+        var (_, _, paymentId) = await StartCheckoutAsync();
+        await AgePaymentAsync(paymentId, TimeSpan.FromMinutes(20));
+
+        await RunExpiryJobAsync();
+
+        Assert.Equal(PaymentStatus.Pending, (await PaymentAsync(paymentId)).Status);
+    }
+
+    [Fact]
+    public async Task ExpiryJob_LeavesConfirmedAndCashPaymentsAlone()
+    {
+        var (_, invoiceId, paymentId) = await StartCheckoutAsync();
+        await SendIpnAsync(IpnFields(paymentId, amount: 3_000_000m));
+        await AgePaymentAsync(paymentId, TimeSpan.FromHours(2));
+
+        var cash = TestEntities.New<Payment>(new
+        {
+            InvoiceId = (Guid?)invoiceId,
+            Amount = 1_000m,
+            Method = PaymentMethod.Cash,
+            PaymentDate = DateTimeOffset.UtcNow,
+            CreatedBy = _staffId
+        });
+        await ExecuteAsync(async c =>
+        {
+            c.Payments.Add(cash);
+            await c.SaveChangesAsync();
+        });
+        await AgePaymentAsync(cash.Id, TimeSpan.FromHours(2));
+
+        await RunExpiryJobAsync();
+
+        Assert.Equal(PaymentStatus.Confirmed, (await PaymentAsync(paymentId)).Status);
+        Assert.Equal(PaymentStatus.Pending, (await PaymentAsync(cash.Id)).Status);
+    }
+
+    [Fact]
+    public async Task Ipn_SuccessAfterTheExpiryJob_IsFlaggedForReview()
+    {
+        var (_, _, paymentId) = await StartCheckoutAsync();
+        await AgePaymentAsync(paymentId, TimeSpan.FromMinutes(31));
+        await RunExpiryJobAsync();
+
+        Assert.Equal("00", await SendIpnAsync(IpnFields(paymentId)));
+
+        Assert.Equal(PaymentStatus.Voided, (await PaymentAsync(paymentId)).Status);
+        Assert.True(Assert.Single(await CallbacksAsync()).NeedsReview);
     }
 }

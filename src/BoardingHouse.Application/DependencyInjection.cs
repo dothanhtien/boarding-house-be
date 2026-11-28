@@ -48,6 +48,7 @@ public static class DependencyInjection
         services.AddScoped<ExpireLeasesJob>();
         services.AddScoped<MarkOverdueInvoicesJob>();
         services.AddScoped<GenerateDueInvoicesJob>();
+        services.AddScoped<VoidExpiredOnlinePaymentsJob>();
 
         TypeAdapterConfig.GlobalSettings.Scan(typeof(DependencyInjection).Assembly);
 

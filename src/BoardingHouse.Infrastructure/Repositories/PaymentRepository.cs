@@ -51,6 +51,17 @@ public class PaymentRepository(AppDbContext context) : IPaymentRepository
             .OrderByDescending(p => p.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
+    public Task<List<Guid>> ListStaleGatewayPaymentIdsAsync(
+        DateTimeOffset createdBefore, CancellationToken cancellationToken = default) =>
+        context.Payments
+            .Where(p => p.Status == PaymentStatus.Pending
+                && p.Method != PaymentMethod.Cash
+                && p.Method != PaymentMethod.BankTransfer
+                && p.CreatedAt < createdBefore)
+            .OrderBy(p => p.CreatedAt)
+            .Select(p => p.Id)
+            .ToListAsync(cancellationToken);
+
     public Task<List<Payment>> ListByInvoiceIdAsync(Guid invoiceId, CancellationToken cancellationToken = default) =>
         WithDetails()
             .AsNoTracking()

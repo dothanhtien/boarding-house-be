@@ -15,6 +15,7 @@ public class Payment : AuditableEntity
     public const string GatewayRequestFailedReason = "Gateway request failed";
     public const string GatewayFailedReason = "Gateway payment failed";
     public const string GatewayNotAppliedReason = "Paid through the gateway but could not be applied to the invoice";
+    public const string GatewayExpiredReason = "Gateway payment expired";
 
     public Guid? InvoiceId { get; private set; }
     public Invoice? Invoice { get; private set; }
@@ -43,6 +44,8 @@ public class Payment : AuditableEntity
     public static readonly TimeSpan MaxClockSkew = TimeSpan.FromMinutes(5);
 
     public static readonly TimeSpan GatewayCheckoutLifetime = TimeSpan.FromMinutes(15);
+
+    public static readonly TimeSpan GatewayVoidGrace = TimeSpan.FromMinutes(15);
 
     private Payment() { }
 
