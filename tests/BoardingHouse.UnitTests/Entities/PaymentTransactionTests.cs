@@ -36,4 +36,24 @@ public class PaymentTransactionTests
         Assert.Null(transaction.ExpiresAt);
         Assert.Equal(PaymentTransaction.ErrorMaxLength, transaction.Error!.Length);
     }
+
+    [Fact]
+    public void Callback_KeepsWhatTheGatewaySent()
+    {
+        var paymentId = Guid.NewGuid();
+
+        var transaction = PaymentTransaction.Callback(
+            paymentId, PaymentGateway.VnPay, PaymentTransactionStatus.Success, "14123456", 3_000_000m,
+            """{"vnp_SecureHash":"***"}""", error: null, needsReview: false, Now);
+
+        Assert.Equal((PaymentTransactionType.Callback, PaymentTransactionStatus.Success), (transaction.Type, transaction.Status));
+        Assert.Equal(("14123456", 3_000_000m), (transaction.GatewayTransactionId, transaction.Amount));
+        Assert.Equal("""{"vnp_SecureHash":"***"}""", transaction.WebhookPayload);
+        Assert.Null(transaction.PaymentUrl);
+    }
+
+    [Fact]
+    public void Callback_Pending_Throws() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => PaymentTransaction.Callback(
+            null, PaymentGateway.VnPay, PaymentTransactionStatus.Pending, null, null, "{}", null, false, Now));
 }

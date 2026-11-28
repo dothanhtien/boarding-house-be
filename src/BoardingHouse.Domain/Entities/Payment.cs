@@ -13,6 +13,8 @@ public class Payment : AuditableEntity
     public const string AmountPrecisionMessage = "Amount must not exceed 18 digits in total, with at most 2 decimal places";
     public const string InvoiceCancelledReason = "Invoice cancelled";
     public const string GatewayRequestFailedReason = "Gateway request failed";
+    public const string GatewayFailedReason = "Gateway payment failed";
+    public const string GatewayNotAppliedReason = "Paid through the gateway but could not be applied to the invoice";
 
     public Guid? InvoiceId { get; private set; }
     public Invoice? Invoice { get; private set; }
@@ -70,13 +72,23 @@ public class Payment : AuditableEntity
         }
     }
 
-    public void Confirm(Guid? confirmedBy, DateTimeOffset now)
+    public void Confirm(Guid? confirmedBy, DateTimeOffset now, string? transactionReference = null)
     {
         EnsureCanBeConfirmed();
+
+        if (transactionReference?.Trim().Length > TransactionReferenceMaxLength)
+        {
+            throw new DomainException($"TransactionReference must not exceed {TransactionReferenceMaxLength} characters");
+        }
 
         Status = PaymentStatus.Confirmed;
         ConfirmedBy = confirmedBy;
         ConfirmedAt = now;
+
+        if (!string.IsNullOrWhiteSpace(transactionReference))
+        {
+            TransactionReference = transactionReference.Trim();
+        }
     }
 
     public void Void(string reason, Guid? voidedBy, DateTimeOffset now)

@@ -228,13 +228,13 @@ public class Invoice : BaseEntity
         return Payment.ForInvoice(Id, details, recordedBy, now);
     }
 
-    public void ConfirmPayment(Payment payment, Guid? confirmedBy, DateTimeOffset now)
+    public void ConfirmPayment(Payment payment, Guid? confirmedBy, DateTimeOffset now, string? transactionReference = null)
     {
         EnsureOwns(payment);
         payment.EnsureCanBeConfirmed();
         EnsureCanTakePayment(payment.Amount);
 
-        payment.Confirm(confirmedBy, now);
+        payment.Confirm(confirmedBy, now, transactionReference);
         PaidAmount += payment.Amount;
     }
 

@@ -1098,6 +1098,19 @@ public class InvoiceTests
         Assert.Equal(InvoiceStatus.Pending, invoice.Status);
     }
 
+    [Fact]
+    public void ConfirmPayment_WithTransactionReference_PassesItToThePayment()
+    {
+        var invoice = Create();
+        var payment = invoice.RecordPayment(Cash(1_000_000), ActorId, Now);
+
+        invoice.ConfirmPayment(payment, confirmedBy: null, Later, "14123456");
+
+        Assert.Equal("14123456", payment.TransactionReference);
+        Assert.Null(payment.ConfirmedBy);
+        Assert.Equal(1_000_000, invoice.PaidAmount);
+    }
+
     [Theory]
     [InlineData(1_000_000, InvoiceStatus.Partial)]
     [InlineData(5_355_000, InvoiceStatus.Paid)]

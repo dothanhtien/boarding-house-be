@@ -251,4 +251,37 @@ public class PaymentTests
     [InlineData(PaymentMethod.ZaloPay, true)]
     public void IsGatewayMethod_OnlyGatewayMethods(PaymentMethod method, bool expected) =>
         Assert.Equal(expected, Payment.IsGatewayMethod(method));
+
+    [Fact]
+    public void Confirm_WithTransactionReference_KeepsIt()
+    {
+        var payment = Record();
+
+        payment.Confirm(confirmedBy: null, Now, " 14123456 ");
+
+        Assert.Equal(PaymentStatus.Confirmed, payment.Status);
+        Assert.Null(payment.ConfirmedBy);
+        Assert.Equal("14123456", payment.TransactionReference);
+    }
+
+    [Fact]
+    public void Confirm_WithoutTransactionReference_KeepsTheRecordedOne()
+    {
+        var payment = Record(Details(transactionReference: "FT2606010001"));
+
+        payment.Confirm(ActorId, Now);
+
+        Assert.Equal("FT2606010001", payment.TransactionReference);
+    }
+
+    [Fact]
+    public void Confirm_TooLongTransactionReference_ThrowsAndStaysPending()
+    {
+        var payment = Record();
+
+        var ex = Assert.Throws<DomainException>(() => payment.Confirm(null, Now, new string('1', Payment.TransactionReferenceMaxLength + 1)));
+
+        Assert.Equal("TransactionReference must not exceed 100 characters", ex.Message);
+        Assert.Equal(PaymentStatus.Pending, payment.Status);
+    }
 }

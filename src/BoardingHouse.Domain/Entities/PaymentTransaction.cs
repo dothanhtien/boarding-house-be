@@ -70,4 +70,35 @@ public class PaymentTransaction : Entity
         };
 
     private static string? Truncate(string? error) => error is { Length: > ErrorMaxLength } ? error[..ErrorMaxLength] : error;
+
+    public static PaymentTransaction Callback(
+        Guid? paymentId,
+        PaymentGateway gateway,
+        PaymentTransactionStatus status,
+        string? gatewayTransactionId,
+        decimal? amount,
+        string webhookPayload,
+        string? error,
+        bool needsReview,
+        DateTimeOffset now)
+    {
+        if (status == PaymentTransactionStatus.Pending)
+        {
+            throw new ArgumentOutOfRangeException(nameof(status), status, "A callback is either a success or a failure");
+        }
+
+        return new PaymentTransaction
+        {
+            PaymentId = paymentId,
+            Gateway = gateway,
+            Type = PaymentTransactionType.Callback,
+            Status = status,
+            GatewayTransactionId = gatewayTransactionId,
+            Amount = amount,
+            WebhookPayload = webhookPayload,
+            Error = Truncate(error),
+            NeedsReview = needsReview,
+            CreatedAt = now
+        };
+    }
 }

@@ -17,4 +17,12 @@ public class PaymentTransactionRepository(AppDbContext context) : IPaymentTransa
             .Where(t => t.PaymentId == paymentId && t.Type == PaymentTransactionType.Checkout)
             .OrderByDescending(t => t.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<bool> ExistsSuccessfulCallbackAsync(
+        PaymentGateway gateway, string gatewayTransactionId, CancellationToken cancellationToken = default) =>
+        context.PaymentTransactions.AnyAsync(
+            t => t.Gateway == gateway
+                && t.GatewayTransactionId == gatewayTransactionId
+                && t.Status == PaymentTransactionStatus.Success,
+            cancellationToken);
 }

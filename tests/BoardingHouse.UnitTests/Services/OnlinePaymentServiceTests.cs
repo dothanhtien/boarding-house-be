@@ -323,4 +323,91 @@ public class OnlinePaymentServiceTests
         _organizationPaymentGatewayRepository.Verify(
             r => r.ListByOrganizationIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    private static readonly GatewayCallback IpnCallback = new(new Dictionary<string, string>(), Body: null);
+
+    // The response body names the outcome, so a test can tell which one the service picked
+    private void SetupCallback(Guid? paymentId)
+    {
+        _gateway
+            .Setup(g => g.ParseCallback(IpnCallback))
+            .Returns(new GatewayCallbackData(paymentId, "14123456", 3_000_000m, IsSuccess: true, "{}"));
+        _gateway
+            .Setup(g => g.BuildCallbackResponse(It.IsAny<GatewayCallbackOutcome>()))
+            .Returns((GatewayCallbackOutcome outcome) => new GatewayHttpResponse(200, "application/json", outcome.ToString()));
+    }
+
+    [Fact]
+    public async Task HandleCallback_UnsupportedGateway_Returns404()
+    {
+        await Assert.ThrowsAsync<AppNotFoundException>(
+            () => _service.HandleCallbackAsync((PaymentGateway)99, IpnCallback));
+    }
+
+    [Fact]
+    public async Task HandleCallback_RunsAsTheSystemActor()
+    {
+        SetupCallback(paymentId: null);
+
+        await _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback);
+
+        Assert.True(_currentUserAccessor.IsSystemActor);
+    }
+
+    [Fact]
+    public async Task HandleCallback_UnknownPayment_RecordsItAndAnswersPaymentNotFound()
+    {
+        SetupCallback(paymentId: null);
+
+        var response = await _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback);
+
+        Assert.Equal(nameof(GatewayCallbackOutcome.PaymentNotFound), response.Body);
+        var transaction = Assert.Single(_transactions);
+        Assert.Equal((PaymentTransactionType.Callback, PaymentTransactionStatus.Failed), (transaction.Type, transaction.Status));
+        Assert.Null(transaction.PaymentId);
+        _gateway.Verify(g => g.VerifyCallback(It.IsAny<GatewayCallback>(), It.IsAny<GatewayCredentials>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleCallback_UnexpectedError_DiscardsAndAnswersError()
+    {
+        var paymentId = Guid.NewGuid();
+        SetupCallback(paymentId);
+        _paymentRepository
+            .Setup(r => r.GetInvoiceIdAsync(paymentId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("database down"));
+
+        var response = await _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback);
+
+        Assert.Equal(nameof(GatewayCallbackOutcome.Error), response.Body);
+        _unitOfWork.Verify(u => u.DiscardChanges(), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleCallback_SameTransactionCommittedByAnotherDelivery_AnswersAlreadyProcessed()
+    {
+        SetupCallback(paymentId: null);
+        _paymentTransactionRepository
+            .Setup(r => r.AddAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new UniqueConstraintViolationException(
+                UniqueIndexNames.PaymentTransactionGatewayGatewayTransactionId, new Exception()));
+
+        var response = await _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback);
+
+        Assert.Equal(nameof(GatewayCallbackOutcome.AlreadyProcessed), response.Body);
+        _unitOfWork.Verify(u => u.DiscardChanges(), Times.Once);
+    }
+
+    [Fact]
+    public async Task HandleCallback_Cancelled_Rethrows()
+    {
+        var paymentId = Guid.NewGuid();
+        SetupCallback(paymentId);
+        _paymentRepository
+            .Setup(r => r.GetInvoiceIdAsync(paymentId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException());
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback));
+    }
 }
