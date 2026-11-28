@@ -13,6 +13,7 @@ public interface IInvoiceRepository : IRepository<Invoice>
     Task<Invoice?> GetAggregateForUpdateAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Invoice?> GetByIdWithDetailsAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Guid?> GetOrganizationIdAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<Guid?> GetOrganizationIdIncludingDeletedAsync(Guid id, CancellationToken cancellationToken = default);
     Task<List<Guid>> ListIdsToMarkOverdueAsync(DateOnly today, CancellationToken cancellationToken = default);
     Task<List<InvoiceStatusHistory>> ListStatusHistoriesAsync(Guid invoiceId, CancellationToken cancellationToken = default);
     Task<int> NextNumberAsync(Guid organizationId, BillingMonth billingMonth, CancellationToken cancellationToken = default);

@@ -111,6 +111,8 @@ public class VnPayGatewayTests
     [InlineData("https://app.test/return?lang=vi", "https://app.test/return?lang=vi&invoiceId=3c9d2e7f-1a4b-4c5d-8e6f-7a8b9c0d1e2f")]
     [InlineData("https://app.test/return?", "https://app.test/return?invoiceId=3c9d2e7f-1a4b-4c5d-8e6f-7a8b9c0d1e2f")]
     [InlineData("https://app.test/return?lang=vi&", "https://app.test/return?lang=vi&invoiceId=3c9d2e7f-1a4b-4c5d-8e6f-7a8b9c0d1e2f")]
+    [InlineData("https://app.test/return#top", "https://app.test/return?invoiceId=3c9d2e7f-1a4b-4c5d-8e6f-7a8b9c0d1e2f#top")]
+    [InlineData("https://app.test/return?lang=vi#/a?b=1", "https://app.test/return?lang=vi&invoiceId=3c9d2e7f-1a4b-4c5d-8e6f-7a8b9c0d1e2f#/a?b=1")]
     public void ReturnUrlOf_AddsTheInvoiceIdAsAQueryParameter(string returnUrl, string expected) =>
         Assert.Equal(expected, VnPayGateway.ReturnUrlOf(returnUrl, InvoiceId));
 
@@ -306,6 +308,26 @@ public class VnPayGatewayTests
         Assert.True(data.IsSuccess);
         Assert.Null(data.GatewayTransactionId);
     }
+
+    [Theory]
+    [InlineData("07", "01")] // debited, held as suspicious
+    [InlineData("00", "07")] // transaction suspected of fraud
+    public void ParseCallback_SuspiciousDebit_IsNotASuccessButKeepsTheTransaction(
+        string responseCode, string transactionStatus)
+    {
+        var data = _gateway.ParseCallback(Callback(Signed(IpnFields(responseCode, transactionStatus))));
+
+        Assert.False(data.IsSuccess);
+        Assert.True(data.IsSuspicious);
+        Assert.True(data.MayHaveDebited);
+        Assert.Equal("14123456", data.GatewayTransactionId);
+    }
+
+    [Theory]
+    [InlineData("00", "00")]
+    [InlineData("24", "02")]
+    public void ParseCallback_NotSuspicious(string responseCode, string transactionStatus) =>
+        Assert.False(_gateway.ParseCallback(Callback(Signed(IpnFields(responseCode, transactionStatus)))).IsSuspicious);
 
     [Fact]
     public void ParseCallback_EmptyQuery_DoesNotThrow()

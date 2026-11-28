@@ -716,6 +716,20 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
     }
 
     [Fact]
+    public async Task Checkout_LinkExpiredButPaymentWithinTheGracePeriod_Returns409()
+    {
+        var (client, invoiceId, paymentId) = await StartCheckoutAsync();
+        await AgePaymentAsync(paymentId, TimeSpan.FromMinutes(20));
+        await ExecuteAsync(c => c.Database.ExecuteSqlAsync(
+            $"UPDATE payment_transactions SET expires_at = {DateTimeOffset.UtcNow.AddMinutes(-5)} WHERE payment_id = {paymentId}"));
+
+        var response = await CheckoutAsync(client, invoiceId);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(PaymentStatus.Pending, (await PaymentAsync(paymentId)).Status);
+    }
+
+    [Fact]
     public async Task ExpiryJob_LeavesConfirmedAndCashPaymentsAlone()
     {
         var (_, invoiceId, paymentId) = await StartCheckoutAsync();

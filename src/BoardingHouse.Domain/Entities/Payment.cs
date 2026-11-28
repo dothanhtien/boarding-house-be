@@ -50,6 +50,9 @@ public class Payment : AuditableEntity
 
     public static readonly TimeSpan GatewayVoidGrace = TimeSpan.FromMinutes(15);
 
+    // Until then an old link may still be paid (late IPN): no new checkout, no void by the expiry job
+    public static TimeSpan GatewayPendingWindow => GatewayCheckoutLifetime + GatewayVoidGrace;
+
     private Payment() { }
 
     public static Payment ForInvoice(Guid invoiceId, PaymentDetails details, Guid createdBy, DateTimeOffset now)

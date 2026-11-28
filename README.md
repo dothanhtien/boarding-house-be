@@ -277,7 +277,8 @@ server-to-server call (IPN), or the same signed parameters the tenant's browser 
    <https://sandbox.vnpayment.vn/devreg/>.
 4. **Flow** — `POST /api/me/invoices/{id}/online-payments` creates a `pending` payment for the amount left to pay
    and returns a link valid for 15 minutes (clicking again returns the same link while it has more than 2 minutes
-   left; after that `409` until it expires). It is `409` too while a cash or bank transfer of the invoice waits for
+   left and the invoice still asks for that amount; otherwise `409` until the job below voids it, since an old link
+   can still be paid until then). It is `409` too while a cash or bank transfer of the invoice waits for
    staff confirmation. The IPN confirms it (invoice paid),
    or voids it when the tenant cancels; the `void-expired-online-payments` job voids payments still pending 30
    minutes after they were created.
@@ -297,8 +298,10 @@ server-to-server call (IPN), or the same signed parameters the tenant's browser 
    URL says `vnp_ResponseCode=00`. Rows from this path are `payment_transactions.type = 'RETURN'`.
 
 Every request to and callback from a gateway is kept in `payment_transactions` (signatures masked). Money that
-arrives but cannot be applied — the payment had expired, the invoice was already paid, cancelled or deleted — is saved with
-`needs_review = true` and logged as an error; refund or record it by hand:
+arrives but cannot be applied — the payment had expired, the invoice was already paid, cancelled or deleted, or VNPay
+debited the tenant but holds the transaction as suspicious (code `07`; the payment is voided) — is saved with
+`needs_review = true` and logged as an error; refund or record it by hand. Only a correctly signed callback is ever
+flagged:
 
 ```sql
 SELECT created_at, gateway, gateway_transaction_id, amount, payment_id, error

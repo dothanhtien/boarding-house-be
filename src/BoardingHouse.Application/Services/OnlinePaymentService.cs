@@ -40,6 +40,7 @@ public class OnlinePaymentService(
     private const string AmountMismatchError = "Amount does not match the payment";
     private const string AlreadyConfirmedError = "The payment was already confirmed by another gateway transaction";
     private const string PaidAfterVoidError = "Paid after the payment was voided";
+    private const string SuspiciousDebitError = "Debited but held as suspicious by the gateway";
 
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
 
@@ -78,7 +79,10 @@ public class OnlinePaymentService(
             }
 
             var pending = await paymentRepository.FindPendingGatewayPaymentAsync(
-                invoiceId, now - Payment.GatewayCheckoutLifetime, ct);
+                invoiceId, now - Payment.GatewayPendingWindow, ct);
+            var lateFee = await lateFeeResolver.ResolveAsync(invoice, ct);
+            invoice.RefreshStatus(Today, lateFee, changedBy: null, now);
+
             if (pending is not null)
             {
                 var checkout = await paymentTransactionRepository.GetLatestCheckoutAsync(pending.Id, ct);
@@ -86,6 +90,7 @@ public class OnlinePaymentService(
                 return pending.Method == gateway.ToPaymentMethod()
                     && checkout is { Status: PaymentTransactionStatus.Pending, PaymentUrl: not null }
                     && checkout.ExpiresAt > now + MinReusedCheckoutLifetime
+                    && invoice.GetAmountToRequest() == pending.Amount
                         ? new ReusedCheckout(ToResponse(pending.Id, gateway, checkout))
                         : throw new AppConflictException(PaymentInProgressMessage);
             }
@@ -93,9 +98,6 @@ public class OnlinePaymentService(
             var account = await organizationPaymentGatewayRepository.GetAsync(invoice.OrganizationId, gateway, ct)
                 ?? throw new AppConflictException(OrganizationPaymentGateway.NotAvailableMessage);
             account.EnsureActive();
-
-            var lateFee = await lateFeeResolver.ResolveAsync(invoice, ct);
-            invoice.RefreshStatus(Today, lateFee, changedBy: null, now);
 
             var amount = invoice.GetAmountToRequest();
             var payment = invoice.RecordPayment(
@@ -269,12 +271,10 @@ public class OnlinePaymentService(
         var gateway = adapter.Gateway;
         var now = DateTimeOffset.UtcNow;
 
-        // 1. The payment the callback names (not trusted yet), locked with its invoice
         var invoiceId = data.PaymentId is { } paymentId ? await paymentRepository.GetInvoiceIdAsync(paymentId, ct) : null;
         if (invoiceId is null)
         {
-            // Not one of our payments, so there is no account to check the signature with: only logged, so an
-            // anonymous caller cannot fill payment_transactions
+            // No account to check the signature with: only logged, so an anonymous caller cannot fill payment_transactions
             logger.LogWarning("Payment gateway callback for an unknown payment ({Gateway}, {PaymentId})", gateway, data.PaymentId);
             return GatewayCallbackOutcome.PaymentNotFound;
         }
@@ -284,47 +284,56 @@ public class OnlinePaymentService(
 
         if (invoice is null || payment is null || payment.Method != gateway.ToPaymentMethod())
         {
-            // One of our payments that cannot take it (invoice deleted, another method): money may have been received
+            // Money may have been received for a payment that cannot take it (invoice deleted, another method),
+            // but only a signed callback says so
+            var organizationId = invoice?.OrganizationId
+                ?? await invoiceRepository.GetOrganizationIdIncludingDeletedAsync(invoiceId.Value, ct);
+            var paymentAccount = organizationId is { } orgId
+                ? await organizationPaymentGatewayRepository.GetAsync(orgId, gateway, ct)
+                : null;
+            var isSigned = paymentAccount is not null
+                && await IsSignedByAccountAsync(adapter, callback, paymentAccount, data.PaymentId!.Value, ct);
+            var needsReview = isSigned && data.MayHaveDebited;
+
             await RecordCallbackAsync(
-                data.PaymentId, gateway, PaymentTransactionStatus.Failed, data, UnknownPaymentError, data.IsSuccess, now,
-                source, ct);
+                data.PaymentId, gateway, PaymentTransactionStatus.Failed, data,
+                isSigned ? UnknownPaymentError : InvalidSignatureError, needsReview, now, source, ct);
             logger.Log(
-                data.IsSuccess ? LogLevel.Error : LogLevel.Warning,
-                "Payment gateway callback for a payment that cannot take it ({Gateway}, {PaymentId})", gateway, data.PaymentId);
-            return GatewayCallbackOutcome.PaymentNotFound;
+                needsReview ? LogLevel.Error : LogLevel.Warning,
+                "Payment gateway callback for a payment that cannot take it ({Gateway}, {PaymentId}, signed: {IsSigned})",
+                gateway, data.PaymentId, isSigned);
+            return isSigned ? GatewayCallbackOutcome.PaymentNotFound : GatewayCallbackOutcome.InvalidSignature;
         }
 
-        // 2. Signed with the secret of the organization the payment belongs to (even if the gateway was turned off
-        // since: a late IPN for a payment already started must still count): its current credentials, or the ones the
-        // payment link was signed with if they were replaced since
+        // Accepted even if the gateway was turned off since (a late IPN must still count), and with the credentials
+        // the payment link was signed with if they were replaced since
         var account = await organizationPaymentGatewayRepository.GetAsync(invoice.OrganizationId, gateway, ct);
-        if (account is null || !await IsSignedByAccountAsync(adapter, callback, account, payment, ct))
+        if (account is null || !await IsSignedByAccountAsync(adapter, callback, account, payment.Id, ct))
         {
             await RecordCallbackAsync(payment.Id, gateway, PaymentTransactionStatus.Failed, data, InvalidSignatureError, false, now, source, ct);
             logger.LogWarning("Payment gateway callback with an invalid signature ({Gateway}, {PaymentId})", gateway, payment.Id);
             return GatewayCallbackOutcome.InvalidSignature;
         }
 
-        // 3. Delivered again after it was handled
         if (data.GatewayTransactionId is { } transactionId
             && await paymentTransactionRepository.ExistsSuccessfulCallbackAsync(gateway, transactionId, ct))
         {
             return GatewayCallbackOutcome.AlreadyProcessed;
         }
 
-        // 4. Exactly what we asked for
         if (data.Amount != payment.Amount)
         {
             await RecordCallbackAsync(
-                payment.Id, gateway, PaymentTransactionStatus.Failed, data, AmountMismatchError, data.IsSuccess, now, source, ct);
+                payment.Id, gateway, PaymentTransactionStatus.Failed, data, AmountMismatchError, data.MayHaveDebited, now,
+                source, ct);
             logger.Log(
-                data.IsSuccess ? LogLevel.Error : LogLevel.Warning,
+                data.MayHaveDebited ? LogLevel.Error : LogLevel.Warning,
                 "Payment gateway reported {ReportedAmount} for payment {PaymentId} of {Amount} ({Gateway})",
                 data.Amount, payment.Id, payment.Amount, gateway);
             return GatewayCallbackOutcome.InvalidAmount;
         }
 
-        // 5. Cancelled, expired, declined: free the invoice for a new attempt
+        // A suspicious debit (VNPay 07) is not settled later either: voided like a decline, flagged for staff
         if (!data.IsSuccess)
         {
             if (payment.Status == PaymentStatus.Pending)
@@ -332,11 +341,20 @@ public class OnlinePaymentService(
                 invoice.VoidPayment(payment, Payment.GatewayFailedReason, voidedBy: null, now);
             }
 
-            await RecordCallbackAsync(payment.Id, gateway, PaymentTransactionStatus.Failed, data, null, false, now, source, ct);
+            await RecordCallbackAsync(
+                payment.Id, gateway, PaymentTransactionStatus.Failed, data,
+                data.IsSuspicious ? SuspiciousDebitError : null, data.IsSuspicious, now, source, ct);
+
+            if (data.IsSuspicious)
+            {
+                logger.LogError(
+                    "Online payment debited but held as suspicious by the gateway, check it with the gateway ({PaymentId}, {Gateway}, transaction {GatewayTransactionId})",
+                    payment.Id, gateway, data.GatewayTransactionId);
+            }
+
             return GatewayCallbackOutcome.Received;
         }
 
-        // 6. Money received
         if (payment.Status == PaymentStatus.Confirmed && payment.TransactionReference == data.GatewayTransactionId)
         {
             return GatewayCallbackOutcome.AlreadyProcessed;
@@ -388,7 +406,7 @@ public class OnlinePaymentService(
         IPaymentGateway adapter,
         GatewayCallback callback,
         OrganizationPaymentGateway account,
-        Payment payment,
+        Guid paymentId,
         CancellationToken ct)
     {
         if (IsSignedWith(adapter, callback, account.MerchantCode, account.SecretEncrypted))
@@ -396,7 +414,7 @@ public class OnlinePaymentService(
             return true;
         }
 
-        var checkout = await paymentTransactionRepository.GetLatestCheckoutAsync(payment.Id, ct);
+        var checkout = await paymentTransactionRepository.GetLatestCheckoutAsync(paymentId, ct);
         if (checkout?.CredentialsVersion is not { } version || version == account.CredentialsVersion)
         {
             return false;

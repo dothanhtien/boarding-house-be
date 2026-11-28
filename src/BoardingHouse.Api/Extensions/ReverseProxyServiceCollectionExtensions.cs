@@ -6,12 +6,8 @@ public static class ReverseProxyServiceCollectionExtensions
 {
     public const string KnownNetworksSection = "ForwardedHeaders:KnownNetworks";
 
-    /// <summary>
-    /// Configures UseForwardedHeaders to take the client IP and scheme from X-Forwarded-For / X-Forwarded-Proto,
-    /// trusting them only from loopback and the proxy networks listed in ForwardedHeaders:KnownNetworks (CIDR). With
-    /// none listed only loopback is trusted, the ASP.NET Core default, so a direct connection (local dev, tests)
-    /// behaves as before.
-    /// </summary>
+    // Forwarded headers are trusted only from loopback and the listed proxy networks (CIDR): a client cannot spoof its
+    // IP by sending X-Forwarded-For itself
     public static IServiceCollection AddReverseProxySupport(
         this IServiceCollection services, IConfiguration configuration)
     {

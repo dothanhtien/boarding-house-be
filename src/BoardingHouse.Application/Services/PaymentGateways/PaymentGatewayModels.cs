@@ -21,7 +21,11 @@ public record GatewayCallbackData(
     string? GatewayTransactionId,
     decimal? Amount,
     bool IsSuccess,
-    string Payload);
+    string Payload,
+    bool IsSuspicious = false)
+{
+    public bool MayHaveDebited => IsSuccess || IsSuspicious;
+}
 
 public enum GatewayCallbackOutcome
 {

@@ -283,6 +283,47 @@ public class OnlinePaymentServiceTests
     }
 
     [Fact]
+    public async Task CreateMyCheckout_LiveLinkButAmountDueChanged_Returns409()
+    {
+        SetupPendingPayment(PaymentMethod.VnPay, DateTimeOffset.UtcNow.AddMinutes(10));
+        TestEntities.Set(_invoice, new { TotalAmount = 2_500_000m });
+
+        var ex = await Assert.ThrowsAsync<AppConflictException>(CheckoutAsync);
+
+        Assert.Equal(OnlinePaymentService.PaymentInProgressMessage, ex.Message);
+        Assert.Null(_payment);
+    }
+
+    [Fact]
+    public async Task CreateMyCheckout_LiveLinkButInvoiceCancelled_Returns409()
+    {
+        SetupPendingPayment(PaymentMethod.VnPay, DateTimeOffset.UtcNow.AddMinutes(10));
+        _invoice.Cancel("Issued by mistake", Guid.NewGuid(), DateTimeOffset.UtcNow);
+
+        var ex = await Assert.ThrowsAsync<DomainException>(CheckoutAsync);
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Null(_payment);
+    }
+
+    [Fact]
+    public async Task CreateMyCheckout_LooksForPendingPaymentsTheExpiryJobHasNotVoidedYet()
+    {
+        var before = DateTimeOffset.UtcNow;
+        _gateway
+            .Setup(g => g.CreateCheckoutAsync(It.IsAny<GatewayCheckoutRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GatewayCheckout("https://pay.test/x", "{}", null));
+
+        await CheckoutAsync();
+
+        _paymentRepository.Verify(r => r.FindPendingGatewayPaymentAsync(
+            _invoice.Id,
+            It.Is<DateTimeOffset>(cutoff => cutoff <= DateTimeOffset.UtcNow - Payment.GatewayPendingWindow
+                && cutoff >= before - Payment.GatewayPendingWindow),
+            It.IsAny<CancellationToken>()));
+    }
+
+    [Fact]
     public async Task CreateMyCheckout_ManualPaymentWaitingForStaff_Returns409()
     {
         _paymentRepository
@@ -418,6 +459,7 @@ public class OnlinePaymentServiceTests
     {
         var payment = SetupPaymentOfAnotherMethod();
         SetupCallback(payment.Id);
+        _gateway.Setup(g => g.VerifyCallback(IpnCallback, It.IsAny<GatewayCredentials>())).Returns(true);
 
         var response = await _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback);
 
@@ -426,6 +468,42 @@ public class OnlinePaymentServiceTests
         Assert.Equal((PaymentTransactionStatus.Failed, payment.Id), (transaction.Status, transaction.PaymentId));
         Assert.True(transaction.NeedsReview);
         Assert.Equal(PaymentStatus.Pending, payment.Status);
+    }
+
+    [Fact]
+    public async Task HandleCallback_UnsignedForAPaymentThatCannotTakeIt_IsRecordedWithoutReview()
+    {
+        var payment = SetupPaymentOfAnotherMethod();
+        SetupCallback(payment.Id);
+        _gateway.Setup(g => g.VerifyCallback(IpnCallback, It.IsAny<GatewayCredentials>())).Returns(false);
+
+        var response = await _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback);
+
+        Assert.Equal(nameof(GatewayCallbackOutcome.InvalidSignature), response.Body);
+        var transaction = Assert.Single(_transactions);
+        Assert.Equal((PaymentTransactionStatus.Failed, payment.Id, false), (transaction.Status, transaction.PaymentId, transaction.NeedsReview));
+    }
+
+    [Fact]
+    public async Task HandleCallback_SuspiciousDebit_VoidsThePaymentAndFlagsTheDebit()
+    {
+        var payment = SetupReturnFor(visible: true);
+        _gateway.Setup(g => g.ParseCallback(IpnCallback))
+            .Returns(new GatewayCallbackData(payment.Id, "14123456", 3_000_000m, IsSuccess: false, "{}", IsSuspicious: true));
+        _gateway
+            .Setup(g => g.BuildCallbackResponse(It.IsAny<GatewayCallbackOutcome>()))
+            .Returns((GatewayCallbackOutcome outcome) => new GatewayHttpResponse(200, "application/json", outcome.ToString()));
+        _gateway.Setup(g => g.VerifyCallback(IpnCallback, It.IsAny<GatewayCredentials>())).Returns(true);
+
+        var response = await _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback);
+
+        Assert.Equal(nameof(GatewayCallbackOutcome.Received), response.Body);
+        Assert.Equal(PaymentStatus.Voided, payment.Status);
+        var transaction = Assert.Single(_transactions);
+        Assert.Equal(
+            (PaymentTransactionStatus.Failed, true, "14123456"),
+            (transaction.Status, transaction.NeedsReview, transaction.GatewayTransactionId));
+        Assert.NotNull(transaction.Error);
     }
 
     private static readonly GatewayCredentials Version1 = new("TESTCODE", "TESTSECRET");

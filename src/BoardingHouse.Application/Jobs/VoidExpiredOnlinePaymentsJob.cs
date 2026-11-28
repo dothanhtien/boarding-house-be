@@ -6,13 +6,8 @@ using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Application.Jobs;
 
-/// <summary>
-/// Voids gateway payments (VNPay...) still <c>PENDING</c> <see cref="Payment.GatewayCheckoutLifetime"/> +
-/// <see cref="Payment.GatewayVoidGrace"/> after they were created: the link expired and no IPN came, so the invoice is
-/// free for a new attempt. Scheduled every 10 minutes by <c>RecurringJobRegistry</c> (Infrastructure); each payment is
-/// re-checked under its lock in its own transaction, so it is safe to re-run. An IPN that still arrives later is
-/// recorded for review by <c>OnlinePaymentService</c>.
-/// </summary>
+// Frees the invoice of a gateway payment whose link expired without an IPN. An IPN that still arrives later is
+// flagged for review by OnlinePaymentService
 public class VoidExpiredOnlinePaymentsJob(
     IPaymentRepository paymentRepository,
     IInvoiceRepository invoiceRepository,
@@ -24,7 +19,7 @@ public class VoidExpiredOnlinePaymentsJob(
     {
         currentUserAccessor.IsSystemActor = true;
 
-        var createdBefore = DateTimeOffset.UtcNow - Payment.GatewayCheckoutLifetime - Payment.GatewayVoidGrace;
+        var createdBefore = DateTimeOffset.UtcNow - Payment.GatewayPendingWindow;
         var paymentIds = await paymentRepository.ListStaleGatewayPaymentIdsAsync(createdBefore, cancellationToken);
 
         var voided = 0;

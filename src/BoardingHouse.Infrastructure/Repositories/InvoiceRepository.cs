@@ -45,6 +45,13 @@ public class InvoiceRepository(AppDbContext context) : Repository<Invoice>(conte
             .Select(i => (Guid?)i.OrganizationId)
             .FirstOrDefaultAsync(cancellationToken);
 
+    public Task<Guid?> GetOrganizationIdIncludingDeletedAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Context.Invoices
+            .IgnoreQueryFilters()
+            .Where(i => i.Id == id)
+            .Select(i => (Guid?)i.OrganizationId)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public Task<List<Guid>> ListIdsToMarkOverdueAsync(DateOnly today, CancellationToken cancellationToken = default) =>
         Context.Invoices
             .Where(i => (i.Status == InvoiceStatus.Pending || i.Status == InvoiceStatus.Partial) && i.DueDate < today)

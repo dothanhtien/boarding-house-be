@@ -7,13 +7,13 @@ using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Infrastructure.Services.PaymentGateways.VnPay;
 
-// VNPay payment gateway, API version 2.1.0.
 // Docs: https://sandbox.vnpayment.vn/apis/docs/thanh-toan-pay/pay.html (payment URL, IPN, response codes).
 // Creating a payment calls nothing: the URL is signed here and the tenant's browser opens it.
 public class VnPayGateway(IOptions<VnPayOptions> options) : IPaymentGateway
 {
     public const string Version = "2.1.0";
     public const string SuccessCode = "00";
+    public const string SuspiciousCode = "07";
 
     // vnp_CreateDate / vnp_ExpireDate are Vietnam time (GMT+7), yyyyMMddHHmmss
     private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
@@ -37,11 +37,16 @@ public class VnPayGateway(IOptions<VnPayOptions> options) : IPaymentGateway
     // Not a vnp_* parameter, so it never takes part in the signature of the return / IPN. A "D" Guid needs no encoding.
     public static string ReturnUrlOf(string returnUrl, Guid invoiceId)
     {
-        var separator = !returnUrl.Contains('?')
-            ? "?"
-            : returnUrl.EndsWith('?') || returnUrl.EndsWith('&') ? "" : "&";
+        var fragmentStart = returnUrl.IndexOf('#');
+        var (url, fragment) = fragmentStart < 0
+            ? (returnUrl, "")
+            : (returnUrl[..fragmentStart], returnUrl[fragmentStart..]);
 
-        return $"{returnUrl}{separator}{InvoiceIdParameter}={invoiceId:D}";
+        var separator = !url.Contains('?')
+            ? "?"
+            : url.EndsWith('?') || url.EndsWith('&') ? "" : "&";
+
+        return $"{url}{separator}{InvoiceIdParameter}={invoiceId:D}{fragment}";
     }
 
     public Task<GatewayCheckout> CreateCheckoutAsync(
@@ -85,19 +90,22 @@ public class VnPayGateway(IOptions<VnPayOptions> options) : IPaymentGateway
                 ? minorUnits / 100m
                 : null;
 
-        var isSuccess = fields.GetValueOrDefault("vnp_ResponseCode") == SuccessCode
-            && fields.GetValueOrDefault("vnp_TransactionStatus") == SuccessCode;
+        var responseCode = fields.GetValueOrDefault("vnp_ResponseCode");
+        var transactionStatus = fields.GetValueOrDefault("vnp_TransactionStatus");
+        var isSuccess = responseCode == SuccessCode && transactionStatus == SuccessCode;
+        var isSuspicious = !isSuccess && (responseCode == SuspiciousCode || transactionStatus == SuspiciousCode);
 
         var transactionNo = fields.GetValueOrDefault("vnp_TransactionNo");
 
         return new GatewayCallbackData(
             paymentId,
-            isSuccess && transactionNo is { Length: > 0 and <= PaymentTransaction.GatewayTransactionIdMaxLength }
+            (isSuccess || isSuspicious) && transactionNo is { Length: > 0 and <= PaymentTransaction.GatewayTransactionIdMaxLength }
                 ? transactionNo
                 : null,
             amount,
             isSuccess,
-            ToJson(Masked(fields)));
+            ToJson(Masked(fields)),
+            isSuspicious);
     }
 
     public bool VerifyCallback(GatewayCallback callback, GatewayCredentials credentials) =>
