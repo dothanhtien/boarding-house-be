@@ -252,9 +252,13 @@ returns to does not.
    | Setting | Env var (`docker-compose.yml`) | Value |
    | --- | --- | --- |
    | `VnPay:PaymentUrl` | `VNPAY_PAYMENT_URL` | sandbox `https://sandbox.vnpayment.vn/paymentv2/vpcpay.html`, production `https://pay.vnpay.vn/vpcpay.html` |
-   | `VnPay:ReturnUrl` | `VNPAY_RETURN_URL` | e.g. `https://app.example.com/payments/vnpay-return` (frontend; it only shows the invoice again) |
+   | `VnPay:ReturnUrl` | `VNPAY_RETURN_URL` | e.g. `https://app.example.com/tenant-portal/payments/vnpay-return` (frontend, under the tenant portal) |
 
    `appsettings.Development.json` points to the sandbox. The API does not start without both values.
+   Each payment link sends the tenant back to `ReturnUrl` with `invoiceId=<invoice id>` added to its query (`&` if
+   `ReturnUrl` already has one); VNPay appends its own `vnp_*` parameters. The page only shows that invoice again
+   (`GET /api/me/invoices/{invoiceId}`, polling a few seconds since the IPN may arrive after the redirect): the
+   `vnp_*` parameters on the URL are for display only and never confirm anything.
 2. **Merchant account per organization** (`organization-setting:update`):
 
    ```http

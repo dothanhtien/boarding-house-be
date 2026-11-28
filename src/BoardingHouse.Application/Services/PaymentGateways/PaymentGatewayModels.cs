@@ -4,6 +4,7 @@ public record GatewayCredentials(string MerchantCode, string Secret);
 
 public record GatewayCheckoutRequest(
     Guid PaymentId,
+    Guid InvoiceId,
     decimal Amount,
     string OrderInfo,
     string ClientIp,

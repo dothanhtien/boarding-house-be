@@ -261,7 +261,7 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         Assert.True(VnPaySignature.Verify(query, Secret));
         Assert.Equal((MerchantCode, "300000000", checkout.PaymentId.ToString("N")),
             (query["vnp_TmnCode"], query["vnp_Amount"], query["vnp_TxnRef"]));
-        Assert.Equal("https://app.test/payments/vnpay-return", query["vnp_ReturnUrl"]);
+        Assert.Equal($"https://app.test/payments/vnpay-return?invoiceId={invoiceId}", query["vnp_ReturnUrl"]);
 
         var payment = await QueryAsync(c => c.Payments.SingleAsync(p => p.Id == checkout.PaymentId));
         Assert.Equal((invoiceId, PaymentStatus.Pending, PaymentMethod.VnPay, 3_000_000m),

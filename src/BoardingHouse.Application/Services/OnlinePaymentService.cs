@@ -124,6 +124,7 @@ public class OnlinePaymentService(
             gatewayCheckout = await adapter.CreateCheckoutAsync(
                 new GatewayCheckoutRequest(
                     created.PaymentId,
+                    created.InvoiceId,
                     created.Amount,
                     $"Invoice {created.InvoiceNumber}",
                     clientIp,

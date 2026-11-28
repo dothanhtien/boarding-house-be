@@ -14,29 +14,37 @@ public class VnPayGatewayTests
     private const string Secret = "TESTSECRET0123456789";
     private const string MerchantCode = "TESTCODE";
     private static readonly Guid PaymentId = Guid.Parse("6f1c0b9a-2d4e-4f7a-9b3c-1d2e3f405162");
+    private static readonly Guid InvoiceId = Guid.Parse("3c9d2e7f-1a4b-4c5d-8e6f-7a8b9c0d1e2f");
+    private const string ReturnUrl = "http://localhost:3000/tenant-portal/payments/vnpay-return";
 
+    // vnp_ReturnUrl carries ?invoiceId=..., encoded inside the signed value (? = %3F, = = %3D)
     private const string ExpectedData =
         "vnp_Amount=300000000&vnp_Command=pay&vnp_CreateDate=20261127103000&vnp_CurrCode=VND"
         + "&vnp_ExpireDate=20261127104500&vnp_IpAddr=127.0.0.1&vnp_Locale=vn&vnp_OrderInfo=Invoice+INV-202611-0001"
-        + "&vnp_OrderType=other&vnp_ReturnUrl=http%3A%2F%2Flocalhost%3A3000%2Fpayments%2Fvnpay-return"
+        + "&vnp_OrderType=other"
+        + "&vnp_ReturnUrl=http%3A%2F%2Flocalhost%3A3000%2Ftenant-portal%2Fpayments%2Fvnpay-return"
+        + "%3FinvoiceId%3D3c9d2e7f-1a4b-4c5d-8e6f-7a8b9c0d1e2f"
         + "&vnp_TmnCode=TESTCODE&vnp_TxnRef=6f1c0b9a2d4e4f7a9b3c1d2e3f405162&vnp_Version=2.1.0";
 
     private const string ExpectedHash =
-        "11d695850a2034af207774c3f13b7bf743f927c3fc551df700050a825e0bd0c0"
-        + "bb49f1342b089643946a866f4d0fe4e718ef4da4c65a89b242acf8b7147cd160";
+        "a2dcdd6629cd5f50cd12279007ac3fd98c13097bbf14cdee5a2ee9e285a1e800"
+        + "21d9cbcf14caf4530b3ed8f145ec1cb45bee001be68094048afaf052f853c56d";
 
     private static readonly GatewayCredentials Credentials = new(MerchantCode, Secret);
 
-    private readonly VnPayGateway _gateway = new(Options.Create(new VnPayOptions
+    private readonly VnPayGateway _gateway = Gateway(ReturnUrl);
+
+    private static VnPayGateway Gateway(string returnUrl) => new(Options.Create(new VnPayOptions
     {
         PaymentUrl = "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
-        ReturnUrl = "http://localhost:3000/payments/vnpay-return",
+        ReturnUrl = returnUrl,
         Locale = "vn"
     }));
 
     // 10:30 and 10:45 in Vietnam
     private static GatewayCheckoutRequest CheckoutRequest() => new(
         PaymentId,
+        InvoiceId,
         3_000_000m,
         "Invoice INV-202611-0001",
         "127.0.0.1",
@@ -94,7 +102,48 @@ public class VnPayGatewayTests
         Assert.Equal("20261127103000", query["vnp_CreateDate"]);
         Assert.Equal("20261127104500", query["vnp_ExpireDate"]);
         Assert.Equal("6f1c0b9a2d4e4f7a9b3c1d2e3f405162", query["vnp_TxnRef"]);
+        Assert.Equal($"{ReturnUrl}?invoiceId=3c9d2e7f-1a4b-4c5d-8e6f-7a8b9c0d1e2f", query["vnp_ReturnUrl"]);
         Assert.True(VnPaySignature.Verify(query.ToDictionary(q => q.Key, q => q.Value.ToString()), Secret));
+    }
+
+    [Theory]
+    [InlineData("https://app.test/return", "https://app.test/return?invoiceId=3c9d2e7f-1a4b-4c5d-8e6f-7a8b9c0d1e2f")]
+    [InlineData("https://app.test/return?lang=vi", "https://app.test/return?lang=vi&invoiceId=3c9d2e7f-1a4b-4c5d-8e6f-7a8b9c0d1e2f")]
+    [InlineData("https://app.test/return?", "https://app.test/return?invoiceId=3c9d2e7f-1a4b-4c5d-8e6f-7a8b9c0d1e2f")]
+    [InlineData("https://app.test/return?lang=vi&", "https://app.test/return?lang=vi&invoiceId=3c9d2e7f-1a4b-4c5d-8e6f-7a8b9c0d1e2f")]
+    public void ReturnUrlOf_AddsTheInvoiceIdAsAQueryParameter(string returnUrl, string expected) =>
+        Assert.Equal(expected, VnPayGateway.ReturnUrlOf(returnUrl, InvoiceId));
+
+    [Fact]
+    public async Task CreateCheckout_ReturnUrlWithAQuery_IsEncodedIntoOneSignedField()
+    {
+        var checkout = await Gateway("https://app.test/return?lang=vi").CreateCheckoutAsync(CheckoutRequest());
+
+        // The ? and & of the return URL are encoded: they do not split the payment URL's own query string
+        var query = QueryHelpers.ParseQuery(new Uri(checkout.PaymentUrl).Query);
+        Assert.Equal("https://app.test/return?lang=vi&invoiceId=3c9d2e7f-1a4b-4c5d-8e6f-7a8b9c0d1e2f", query["vnp_ReturnUrl"]);
+        Assert.False(query.ContainsKey("invoiceId"));
+        Assert.False(query.ContainsKey("lang"));
+        Assert.True(VnPaySignature.Verify(query.ToDictionary(q => q.Key, q => q.Value.ToString()), Secret));
+    }
+
+    [Fact]
+    public async Task CreateCheckout_PayloadKeepsTheReturnUrlWithTheInvoiceId()
+    {
+        var checkout = await _gateway.CreateCheckoutAsync(CheckoutRequest());
+
+        var payload = JsonSerializer.Deserialize<Dictionary<string, string>>(checkout.RequestPayload)!;
+        Assert.Equal($"{ReturnUrl}?invoiceId=3c9d2e7f-1a4b-4c5d-8e6f-7a8b9c0d1e2f", payload["vnp_ReturnUrl"]);
+    }
+
+    [Fact]
+    public void VerifyCallback_ReturnWithTheInvoiceIdParameter_IgnoresIt()
+    {
+        // VNPay appends its vnp_* fields to our return URL; invoiceId is not part of what it signed
+        var fields = Signed(IpnFields());
+        fields[VnPayGateway.InvoiceIdParameter] = InvoiceId.ToString();
+
+        Assert.True(_gateway.VerifyCallback(Callback(fields), Credentials));
     }
 
     [Fact]

@@ -140,6 +140,7 @@ public class OnlinePaymentServiceTests
         Assert.Equal(_currentUserAccessor.User!.Id, _payment.PayerUserId);
         Assert.Equal(new GatewayCredentials("TESTCODE", "TESTSECRET"), sent!.Credentials);
         Assert.Equal("Invoice INV-202611-0001", sent.OrderInfo);
+        Assert.Equal(_invoice.Id, sent.InvoiceId);
         Assert.Equal(sent.CreatedAt + Payment.GatewayCheckoutLifetime, sent.ExpiresAt);
         var transaction = Assert.Single(_transactions);
         Assert.Equal((PaymentTransactionType.Checkout, PaymentTransactionStatus.Pending), (transaction.Type, transaction.Status));

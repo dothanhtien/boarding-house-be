@@ -31,6 +31,19 @@ public class VnPayGateway(IOptions<VnPayOptions> options) : IPaymentGateway
     public static string ToVnPayAmount(decimal amount) =>
         decimal.ToInt64(decimal.Round(amount * 100, 0)).ToString(CultureInfo.InvariantCulture);
 
+    public const string InvoiceIdParameter = "invoiceId";
+
+    // The return URL is the same for every payment: the invoice id tells the frontend page which invoice to show again.
+    // Not a vnp_* parameter, so it never takes part in the signature of the return / IPN. A "D" Guid needs no encoding.
+    public static string ReturnUrlOf(string returnUrl, Guid invoiceId)
+    {
+        var separator = !returnUrl.Contains('?')
+            ? "?"
+            : returnUrl.EndsWith('?') || returnUrl.EndsWith('&') ? "" : "&";
+
+        return $"{returnUrl}{separator}{InvoiceIdParameter}={invoiceId:D}";
+    }
+
     public Task<GatewayCheckout> CreateCheckoutAsync(
         GatewayCheckoutRequest request, CancellationToken cancellationToken = default)
     {
@@ -46,7 +59,7 @@ public class VnPayGateway(IOptions<VnPayOptions> options) : IPaymentGateway
             ["vnp_OrderInfo"] = request.OrderInfo,
             ["vnp_OrderType"] = "other",
             ["vnp_Locale"] = settings.Locale,
-            ["vnp_ReturnUrl"] = settings.ReturnUrl,
+            ["vnp_ReturnUrl"] = ReturnUrlOf(settings.ReturnUrl, request.InvoiceId),
             ["vnp_IpAddr"] = request.ClientIp,
             ["vnp_CreateDate"] = FormatDate(request.CreatedAt),
             ["vnp_ExpireDate"] = FormatDate(request.ExpiresAt)
