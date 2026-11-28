@@ -65,6 +65,7 @@ public class GlobalExceptionHandler(IHostEnvironment env, ILogger<GlobalExceptio
         AppErrorKind.Unauthorized => StatusCodes.Status401Unauthorized,
         AppErrorKind.Forbidden => StatusCodes.Status403Forbidden,
         AppErrorKind.TooManyRequests => StatusCodes.Status429TooManyRequests,
+        AppErrorKind.BadGateway => StatusCodes.Status502BadGateway,
         _ => StatusCodes.Status500InternalServerError
     };
 

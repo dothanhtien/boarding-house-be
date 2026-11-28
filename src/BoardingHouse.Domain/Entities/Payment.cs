@@ -12,6 +12,7 @@ public class Payment : AuditableEntity
     public const decimal MaxAmount = 9_999_999_999_999_999.99m;
     public const string AmountPrecisionMessage = "Amount must not exceed 18 digits in total, with at most 2 decimal places";
     public const string InvoiceCancelledReason = "Invoice cancelled";
+    public const string GatewayRequestFailedReason = "Gateway request failed";
 
     public Guid? InvoiceId { get; private set; }
     public Invoice? Invoice { get; private set; }
@@ -38,6 +39,8 @@ public class Payment : AuditableEntity
     public string? Note { get; private set; }
 
     public static readonly TimeSpan MaxClockSkew = TimeSpan.FromMinutes(5);
+
+    public static readonly TimeSpan GatewayCheckoutLifetime = TimeSpan.FromMinutes(15);
 
     private Payment() { }
 
@@ -98,6 +101,8 @@ public class Payment : AuditableEntity
         VoidedAt = now;
         VoidReason = reason.Trim();
     }
+
+    public static bool IsGatewayMethod(PaymentMethod method) => method is not (PaymentMethod.Cash or PaymentMethod.BankTransfer);
 
     private static void EnsureDetailsValid(PaymentDetails details, DateTimeOffset now)
     {

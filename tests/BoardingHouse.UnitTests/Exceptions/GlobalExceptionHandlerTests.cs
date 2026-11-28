@@ -71,7 +71,8 @@ public class GlobalExceptionHandlerTests
         { new AppUnauthorizedException("x"), StatusCodes.Status401Unauthorized },
         { new AppForbiddenException("x"), StatusCodes.Status403Forbidden },
         { new AppInternalException("x"), StatusCodes.Status500InternalServerError },
-        { new AppTooManyRequestsException("x"), StatusCodes.Status429TooManyRequests }
+        { new AppTooManyRequestsException("x"), StatusCodes.Status429TooManyRequests },
+        { new AppBadGatewayException("x"), StatusCodes.Status502BadGateway }
     };
 
     [Theory]

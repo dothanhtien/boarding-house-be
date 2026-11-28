@@ -26,4 +26,48 @@ public class PaymentTransaction : Entity
     public DateTimeOffset CreatedAt { get; private set; }
 
     private PaymentTransaction() { }
+
+    public static PaymentTransaction Checkout(
+        Guid paymentId,
+        PaymentGateway gateway,
+        decimal amount,
+        string paymentUrl,
+        DateTimeOffset expiresAt,
+        string requestPayload,
+        string? responsePayload,
+        DateTimeOffset now) => new()
+        {
+            PaymentId = paymentId,
+            Gateway = gateway,
+            Type = PaymentTransactionType.Checkout,
+            Status = PaymentTransactionStatus.Pending,
+            Amount = amount,
+            PaymentUrl = paymentUrl,
+            ExpiresAt = expiresAt,
+            RequestPayload = requestPayload,
+            ResponsePayload = responsePayload,
+            CreatedAt = now
+        };
+
+    public static PaymentTransaction CheckoutFailed(
+        Guid paymentId,
+        PaymentGateway gateway,
+        decimal amount,
+        string? requestPayload,
+        string? responsePayload,
+        string error,
+        DateTimeOffset now) => new()
+        {
+            PaymentId = paymentId,
+            Gateway = gateway,
+            Type = PaymentTransactionType.Checkout,
+            Status = PaymentTransactionStatus.Failed,
+            Amount = amount,
+            RequestPayload = requestPayload,
+            ResponsePayload = responsePayload,
+            Error = Truncate(error),
+            CreatedAt = now
+        };
+
+    private static string? Truncate(string? error) => error is { Length: > ErrorMaxLength } ? error[..ErrorMaxLength] : error;
 }

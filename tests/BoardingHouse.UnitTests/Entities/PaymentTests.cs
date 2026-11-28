@@ -242,4 +242,13 @@ public class PaymentTests
         Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
         Assert.Equal(PaymentStatus.Voided, payment.Status);
     }
+
+    [Theory]
+    [InlineData(PaymentMethod.Cash, false)]
+    [InlineData(PaymentMethod.BankTransfer, false)]
+    [InlineData(PaymentMethod.VnPay, true)]
+    [InlineData(PaymentMethod.Momo, true)]
+    [InlineData(PaymentMethod.ZaloPay, true)]
+    public void IsGatewayMethod_OnlyGatewayMethods(PaymentMethod method, bool expected) =>
+        Assert.Equal(expected, Payment.IsGatewayMethod(method));
 }

@@ -1,0 +1,12 @@
+using BoardingHouse.Domain.Entities.Enums;
+
+namespace BoardingHouse.Application.DTOs.PaymentGateways;
+
+public record OnlineCheckoutResponse
+{
+    public required Guid PaymentId { get; init; }
+    public required PaymentGateway Gateway { get; init; }
+    public required decimal Amount { get; init; }
+    public required string PaymentUrl { get; init; }
+    public required DateTimeOffset ExpiresAt { get; init; }
+}

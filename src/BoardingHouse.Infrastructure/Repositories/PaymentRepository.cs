@@ -40,6 +40,17 @@ public class PaymentRepository(AppDbContext context) : IPaymentRepository
             .FromSql($"SELECT * FROM payments WHERE invoice_id = {invoiceId} AND status = {PendingStatus} ORDER BY id FOR UPDATE")
             .ToListAsync(cancellationToken);
 
+    public Task<Payment?> FindPendingGatewayPaymentAsync(
+        Guid invoiceId, DateTimeOffset createdAfter, CancellationToken cancellationToken = default) =>
+        context.Payments
+            .Where(p => p.InvoiceId == invoiceId
+                && p.Status == PaymentStatus.Pending
+                && p.Method != PaymentMethod.Cash
+                && p.Method != PaymentMethod.BankTransfer
+                && p.CreatedAt > createdAfter)
+            .OrderByDescending(p => p.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public Task<List<Payment>> ListByInvoiceIdAsync(Guid invoiceId, CancellationToken cancellationToken = default) =>
         WithDetails()
             .AsNoTracking()

@@ -2,9 +2,11 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Application.Common.Listing;
+using BoardingHouse.Application.DTOs.PaymentGateways;
 using BoardingHouse.Application.DTOs.TenantPortal;
 using BoardingHouse.Application.DTOs.VietQr;
 using BoardingHouse.Application.Services;
+using BoardingHouse.Domain.Entities.Enums;
 
 namespace BoardingHouse.Api.Controllers;
 
@@ -13,7 +15,8 @@ namespace BoardingHouse.Api.Controllers;
 [Authorize]
 public class TenantPortalController(
     ITenantPortalService tenantPortalService,
-    IVietQrService vietQrService) : ControllerBase
+    IVietQrService vietQrService,
+    IOnlinePaymentService onlinePaymentService) : ControllerBase
 {
     [HttpGet("tenancy")]
     public async Task<ActionResult<ApiResponse<TenancyResponse>>> GetTenancy(CancellationToken cancellationToken)
@@ -60,6 +63,22 @@ public class TenantPortalController(
         return Ok(new ApiResponse<InvoicePaymentQrResponse> { Data = qr });
     }
 
+    [HttpGet("invoices/{id:guid}/online-payment-gateways")]
+    public async Task<ActionResult<ApiResponse<List<PaymentGateway>>>> GetOnlinePaymentGateways(
+        Guid id, CancellationToken cancellationToken)
+    {
+        var gateways = await onlinePaymentService.GetMyGatewaysAsync(id, cancellationToken);
+        return Ok(new ApiResponse<List<PaymentGateway>> { Data = gateways });
+    }
+
+    [HttpPost("invoices/{id:guid}/online-payments")]
+    public async Task<ActionResult<ApiResponse<OnlineCheckoutResponse>>> CreateOnlinePayment(
+        Guid id, CreateOnlineCheckoutRequest request, CancellationToken cancellationToken)
+    {
+        var checkout = await onlinePaymentService.CreateMyCheckoutAsync(id, request, ClientIp(), cancellationToken);
+        return Ok(new ApiResponse<OnlineCheckoutResponse> { Data = checkout });
+    }
+
     [HttpGet("leases/{id:guid}/utility-readings")]
     public async Task<ActionResult<ApiResponse<PagedResult<MyUtilityReadingResponse>>>> GetUtilityReadings(
     Guid id, [FromQuery] MyUtilityReadingListQuery query, CancellationToken cancellationToken)
@@ -75,4 +94,9 @@ public class TenantPortalController(
         var payments = await tenantPortalService.GetPaymentsAsync(query, cancellationToken);
         return Ok(new ApiResponse<PagedResult<MyPaymentResponse>> { Data = payments });
     }
+
+    private string ClientIp() =>
+        HttpContext.Connection.RemoteIpAddress is { } ip
+            ? (ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip).ToString()
+            : "127.0.0.1";
 }

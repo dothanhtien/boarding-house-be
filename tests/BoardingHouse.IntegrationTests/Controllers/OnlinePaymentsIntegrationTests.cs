@@ -1,0 +1,327 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using BoardingHouse.Api.Common;
+using BoardingHouse.Application.DTOs.Auth;
+using BoardingHouse.Application.DTOs.PaymentGateways;
+using BoardingHouse.Application.DTOs.Users;
+using BoardingHouse.Application.Services.Security;
+using BoardingHouse.Domain.Common;
+using BoardingHouse.Domain.Entities;
+using BoardingHouse.Domain.Entities.Enums;
+using BoardingHouse.Infrastructure.Persistence;
+using BoardingHouse.Infrastructure.Services.PaymentGateways.VnPay;
+using BoardingHouse.IntegrationTests.Fixtures;
+
+namespace BoardingHouse.IntegrationTests.Controllers;
+
+public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
+    : IClassFixture<PostgresApiFactory>, IAsyncLifetime
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
+    };
+
+    private const string Password = "password123";
+    private const string MerchantCode = "TESTCODE";
+    private const string Secret = "TESTSECRET0123456789";
+
+    private Guid _staffId;
+    private Guid _organizationId;
+    private Guid _roomId;
+
+    public async Task InitializeAsync()
+    {
+        await factory.ResetAsync();
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var staff = TestEntities.New<User>(new { FullName = "Staff", PasswordHash = "hash", CreatedBy = SentinelActors.System });
+        var organization = TestEntities.New<Organization>(new { Name = "Org A", CreatedBy = staff.Id });
+        var property = TestEntities.New<Property>(new { OrganizationId = organization.Id, Name = "Property A", CreatedBy = staff.Id });
+        var room = TestRooms.New(propertyId: property.Id, roomNumber: "101", capacity: 4, createdBy: staff.Id);
+        context.AddRange(staff, organization, property, room);
+        await context.SaveChangesAsync();
+
+        _staffId = staff.Id;
+        _organizationId = organization.Id;
+        _roomId = room.Id;
+    }
+
+    public Task DisposeAsync() => Task.CompletedTask;
+
+    private static string ExtractAccessTokenCookie(HttpResponseMessage response) =>
+        response.Headers.GetValues("Set-Cookie")
+            .Single(h => h.StartsWith("accessToken=", StringComparison.Ordinal))
+            .Split(';')[0]["accessToken=".Length..];
+
+    private async Task<(HttpClient Client, Guid UserId)> RegisterAndLoginAsync(string fullName)
+    {
+        var email = $"user-{Guid.NewGuid():N}@test.com";
+        var client = factory.CreateClient();
+        var registerResponse = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
+        {
+            Email = email,
+            Phone = $"09{Random.Shared.Next(10000000, 99999999)}",
+            Password = Password,
+            PasswordConfirmation = Password,
+            FullName = fullName
+        });
+        var user = (await registerResponse.Content.ReadFromJsonAsync<ApiResponse<UserResponse>>())!.Data!;
+
+        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Identifier = email, Password = Password });
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ExtractAccessTokenCookie(loginResponse));
+        return (client, user.Id);
+    }
+
+    private static async Task<T> ReadDataAsync<T>(HttpResponseMessage response) =>
+        (await response.Content.ReadFromJsonAsync<ApiResponse<T>>(JsonOptions))!.Data!;
+
+    // An active lease of the room since 2026-01-01 with the tenant as representative, and its February invoice
+    private async Task<Guid> SeedInvoiceAsync(Guid tenantId, InvoiceStatus status = InvoiceStatus.Pending, decimal paidAmount = 0)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tenant = await context.Users.SingleAsync(u => u.Id == tenantId);
+        var room = await context.Rooms.SingleAsync(r => r.Id == _roomId);
+        var start = new DateOnly(2026, 1, 1);
+
+        var lease = Lease.CreateDraft(
+            _organizationId, room, previousLeaseId: null, $"HD-{Guid.NewGuid():N}"[..10], start, start.AddYears(1),
+            billingDay: null, monthlyRent: 3_000_000, depositAmount: 3_000_000,
+            [new TenantChange { UserId = tenantId, IsRepresentative = true }],
+            new Dictionary<Guid, User> { [tenantId] = tenant }, [], DateTimeOffset.UtcNow, _staffId);
+        TestEntities.Set(lease, new { Status = LeaseStatus.Active });
+
+        var invoice = TestEntities.New<Invoice>(new
+        {
+            OrganizationId = _organizationId,
+            LeaseId = lease.Id,
+            InvoiceNumber = $"INV-2026-02-{Guid.NewGuid():N}"[..24],
+            BillingMonth = BillingMonth.FromFirstDay(new DateOnly(2026, 2, 1)),
+            // far ahead: the checkout's RefreshStatus must not add a late fee to these tests
+            DueDate = DateOnly.FromDateTime(DateTime.UtcNow).AddYears(1),
+            Subtotal = 3_000_000m,
+            TotalAmount = 3_000_000m,
+            PaidAmount = paidAmount,
+            Status = status,
+            CreatedBy = _staffId
+        });
+        context.AddRange(lease, invoice);
+        await context.SaveChangesAsync();
+        return invoice.Id;
+    }
+
+    private async Task ConfigureVnPayAsync(bool isActive = true)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var protector = scope.ServiceProvider.GetRequiredService<ISecretProtector>();
+        context.OrganizationPaymentGateways.Add(OrganizationPaymentGateway.Create(
+            _organizationId, PaymentGateway.VnPay, MerchantCode, protector.Protect(Secret), isActive, _staffId));
+        await context.SaveChangesAsync();
+    }
+
+    private static Task<HttpResponseMessage> CheckoutAsync(HttpClient client, Guid invoiceId) =>
+        client.PostAsJsonAsync($"/api/me/invoices/{invoiceId}/online-payments", new { gateway = "vnPay" });
+
+    private async Task<T> QueryAsync<T>(Func<AppDbContext, Task<T>> query)
+    {
+        using var scope = factory.Services.CreateScope();
+        return await query(scope.ServiceProvider.GetRequiredService<AppDbContext>());
+    }
+
+    [Fact]
+    public async Task GetGateways_ActiveVnPay_ListsIt()
+    {
+        var (client, tenantId) = await RegisterAndLoginAsync("Tenant A");
+        var invoiceId = await SeedInvoiceAsync(tenantId);
+        await ConfigureVnPayAsync();
+
+        var response = await client.GetAsync($"/api/me/invoices/{invoiceId}/online-payment-gateways");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal([PaymentGateway.VnPay], await ReadDataAsync<List<PaymentGateway>>(response));
+    }
+
+    [Fact]
+    public async Task GetGateways_InactiveVnPay_ReturnsNone()
+    {
+        var (client, tenantId) = await RegisterAndLoginAsync("Tenant A");
+        var invoiceId = await SeedInvoiceAsync(tenantId);
+        await ConfigureVnPayAsync(isActive: false);
+
+        var gateways = await ReadDataAsync<List<PaymentGateway>>(
+            await client.GetAsync($"/api/me/invoices/{invoiceId}/online-payment-gateways"));
+
+        Assert.Empty(gateways);
+    }
+
+    [Fact]
+    public async Task GetGateways_OtherTenantsInvoice_Returns404()
+    {
+        var (client, _) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var invoiceId = await SeedInvoiceAsync(tenantB);
+        await ConfigureVnPayAsync();
+
+        var response = await client.GetAsync($"/api/me/invoices/{invoiceId}/online-payment-gateways");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Checkout_CreatesAPendingPaymentAndASignedUrl()
+    {
+        var (client, tenantId) = await RegisterAndLoginAsync("Tenant A");
+        var invoiceId = await SeedInvoiceAsync(tenantId);
+        await ConfigureVnPayAsync();
+
+        var response = await CheckoutAsync(client, invoiceId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var checkout = await ReadDataAsync<OnlineCheckoutResponse>(response);
+        Assert.Equal((PaymentGateway.VnPay, 3_000_000m), (checkout.Gateway, checkout.Amount));
+        Assert.InRange(checkout.ExpiresAt, DateTimeOffset.UtcNow.AddMinutes(14), DateTimeOffset.UtcNow.AddMinutes(16));
+        Assert.StartsWith("https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?", checkout.PaymentUrl);
+
+        var query = QueryHelpers.ParseQuery(new Uri(checkout.PaymentUrl).Query)
+            .ToDictionary(q => q.Key, q => q.Value.ToString());
+        Assert.True(VnPaySignature.Verify(query, Secret));
+        Assert.Equal((MerchantCode, "300000000", checkout.PaymentId.ToString("N")),
+            (query["vnp_TmnCode"], query["vnp_Amount"], query["vnp_TxnRef"]));
+        Assert.Equal("https://app.test/payments/vnpay-return", query["vnp_ReturnUrl"]);
+
+        var payment = await QueryAsync(c => c.Payments.SingleAsync(p => p.Id == checkout.PaymentId));
+        Assert.Equal((invoiceId, PaymentStatus.Pending, PaymentMethod.VnPay, 3_000_000m),
+            (payment.InvoiceId!.Value, payment.Status, payment.Method, payment.Amount));
+        Assert.Equal((tenantId, tenantId), (payment.PayerUserId!.Value, payment.CreatedBy));
+
+        var transaction = await QueryAsync(c => c.PaymentTransactions.SingleAsync());
+        Assert.Equal((PaymentTransactionType.Checkout, PaymentTransactionStatus.Pending, checkout.PaymentUrl),
+            (transaction.Type, transaction.Status, transaction.PaymentUrl));
+        Assert.DoesNotContain(Secret, transaction.RequestPayload!);
+        Assert.DoesNotContain(query[VnPaySignature.SecureHashField], transaction.RequestPayload!);
+    }
+
+    [Fact]
+    public async Task Checkout_Twice_ReturnsTheSamePayment()
+    {
+        var (client, tenantId) = await RegisterAndLoginAsync("Tenant A");
+        var invoiceId = await SeedInvoiceAsync(tenantId);
+        await ConfigureVnPayAsync();
+
+        var first = await ReadDataAsync<OnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
+        var second = await ReadDataAsync<OnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
+
+        Assert.Equal((first.PaymentId, first.PaymentUrl), (second.PaymentId, second.PaymentUrl));
+        Assert.Equal(1, await QueryAsync(c => c.Payments.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Checkout_TwoClicksAtOnce_CreateOnePayment()
+    {
+        var (client, tenantId) = await RegisterAndLoginAsync("Tenant A");
+        var invoiceId = await SeedInvoiceAsync(tenantId);
+        await ConfigureVnPayAsync();
+
+        var responses = await Task.WhenAll(CheckoutAsync(client, invoiceId), CheckoutAsync(client, invoiceId));
+
+        // The second one waits on the invoice lock; it either reuses the link or, if the link is not saved yet, gets 409
+        Assert.Contains(responses, r => r.StatusCode == HttpStatusCode.OK);
+        Assert.All(responses, r => Assert.Contains(r.StatusCode, new[] { HttpStatusCode.OK, HttpStatusCode.Conflict }));
+        Assert.Equal(1, await QueryAsync(c => c.Payments.CountAsync()));
+        Assert.Equal(1, await QueryAsync(c => c.PaymentTransactions.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Checkout_CancelledInvoice_Returns409()
+    {
+        var (client, tenantId) = await RegisterAndLoginAsync("Tenant A");
+        var invoiceId = await SeedInvoiceAsync(tenantId, InvoiceStatus.Cancelled);
+        await ConfigureVnPayAsync();
+
+        var response = await CheckoutAsync(client, invoiceId);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(0, await QueryAsync(c => c.Payments.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Checkout_PartiallyPaidInvoice_RequestsTheRemainingAmount()
+    {
+        var (client, tenantId) = await RegisterAndLoginAsync("Tenant A");
+        var invoiceId = await SeedInvoiceAsync(tenantId, InvoiceStatus.Partial, paidAmount: 1_200_000m);
+        await ConfigureVnPayAsync();
+
+        var checkout = await ReadDataAsync<OnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
+
+        Assert.Equal(1_800_000m, checkout.Amount);
+    }
+
+    [Fact]
+    public async Task Checkout_GatewayNotConfigured_Returns409()
+    {
+        var (client, tenantId) = await RegisterAndLoginAsync("Tenant A");
+        var invoiceId = await SeedInvoiceAsync(tenantId);
+
+        var response = await CheckoutAsync(client, invoiceId);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(0, await QueryAsync(c => c.Payments.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Checkout_GatewayInactive_Returns409()
+    {
+        var (client, tenantId) = await RegisterAndLoginAsync("Tenant A");
+        var invoiceId = await SeedInvoiceAsync(tenantId);
+        await ConfigureVnPayAsync(isActive: false);
+
+        var response = await CheckoutAsync(client, invoiceId);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Checkout_PaidInvoice_Returns409()
+    {
+        var (client, tenantId) = await RegisterAndLoginAsync("Tenant A");
+        var invoiceId = await SeedInvoiceAsync(tenantId, InvoiceStatus.Paid, paidAmount: 3_000_000m);
+        await ConfigureVnPayAsync();
+
+        var response = await CheckoutAsync(client, invoiceId);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Checkout_OtherTenantsInvoice_Returns404()
+    {
+        var (client, _) = await RegisterAndLoginAsync("Tenant A");
+        var (_, tenantB) = await RegisterAndLoginAsync("Tenant B");
+        var invoiceId = await SeedInvoiceAsync(tenantB);
+        await ConfigureVnPayAsync();
+
+        var response = await CheckoutAsync(client, invoiceId);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Checkout_WithoutGateway_Returns400()
+    {
+        var (client, tenantId) = await RegisterAndLoginAsync("Tenant A");
+        var invoiceId = await SeedInvoiceAsync(tenantId);
+
+        var response = await client.PostAsJsonAsync($"/api/me/invoices/{invoiceId}/online-payments", new { });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+}

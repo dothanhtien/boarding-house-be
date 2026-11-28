@@ -8,7 +8,8 @@ public enum AppErrorKind
     Unauthorized,
     Forbidden,
     Internal,
-    TooManyRequests
+    TooManyRequests,
+    BadGateway
 }
 
 public abstract class AppException(string message, AppErrorKind kind) : Exception(message)
@@ -33,3 +34,5 @@ public class AppForbiddenException(string message) : AppException(message, AppEr
 public class AppInternalException(string message) : AppException(message, AppErrorKind.Internal);
 
 public class AppTooManyRequestsException(string message) : AppException(message, AppErrorKind.TooManyRequests);
+
+public class AppBadGatewayException(string message) : AppException(message, AppErrorKind.BadGateway);

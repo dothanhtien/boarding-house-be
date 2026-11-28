@@ -76,6 +76,7 @@ public static class DependencyInjection
         services.AddScoped<IInvoiceGenerationRunRepository, InvoiceGenerationRunRepository>();
         services.AddScoped<IPaymentRepository, PaymentRepository>();
         services.AddScoped<IOrganizationPaymentGatewayRepository, OrganizationPaymentGatewayRepository>();
+        services.AddScoped<IPaymentTransactionRepository, PaymentTransactionRepository>();
 
         services.AddScoped<ITenantPortalQueries, TenantPortalQueries>();
 
