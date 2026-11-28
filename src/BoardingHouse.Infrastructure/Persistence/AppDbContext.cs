@@ -1,4 +1,5 @@
 using System.Linq.Expressions;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using BoardingHouse.Domain.Common;
 using BoardingHouse.Domain.Entities;
@@ -6,7 +7,7 @@ using BoardingHouse.Infrastructure.Persistence.Interceptors;
 
 namespace BoardingHouse.Infrastructure.Persistence;
 
-public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
+public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IDataProtectionKeyContext
 {
     public DbSet<User> Users => Set<User>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
@@ -38,6 +39,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<InvoiceNumberSequence> InvoiceNumberSequences => Set<InvoiceNumberSequence>();
     public DbSet<InvoiceGenerationRun> InvoiceGenerationRuns => Set<InvoiceGenerationRun>();
     public DbSet<Payment> Payments => Set<Payment>();
+    public DbSet<OrganizationPaymentGateway> OrganizationPaymentGateways => Set<OrganizationPaymentGateway>();
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+
+    // ASP.NET Core Data Protection key ring (AddInfrastructure → PersistKeysToDbContext): encrypts the payment
+    // gateway secrets. Losing these rows makes every saved secret unreadable — never truncate or delete them.
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
         optionsBuilder.AddInterceptors(TimestampPrecisionSaveChangesInterceptor.Instance);
