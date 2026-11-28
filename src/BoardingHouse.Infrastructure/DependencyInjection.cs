@@ -8,6 +8,7 @@ using BoardingHouse.Application.Queries;
 using BoardingHouse.Application.Repositories;
 using BoardingHouse.Application.Services;
 using BoardingHouse.Application.Services.Caching;
+using BoardingHouse.Application.Services.PaymentGateways;
 using BoardingHouse.Application.Services.Security;
 using BoardingHouse.Application.Services.Storage;
 using BoardingHouse.Application.Services.Throttling;
@@ -18,6 +19,7 @@ using BoardingHouse.Infrastructure.Queries;
 using BoardingHouse.Infrastructure.Repositories;
 using BoardingHouse.Infrastructure.Services;
 using BoardingHouse.Infrastructure.Services.Caching;
+using BoardingHouse.Infrastructure.Services.PaymentGateways.VnPay;
 using BoardingHouse.Infrastructure.Services.Security;
 using BoardingHouse.Infrastructure.Services.Storage;
 using BoardingHouse.Infrastructure.Services.Throttling;
@@ -34,6 +36,7 @@ public static class DependencyInjection
             .AddRepositories()
             .AddCaching(configuration)
             .AddMediaStorage(configuration)
+            .AddPaymentGateways(configuration)
             .AddSecurity()
             .AddBackgroundJobs(configuration);
 
@@ -103,6 +106,18 @@ public static class DependencyInjection
             .ValidateOnStart();
 
         services.AddSingleton<IStorageProvider, CloudinaryStorageProvider>();
+
+        return services;
+    }
+
+    private static IServiceCollection AddPaymentGateways(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<VnPayOptions>()
+            .Bind(configuration.GetSection(VnPayOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddSingleton<IPaymentGateway, VnPayGateway>();
 
         return services;
     }

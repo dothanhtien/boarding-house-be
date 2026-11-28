@@ -45,7 +45,9 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
                 ["Cors:AllowedOrigins:0"] = "https://allowed.example.com",
                 ["Cloudinary:CloudName"] = "test-cloud",
                 ["Cloudinary:ApiKey"] = "test-key",
-                ["Cloudinary:ApiSecret"] = "test-secret"
+                ["Cloudinary:ApiSecret"] = "test-secret",
+                ["VnPay:PaymentUrl"] = "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
+                ["VnPay:ReturnUrl"] = "https://app.test/payments/vnpay-return"
             });
         });
     }
