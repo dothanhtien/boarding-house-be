@@ -16,6 +16,7 @@ public static class DependencyInjection
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<IOrganizationService, OrganizationService>();
         services.AddScoped<IOrganizationSettingsService, OrganizationSettingsService>();
+        services.AddScoped<IOrganizationPaymentGatewayService, OrganizationPaymentGatewayService>();
         services.AddScoped<IOrganizationMemberService, OrganizationMemberService>();
         services.AddScoped<IPropertyService, PropertyService>();
         services.AddScoped<IRoomService, RoomService>();
