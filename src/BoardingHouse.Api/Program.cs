@@ -34,7 +34,8 @@ try
         .AddInfrastructure(builder.Configuration)
         .AddPermissionAuthorization()
         .AddJwtAuthentication(builder.Configuration)
-        .AddFrontendCors(builder.Configuration);
+        .AddFrontendCors(builder.Configuration)
+        .AddReverseProxySupport(builder.Configuration);
 
     var app = builder.Build();
 
@@ -44,6 +45,8 @@ try
     }
 
     await app.ApplyDevelopmentDatabaseSetupAsync();
+
+    app.UseForwardedHeaders();
 
     app.UseExceptionHandler();
 

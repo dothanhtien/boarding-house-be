@@ -1,34 +1,42 @@
 using Hangfire;
 using Hangfire.PostgreSql;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using BoardingHouse.Application.Common.CurrentUser;
 using BoardingHouse.Application.Persistence;
+using BoardingHouse.Application.Queries;
 using BoardingHouse.Application.Repositories;
 using BoardingHouse.Application.Services;
 using BoardingHouse.Application.Services.Caching;
+using BoardingHouse.Application.Services.PaymentGateways;
+using BoardingHouse.Application.Services.Security;
 using BoardingHouse.Application.Services.Storage;
 using BoardingHouse.Application.Services.Throttling;
 using BoardingHouse.Infrastructure.BackgroundJobs;
 using BoardingHouse.Infrastructure.Persistence;
 using BoardingHouse.Infrastructure.Persistence.Interceptors;
+using BoardingHouse.Infrastructure.Queries;
 using BoardingHouse.Infrastructure.Repositories;
 using BoardingHouse.Infrastructure.Services;
 using BoardingHouse.Infrastructure.Services.Caching;
+using BoardingHouse.Infrastructure.Services.PaymentGateways.VnPay;
+using BoardingHouse.Infrastructure.Services.Security;
 using BoardingHouse.Infrastructure.Services.Storage;
 using BoardingHouse.Infrastructure.Services.Throttling;
-using BoardingHouse.Application.Queries;
-using BoardingHouse.Infrastructure.Queries;
 
 namespace BoardingHouse.Infrastructure;
 
 public static class DependencyInjection
 {
+    public const string DataProtectionApplicationName = "BoardingHouse";
+
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration) =>
         services
             .AddPersistence(configuration)
             .AddRepositories()
             .AddCaching(configuration)
             .AddMediaStorage(configuration)
+            .AddPaymentGateways(configuration)
             .AddSecurity()
             .AddBackgroundJobs(configuration);
 
@@ -67,6 +75,8 @@ public static class DependencyInjection
         services.AddScoped<IInvoiceRepository, InvoiceRepository>();
         services.AddScoped<IInvoiceGenerationRunRepository, InvoiceGenerationRunRepository>();
         services.AddScoped<IPaymentRepository, PaymentRepository>();
+        services.AddScoped<IOrganizationPaymentGatewayRepository, OrganizationPaymentGatewayRepository>();
+        services.AddScoped<IPaymentTransactionRepository, PaymentTransactionRepository>();
 
         services.AddScoped<ITenantPortalQueries, TenantPortalQueries>();
 
@@ -101,9 +111,26 @@ public static class DependencyInjection
         return services;
     }
 
+    private static IServiceCollection AddPaymentGateways(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<VnPayOptions>()
+            .Bind(configuration.GetSection(VnPayOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddSingleton<IPaymentGateway, VnPayGateway>();
+
+        return services;
+    }
+
     private static IServiceCollection AddSecurity(this IServiceCollection services)
     {
         services.AddSingleton<ITokenService, TokenService>();
+
+        services.AddDataProtection()
+            .SetApplicationName(DataProtectionApplicationName)
+            .PersistKeysToDbContext<AppDbContext>();
+        services.AddSingleton<ISecretProtector, DataProtectionSecretProtector>();
 
         return services;
     }

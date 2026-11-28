@@ -16,6 +16,7 @@ public class Invoice : BaseEntity
     public const string CancelledMessage = "A cancelled invoice cannot take payments";
     public const string AlreadyPaidMessage = "The invoice is already paid";
     public const string NothingLeftToPayMessage = "The invoice has nothing left to pay";
+    public const decimal SettlementTolerance = 1m;
 
     public Guid OrganizationId { get; private set; }
     public Organization? Organization { get; private set; }
@@ -228,13 +229,13 @@ public class Invoice : BaseEntity
         return Payment.ForInvoice(Id, details, recordedBy, now);
     }
 
-    public void ConfirmPayment(Payment payment, Guid? confirmedBy, DateTimeOffset now)
+    public void ConfirmPayment(Payment payment, Guid? confirmedBy, DateTimeOffset now, string? transactionReference = null)
     {
         EnsureOwns(payment);
         payment.EnsureCanBeConfirmed();
         EnsureCanTakePayment(payment.Amount);
 
-        payment.Confirm(confirmedBy, now);
+        payment.Confirm(confirmedBy, now, transactionReference);
         PaidAmount += payment.Amount;
     }
 
@@ -267,7 +268,7 @@ public class Invoice : BaseEntity
         }
 
         var amount = decimal.Floor(RemainingAmount);
-        return amount >= 1 ? amount : throw DomainException.Conflict(NothingLeftToPayMessage);
+        return amount >= SettlementTolerance ? amount : throw DomainException.Conflict(NothingLeftToPayMessage);
     }
 
     public static string FormatNumber(BillingMonth month, int number) =>
@@ -350,7 +351,7 @@ public class Invoice : BaseEntity
 
     private InvoiceStatus ResolveStatus(DateOnly today)
     {
-        if (PaidAmount >= TotalAmount)
+        if (RemainingAmount < SettlementTolerance)
         {
             return InvoiceStatus.Paid;
         }

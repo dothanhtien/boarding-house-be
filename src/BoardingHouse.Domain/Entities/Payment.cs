@@ -12,6 +12,13 @@ public class Payment : AuditableEntity
     public const decimal MaxAmount = 9_999_999_999_999_999.99m;
     public const string AmountPrecisionMessage = "Amount must not exceed 18 digits in total, with at most 2 decimal places";
     public const string InvoiceCancelledReason = "Invoice cancelled";
+    public const string GatewayRequestFailedReason = "Gateway request failed";
+    public const string GatewayFailedReason = "Gateway payment failed";
+    public const string GatewayNotAppliedReason = "Paid through the gateway but could not be applied to the invoice";
+    public const string GatewayExpiredReason = "Gateway payment expired";
+    public const string GatewayConfirmOnlyMessage = "An online payment is confirmed by the payment gateway only";
+    public const string GatewayPendingVoidMessage =
+        "A pending online payment is voided by the payment gateway, or when its payment link expires";
 
     public Guid? InvoiceId { get; private set; }
     public Invoice? Invoice { get; private set; }
@@ -38,6 +45,13 @@ public class Payment : AuditableEntity
     public string? Note { get; private set; }
 
     public static readonly TimeSpan MaxClockSkew = TimeSpan.FromMinutes(5);
+
+    public static readonly TimeSpan GatewayCheckoutLifetime = TimeSpan.FromMinutes(15);
+
+    public static readonly TimeSpan GatewayVoidGrace = TimeSpan.FromMinutes(15);
+
+    // Until then an old link may still be paid (late IPN): no new checkout, no void by the expiry job
+    public static TimeSpan GatewayPendingWindow => GatewayCheckoutLifetime + GatewayVoidGrace;
 
     private Payment() { }
 
@@ -67,13 +81,23 @@ public class Payment : AuditableEntity
         }
     }
 
-    public void Confirm(Guid? confirmedBy, DateTimeOffset now)
+    public void Confirm(Guid? confirmedBy, DateTimeOffset now, string? transactionReference = null)
     {
         EnsureCanBeConfirmed();
+
+        if (transactionReference?.Trim().Length > TransactionReferenceMaxLength)
+        {
+            throw new DomainException($"TransactionReference must not exceed {TransactionReferenceMaxLength} characters");
+        }
 
         Status = PaymentStatus.Confirmed;
         ConfirmedBy = confirmedBy;
         ConfirmedAt = now;
+
+        if (!string.IsNullOrWhiteSpace(transactionReference))
+        {
+            TransactionReference = transactionReference.Trim();
+        }
     }
 
     public void Void(string reason, Guid? voidedBy, DateTimeOffset now)
@@ -98,6 +122,24 @@ public class Payment : AuditableEntity
         VoidedAt = now;
         VoidReason = reason.Trim();
     }
+
+    public void EnsureStaffCanConfirm()
+    {
+        if (IsGatewayMethod(Method))
+        {
+            throw DomainException.Conflict(GatewayConfirmOnlyMessage);
+        }
+    }
+
+    public void EnsureStaffCanVoid()
+    {
+        if (IsGatewayMethod(Method) && Status == PaymentStatus.Pending)
+        {
+            throw DomainException.Conflict(GatewayPendingVoidMessage);
+        }
+    }
+
+    public static bool IsGatewayMethod(PaymentMethod method) => method is not (PaymentMethod.Cash or PaymentMethod.BankTransfer);
 
     private static void EnsureDetailsValid(PaymentDetails details, DateTimeOffset now)
     {

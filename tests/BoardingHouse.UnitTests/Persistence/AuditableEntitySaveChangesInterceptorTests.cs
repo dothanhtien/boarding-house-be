@@ -142,6 +142,22 @@ public class AuditableEntitySaveChangesInterceptorTests
     }
 
     [Fact]
+    public async Task SaveChangesAsync_ModifiedEntity_SystemActorWithUser_SetsUpdatedByToSystem()
+    {
+        var actor = TestEntities.New<User>(new { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System });
+        using var context = CreateContext(actor, isSystemActor: true);
+        var user = TestEntities.New<User>(new { Email = "user@test.com", PasswordHash = "hashed-password", FullName = "Test User", CreatedBy = SentinelActors.System });
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        user.Rename("Updated Name");
+        context.Users.Update(user);
+        await context.SaveChangesAsync();
+
+        Assert.Equal(SentinelActors.System, user.UpdatedBy);
+    }
+
+    [Fact]
     public async Task SaveChangesAsync_UpdateAuditableOnlyEntity_SetsUpdatedAtAndUpdatedByOnlyWhenModified()
     {
         var actor = TestEntities.New<User>(new { Email = "actor@test.com", PasswordHash = "hashed-password", FullName = "Actor", CreatedBy = SentinelActors.System });

@@ -9,6 +9,7 @@ public class RecurringJobRegistry(IRecurringJobManager recurringJobManager) : IH
     public const string ExpireLeases = "expire-leases";
     public const string MarkOverdueInvoices = "mark-overdue-invoices";
     public const string GenerateDueInvoices = "generate-due-invoices";
+    public const string VoidExpiredOnlinePayments = "void-expired-online-payments";
 
     private static readonly RecurringJobOptions UtcOptions = new() { TimeZone = TimeZoneInfo.Utc };
 
@@ -30,6 +31,12 @@ public class RecurringJobRegistry(IRecurringJobManager recurringJobManager) : IH
             GenerateDueInvoices,
             job => job.RunAsync(CancellationToken.None),
             "30 0 * * *",
+            UtcOptions);
+
+        recurringJobManager.AddOrUpdate<VoidExpiredOnlinePaymentsJob>(
+            VoidExpiredOnlinePayments,
+            job => job.RunAsync(CancellationToken.None),
+            "*/10 * * * *",
             UtcOptions);
 
         return Task.CompletedTask;

@@ -166,6 +166,7 @@ public class PaymentService(
             var actorId = currentUserAccessor.RequiredUser.Id;
             var now = DateTimeOffset.UtcNow;
             var (invoice, payment, lateFee) = await LockAsync(id, PermissionActions.Confirm, actorId, now, ct);
+            payment.EnsureStaffCanConfirm();
 
             invoice.ConfirmPayment(payment, actorId, now);
             invoice.RefreshStatus(Today, lateFee, actorId, now);
@@ -183,6 +184,7 @@ public class PaymentService(
             var actorId = currentUserAccessor.RequiredUser.Id;
             var now = DateTimeOffset.UtcNow;
             var (invoice, payment, lateFee) = await LockAsync(id, PermissionActions.Void, actorId, now, ct);
+            payment.EnsureStaffCanVoid();
 
             invoice.VoidPayment(payment, request.Reason, actorId, now);
             invoice.RefreshStatus(Today, lateFee, actorId, now);

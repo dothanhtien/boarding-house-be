@@ -880,6 +880,115 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                     b.ToTable("organization_members", (string)null);
                 });
 
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.OrganizationPaymentGateway", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("CredentialsVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("credentials_version");
+
+                    b.Property<string>("Gateway")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("gateway");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("MerchantCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("merchant_code");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_id");
+
+                    b.Property<string>("SecretEncrypted")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("secret_encrypted");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_organization_payment_gateways");
+
+                    b.HasIndex("OrganizationId", "Gateway")
+                        .IsUnique()
+                        .HasDatabaseName("ix_organization_payment_gateways_organization_id_gateway");
+
+                    b.ToTable("organization_payment_gateways", (string)null);
+                });
+
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.OrganizationPaymentGatewayCredentialHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("MerchantCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("merchant_code");
+
+                    b.Property<Guid>("OrganizationPaymentGatewayId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("organization_payment_gateway_id");
+
+                    b.Property<DateTimeOffset>("ReplacedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("replaced_at");
+
+                    b.Property<Guid>("ReplacedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("replaced_by");
+
+                    b.Property<string>("SecretEncrypted")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("secret_encrypted");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_organization_payment_gateway_credential_histories");
+
+                    b.HasIndex("ReplacedBy")
+                        .HasDatabaseName("ix_organization_payment_gateway_credential_histories_replaced_");
+
+                    b.HasIndex("OrganizationPaymentGatewayId", "Version")
+                        .IsUnique()
+                        .HasDatabaseName("ix_org_payment_gateway_credential_histories_gateway_id_version");
+
+                    b.ToTable("organization_payment_gateway_credential_histories", (string)null);
+                });
+
             modelBuilder.Entity("BoardingHouse.Domain.Entities.OrganizationSettings", b =>
                 {
                     b.Property<Guid>("OrganizationId")
@@ -1082,6 +1191,104 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("ck_payments_target", "(invoice_id IS NULL) <> (deposit_return_id IS NULL)");
 
                             t.HasCheckConstraint("ck_payments_voided", "status <> 'VOIDED' OR (voided_at IS NOT NULL AND void_reason IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.PaymentTransaction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<decimal?>("Amount")
+                        .HasColumnType("decimal(18,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int?>("CredentialsVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("credentials_version");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("error");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("Gateway")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("gateway");
+
+                    b.Property<string>("GatewayTransactionId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("gateway_transaction_id");
+
+                    b.Property<bool>("NeedsReview")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("needs_review");
+
+                    b.Property<Guid?>("PaymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("payment_id");
+
+                    b.Property<string>("PaymentUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("payment_url");
+
+                    b.Property<string>("RequestPayload")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("request_payload");
+
+                    b.Property<string>("ResponsePayload")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("response_payload");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("type");
+
+                    b.Property<string>("WebhookPayload")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("webhook_payload");
+
+                    b.HasKey("Id")
+                        .HasName("pk_payment_transactions");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_payment_transactions_created_at")
+                        .HasFilter("needs_review");
+
+                    b.HasIndex("Gateway", "GatewayTransactionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_payment_transactions_gateway_gateway_transaction_id")
+                        .HasFilter("gateway_transaction_id IS NOT NULL AND status = 'SUCCESS'");
+
+                    b.HasIndex("PaymentId", "CreatedAt")
+                        .HasDatabaseName("ix_payment_transactions_payment_id_created_at");
+
+                    b.ToTable("payment_transactions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_payment_transactions_checkout_payment", "type <> 'CHECKOUT' OR payment_id IS NOT NULL");
                         });
                 });
 
@@ -2248,6 +2455,29 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("FriendlyName")
+                        .HasColumnType("text")
+                        .HasColumnName("friendly_name");
+
+                    b.Property<string>("Xml")
+                        .HasColumnType("text")
+                        .HasColumnName("xml");
+
+                    b.HasKey("Id")
+                        .HasName("pk_data_protection_keys");
+
+                    b.ToTable("data_protection_keys", (string)null);
+                });
+
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Invoice", b =>
                 {
                     b.HasOne("BoardingHouse.Domain.Entities.Lease", "Lease")
@@ -2459,6 +2689,33 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.OrganizationPaymentGateway", b =>
+                {
+                    b.HasOne("BoardingHouse.Domain.Entities.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_organization_payment_gateways_organizations_organization_id");
+                });
+
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.OrganizationPaymentGatewayCredentialHistory", b =>
+                {
+                    b.HasOne("BoardingHouse.Domain.Entities.OrganizationPaymentGateway", null)
+                        .WithMany("CredentialHistories")
+                        .HasForeignKey("OrganizationPaymentGatewayId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_organization_payment_gateway_credential_histories_organizat");
+
+                    b.HasOne("BoardingHouse.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ReplacedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_organization_payment_gateway_credential_histories_users_rep");
+                });
+
             modelBuilder.Entity("BoardingHouse.Domain.Entities.OrganizationSettings", b =>
                 {
                     b.HasOne("BoardingHouse.Domain.Entities.Organization", "Organization")
@@ -2500,6 +2757,15 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
                     b.Navigation("Invoice");
 
                     b.Navigation("PayerUser");
+                });
+
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.PaymentTransaction", b =>
+                {
+                    b.HasOne("BoardingHouse.Domain.Entities.Payment", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_payment_transactions_payments_payment_id");
                 });
 
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Property", b =>
@@ -2746,6 +3012,11 @@ namespace BoardingHouse.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Organization", b =>
                 {
                     b.Navigation("Members");
+                });
+
+            modelBuilder.Entity("BoardingHouse.Domain.Entities.OrganizationPaymentGateway", b =>
+                {
+                    b.Navigation("CredentialHistories");
                 });
 
             modelBuilder.Entity("BoardingHouse.Domain.Entities.Permission", b =>

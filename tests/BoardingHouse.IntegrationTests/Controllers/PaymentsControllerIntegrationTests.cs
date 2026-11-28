@@ -672,6 +672,45 @@ public class PaymentsControllerIntegrationTests(PostgresApiFactory factory)
         Assert.Equal(1_000_000, (await GetInvoiceOkAsync(invoice.Id)).PaidAmount);
     }
 
+    // A pending payment as a tenant's online checkout leaves it
+    private async Task<Guid> RecordPendingVnPayAsync(Guid invoiceId)
+    {
+        var payment = await RecordOkAsync(invoiceId, Cash(1_000_000));
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var entity = await context.Payments.SingleAsync(p => p.Id == payment.Id);
+        TestEntities.Set(entity, new { Method = PaymentMethod.VnPay });
+        await context.SaveChangesAsync();
+        return payment.Id;
+    }
+
+    [Fact]
+    public async Task Confirm_PendingOnlinePayment_ReturnsConflictAndLeavesItPending()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var paymentId = await RecordPendingVnPayAsync(invoice.Id);
+
+        var response = await ConfirmAsync(paymentId);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(Payment.GatewayConfirmOnlyMessage, await ReadTitleAsync(response));
+        Assert.Equal(PaymentStatus.Pending, (await GetPaymentOkAsync(paymentId)).Status);
+        Assert.Equal(0, (await GetInvoiceOkAsync(invoice.Id)).PaidAmount);
+    }
+
+    [Fact]
+    public async Task Void_PendingOnlinePayment_ReturnsConflictAndLeavesItPending()
+    {
+        var (invoice, _) = await CreateInvoiceAsync();
+        var paymentId = await RecordPendingVnPayAsync(invoice.Id);
+
+        var response = await VoidAsync(paymentId);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(Payment.GatewayPendingVoidMessage, await ReadTitleAsync(response));
+        Assert.Equal(PaymentStatus.Pending, (await GetPaymentOkAsync(paymentId)).Status);
+    }
+
     [Fact]
     public async Task Confirm_UnknownPayment_ReturnsNotFound()
     {

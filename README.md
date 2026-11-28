@@ -222,8 +222,9 @@ updated and its QR codes would return `409` until an admin picks another bank.
 
 ## Tenant portal
 
-Tenants are ordinary users added to a lease (`lease_tenants.user_id`); they have no role. The read-only endpoints under
-`/api/me/...` only need a signed-in user and return the caller's own data across every organization:
+Tenants are ordinary users added to a lease (`lease_tenants.user_id`); they have no role. The endpoints under
+`/api/me/...` only need a signed-in user and work on the caller's own data across every organization (all read-only
+except starting an online payment):
 
 | Endpoint | Returns |
 | --- | --- |
@@ -232,11 +233,80 @@ Tenants are ordinary users added to a lease (`lease_tenants.user_id`); they have
 | `GET /api/me/leases/{id}/utility-readings` | meter readings of the months the caller lived there |
 | `GET /api/me/invoices`, `GET /api/me/invoices/{id}` | invoices of those months (cancelled ones only with `status=cancelled`) |
 | `GET /api/me/invoices/{id}/payment-qr` | the VietQR code for the amount left to pay |
+| `GET /api/me/invoices/{id}/online-payment-gateways` | gateways the organization accepts online (e.g. `[{ "gateway": "vnPay" }]`) |
+| `POST /api/me/invoices/{id}/online-payments` | `{ "gateway": "vnPay" }` → a payment link for the amount left to pay (see [Online payments](#online-payments-vnpay)) |
 | `GET /api/me/payments` | payments of those invoices |
 
 A tenant sees a month when one of their stays (`joined_date`, or the lease start, to `left_date`) covers at least one
 day of it. Anything else, including a lease or invoice id of someone else, is `404`. The `X-Organization-Id` header is
 ignored here; a user who is also staff keeps their RBAC permissions on the management API.
+
+## Online payments (VNPay)
+
+Tenants can pay an invoice through [VNPay](https://vnpay.vn/); the money goes straight to the organization's own
+VNPay merchant account. A payment is confirmed only by a result VNPay signed with the merchant's secret: mainly its
+server-to-server call (IPN), or the same signed parameters the tenant's browser brings back from the return page.
+
+1. **API config** — the payment page and the frontend page the tenant comes back to:
+
+   | Setting | Env var (`docker-compose.yml`) | Value |
+   | --- | --- | --- |
+   | `VnPay:PaymentUrl` | `VNPAY_PAYMENT_URL` | sandbox `https://sandbox.vnpayment.vn/paymentv2/vpcpay.html`, production `https://pay.vnpay.vn/vpcpay.html` |
+   | `VnPay:ReturnUrl` | `VNPAY_RETURN_URL` | e.g. `https://app.example.com/tenant-portal/payments/vnpay-return` (frontend, under the tenant portal) |
+
+   `appsettings.Development.json` points to the sandbox. The API does not start without both values.
+   Each payment link sends the tenant back to `ReturnUrl` with `invoiceId=<invoice id>` added to its query (`&` if
+   `ReturnUrl` already has one); VNPay appends its own `vnp_*` parameters (see step 5).
+2. **Merchant account per organization** (`organization-setting:update`):
+
+   ```http
+   PUT /api/organizations/{organizationId}/payment-gateways/vnpay
+   { "merchantCode": "<vnp_TmnCode>", "secret": "<vnp_HashSecret>", "isActive": true }
+   ```
+
+   The secret is encrypted with ASP.NET Core Data Protection and never returned; omit `secret` later to keep it.
+   Every change of `merchantCode` or `secret` keeps the replaced pair (`organization_payment_gateway_credential_histories`,
+   one row per version) and each payment link records the version it was signed with, so a callback is accepted when
+   signed with the current pair or with the one of its link, however many times they changed since. The
+   Data Protection key ring is stored in the `data_protection_keys` table: **never delete those rows**, and restore
+   them with the rest of the database, or every saved gateway secret becomes unreadable.
+3. **IPN URL** — register `https://<api-host>/api/payment-gateways/vnpay/ipn` in the VNPay merchant portal. To test
+   it locally, expose the API with a tunnel (`cloudflared tunnel --url http://localhost:5066` or
+   `ngrok http 5066`) and register the tunnel URL in the
+   [sandbox merchant portal](https://sandbox.vnpayment.vn/merchantv2/). Sandbox merchant accounts and test cards:
+   <https://sandbox.vnpayment.vn/devreg/>.
+4. **Flow** — `POST /api/me/invoices/{id}/online-payments` creates a `pending` payment for the amount left to pay
+   and returns a link valid for 15 minutes (clicking again returns the same link while it has more than 2 minutes
+   left and the invoice still asks for that amount; otherwise `409` until the job below voids it, since an old link
+   can still be paid until then). It is `409` too while a cash or bank transfer of the invoice waits for
+   staff confirmation. The IPN confirms it (invoice paid),
+   or voids it when the tenant cancels; the `void-expired-online-payments` job voids payments still pending 30
+   minutes after they were created.
+   Staff cannot confirm a pending online payment, nor void it, by hand (`409`): only the gateway result or the job does.
+5. **Return page** — a backup for an IPN that is late or never arrives (e.g. locally without a tunnel). The page
+   posts every query parameter of its URL, as strings, to `POST /api/me/payments/vnpay/return`:
+
+   ```json
+   { "params": { "invoiceId": "d067cfa0-...", "vnp_Amount": "624000000", "vnp_TxnRef": "22473deb...", "vnp_SecureHash": "93d3..." } }
+   ```
+
+   The API checks the signature and handles it exactly like the IPN (same checks, same result; a transaction is
+   applied once, whichever arrives first), then answers `{ paymentId, invoiceId, outcome, paymentStatus }` —
+   `outcome` is `received`, `alreadyProcessed`, `invalidSignature`, `invalidAmount`, `paymentNotFound` or `error`,
+   always with `200`. It is `404` only if the payment is not on one of the caller's invoices. The page then reads
+   `GET /api/me/invoices/{invoiceId}` until it is `paid` (polling a few seconds); never show "paid" just because the
+   URL says `vnp_ResponseCode=00`. Rows from this path are `payment_transactions.type = 'RETURN'`.
+
+Every request to and callback from a gateway is kept in `payment_transactions` (signatures masked). Money that
+arrives but cannot be applied — the payment had expired, the invoice was already paid, cancelled or deleted, or VNPay
+debited the tenant but holds the transaction as suspicious (code `07`; the payment is voided) — is saved with
+`needs_review = true` and logged as an error; refund or record it by hand. Only a correctly signed callback is ever
+flagged:
+
+```sql
+SELECT created_at, gateway, gateway_transaction_id, amount, payment_id, error
+FROM payment_transactions WHERE needs_review ORDER BY created_at DESC;
+```
 
 ## Background jobs
 
@@ -257,6 +327,7 @@ Jobs (all cron expressions are in **UTC**, the same "today" as the rest of the b
 | `expire-leases` | `5 0 * * *` (00:05 UTC daily) | Moves every `ACTIVE` lease whose `end_date` is before today to `EXPIRED`, moves its tenants out on `end_date` and frees the room. |
 | `mark-overdue-invoices` | `15 0 * * *` (00:15 UTC daily) | Moves every `PENDING` / `PARTIAL` invoice whose `due_date` is before today to `OVERDUE` and adds its late fee once (property late fee, else organization). |
 | `generate-due-invoices` | `30 0 * * *` (00:30 UTC daily) | In organizations with `auto_generate_invoices`, creates this month's invoice of every lease whose billing day is today or earlier and that has none yet; records one `invoice_generation_runs` row per organization with the leases it skipped and why. |
+| `void-expired-online-payments` | `*/10 * * * *` (every 10 minutes) | Voids online gateway payments (VNPay) still `PENDING` 30 minutes after they were created (15-minute link + 15 minutes for a late IPN), so the tenant can start a new one. |
 
 - **Dashboard** (`/hangfire`) requires the `background-job:manage` permission — by default only `platform_admin` has
   it. Log in first (e.g. `POST /api/auth/login` from Scalar on the same host) so the browser sends the `accessToken`

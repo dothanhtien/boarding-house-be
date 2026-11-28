@@ -22,7 +22,8 @@ public class RecurringJobRegistryTests
     [InlineData(RecurringJobRegistry.ExpireLeases, typeof(ExpireLeasesJob), "5 0 * * *")]
     [InlineData(RecurringJobRegistry.MarkOverdueInvoices, typeof(MarkOverdueInvoicesJob), "15 0 * * *")]
     [InlineData(RecurringJobRegistry.GenerateDueInvoices, typeof(GenerateDueInvoicesJob), "30 0 * * *")]
-    public async Task StartAsync_RegistersTheJobDailyInUtc(string id, Type jobType, string cron)
+    [InlineData(RecurringJobRegistry.VoidExpiredOnlinePayments, typeof(VoidExpiredOnlinePaymentsJob), "*/10 * * * *")]
+    public async Task StartAsync_RegistersTheJobInUtc(string id, Type jobType, string cron)
     {
         await new RecurringJobRegistry(_recurringJobManager.Object).StartAsync(CancellationToken.None);
 
@@ -39,7 +40,12 @@ public class RecurringJobRegistryTests
         await new RecurringJobRegistry(_recurringJobManager.Object).StartAsync(CancellationToken.None);
 
         Assert.Equal(
-            [RecurringJobRegistry.ExpireLeases, RecurringJobRegistry.MarkOverdueInvoices, RecurringJobRegistry.GenerateDueInvoices],
+            [
+                RecurringJobRegistry.ExpireLeases,
+                RecurringJobRegistry.MarkOverdueInvoices,
+                RecurringJobRegistry.GenerateDueInvoices,
+                RecurringJobRegistry.VoidExpiredOnlinePayments
+            ],
             _registered.Select(r => r.Id));
     }
 

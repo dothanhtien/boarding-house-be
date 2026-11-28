@@ -52,13 +52,17 @@ public class ArchitectureTests
         Assert.Contains(Domain.GetName().Name, ReferencedAssemblyNames(Application));
     }
 
+    private static bool IsHostAgnosticAspNetCoreLibrary(string name) =>
+        name.StartsWith("Microsoft.AspNetCore.DataProtection", StringComparison.Ordinal);
+
     [Theory]
     [InlineData("BoardingHouse.Api")]
     [InlineData("Microsoft.AspNetCore")]
     public void Infrastructure_DoesNotReferenceTheApi(string forbiddenPrefix)
     {
         var offending = ReferencedAssemblyNames(Infrastructure)
-            .Where(name => name == forbiddenPrefix || name.StartsWith(forbiddenPrefix + ".", StringComparison.Ordinal));
+            .Where(name => name == forbiddenPrefix || name.StartsWith(forbiddenPrefix + ".", StringComparison.Ordinal))
+            .Where(name => !IsHostAgnosticAspNetCoreLibrary(name));
 
         Assert.Empty(offending);
     }

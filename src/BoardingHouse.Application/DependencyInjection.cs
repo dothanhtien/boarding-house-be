@@ -16,6 +16,7 @@ public static class DependencyInjection
         services.AddScoped<IRoleService, RoleService>();
         services.AddScoped<IOrganizationService, OrganizationService>();
         services.AddScoped<IOrganizationSettingsService, OrganizationSettingsService>();
+        services.AddScoped<IOrganizationPaymentGatewayService, OrganizationPaymentGatewayService>();
         services.AddScoped<IOrganizationMemberService, OrganizationMemberService>();
         services.AddScoped<IPropertyService, PropertyService>();
         services.AddScoped<IRoomService, RoomService>();
@@ -39,6 +40,7 @@ public static class DependencyInjection
         services.AddScoped<IInvoiceGenerator, InvoiceGenerator>();
         services.AddScoped<IInvoiceGenerationService, InvoiceGenerationService>();
         services.AddScoped<IPaymentService, PaymentService>();
+        services.AddScoped<IOnlinePaymentService, OnlinePaymentService>();
 
         services.AddScoped<IVietQrService, VietQrService>();
         services.AddScoped<ITenantPortalService, TenantPortalService>();
@@ -46,6 +48,7 @@ public static class DependencyInjection
         services.AddScoped<ExpireLeasesJob>();
         services.AddScoped<MarkOverdueInvoicesJob>();
         services.AddScoped<GenerateDueInvoicesJob>();
+        services.AddScoped<VoidExpiredOnlinePaymentsJob>();
 
         TypeAdapterConfig.GlobalSettings.Scan(typeof(DependencyInjection).Assembly);
 

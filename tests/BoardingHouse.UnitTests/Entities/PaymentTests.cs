@@ -242,4 +242,86 @@ public class PaymentTests
         Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
         Assert.Equal(PaymentStatus.Voided, payment.Status);
     }
+
+    [Theory]
+    [InlineData(PaymentMethod.Cash, false)]
+    [InlineData(PaymentMethod.BankTransfer, false)]
+    [InlineData(PaymentMethod.VnPay, true)]
+    [InlineData(PaymentMethod.Momo, true)]
+    [InlineData(PaymentMethod.ZaloPay, true)]
+    public void IsGatewayMethod_OnlyGatewayMethods(PaymentMethod method, bool expected) =>
+        Assert.Equal(expected, Payment.IsGatewayMethod(method));
+
+    private static Payment RecordWith(PaymentMethod method) =>
+        Payment.ForInvoice(InvoiceId, Details() with { Method = method }, ActorId, Now);
+
+    [Theory]
+    [InlineData(PaymentMethod.Cash)]
+    [InlineData(PaymentMethod.BankTransfer)]
+    public void EnsureStaffCanConfirm_ManualMethod_DoesNotThrow(PaymentMethod method) =>
+        Assert.Null(Xunit.Record.Exception(RecordWith(method).EnsureStaffCanConfirm));
+
+    [Fact]
+    public void EnsureStaffCanConfirm_GatewayMethod_ThrowsConflict()
+    {
+        var ex = Assert.Throws<DomainException>(RecordWith(PaymentMethod.VnPay).EnsureStaffCanConfirm);
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal(Payment.GatewayConfirmOnlyMessage, ex.Message);
+    }
+
+    [Fact]
+    public void EnsureStaffCanVoid_PendingGatewayPayment_ThrowsConflict()
+    {
+        var ex = Assert.Throws<DomainException>(RecordWith(PaymentMethod.VnPay).EnsureStaffCanVoid);
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal(Payment.GatewayPendingVoidMessage, ex.Message);
+    }
+
+    [Fact]
+    public void EnsureStaffCanVoid_ConfirmedGatewayPayment_DoesNotThrow()
+    {
+        var payment = RecordWith(PaymentMethod.VnPay);
+        payment.Confirm(confirmedBy: null, Now, "14123456");
+
+        Assert.Null(Xunit.Record.Exception(payment.EnsureStaffCanVoid));
+    }
+
+    [Fact]
+    public void EnsureStaffCanVoid_PendingManualPayment_DoesNotThrow() =>
+        Assert.Null(Xunit.Record.Exception(RecordWith(PaymentMethod.BankTransfer).EnsureStaffCanVoid));
+
+    [Fact]
+    public void Confirm_WithTransactionReference_KeepsIt()
+    {
+        var payment = Record();
+
+        payment.Confirm(confirmedBy: null, Now, " 14123456 ");
+
+        Assert.Equal(PaymentStatus.Confirmed, payment.Status);
+        Assert.Null(payment.ConfirmedBy);
+        Assert.Equal("14123456", payment.TransactionReference);
+    }
+
+    [Fact]
+    public void Confirm_WithoutTransactionReference_KeepsTheRecordedOne()
+    {
+        var payment = Record(Details(transactionReference: "FT2606010001"));
+
+        payment.Confirm(ActorId, Now);
+
+        Assert.Equal("FT2606010001", payment.TransactionReference);
+    }
+
+    [Fact]
+    public void Confirm_TooLongTransactionReference_ThrowsAndStaysPending()
+    {
+        var payment = Record();
+
+        var ex = Assert.Throws<DomainException>(() => payment.Confirm(null, Now, new string('1', Payment.TransactionReferenceMaxLength + 1)));
+
+        Assert.Equal("TransactionReference must not exceed 100 characters", ex.Message);
+        Assert.Equal(PaymentStatus.Pending, payment.Status);
+    }
 }
