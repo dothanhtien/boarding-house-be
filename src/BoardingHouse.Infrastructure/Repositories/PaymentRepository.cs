@@ -51,6 +51,13 @@ public class PaymentRepository(AppDbContext context) : IPaymentRepository
             .OrderByDescending(p => p.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
+    public Task<bool> ExistsPendingManualPaymentAsync(Guid invoiceId, CancellationToken cancellationToken = default) =>
+        context.Payments.AnyAsync(
+            p => p.InvoiceId == invoiceId
+                && p.Status == PaymentStatus.Pending
+                && (p.Method == PaymentMethod.Cash || p.Method == PaymentMethod.BankTransfer),
+            cancellationToken);
+
     public Task<List<Guid>> ListStaleGatewayPaymentIdsAsync(
         DateTimeOffset createdBefore, CancellationToken cancellationToken = default) =>
         context.Payments

@@ -40,6 +40,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<InvoiceGenerationRun> InvoiceGenerationRuns => Set<InvoiceGenerationRun>();
     public DbSet<Payment> Payments => Set<Payment>();
     public DbSet<OrganizationPaymentGateway> OrganizationPaymentGateways => Set<OrganizationPaymentGateway>();
+    public DbSet<OrganizationPaymentGatewayCredentialHistory> OrganizationPaymentGatewayCredentialHistories =>
+        Set<OrganizationPaymentGatewayCredentialHistory>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
 
     // ASP.NET Core Data Protection key ring (AddInfrastructure → PersistKeysToDbContext): encrypts the payment

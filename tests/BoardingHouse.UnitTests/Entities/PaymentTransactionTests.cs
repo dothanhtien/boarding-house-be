@@ -13,7 +13,8 @@ public class PaymentTransactionTests
         var paymentId = Guid.NewGuid();
 
         var transaction = PaymentTransaction.Checkout(
-            paymentId, PaymentGateway.VnPay, 3_000_000m, "https://pay.test/x", Now.AddMinutes(15), "{}", null, Now);
+            paymentId, PaymentGateway.VnPay, 3_000_000m, "https://pay.test/x", Now.AddMinutes(15), "{}", null,
+            credentialsVersion: 2, Now);
 
         Assert.Equal(paymentId, transaction.PaymentId);
         Assert.Equal(PaymentTransactionType.Checkout, transaction.Type);
@@ -21,6 +22,7 @@ public class PaymentTransactionTests
         Assert.Equal(3_000_000m, transaction.Amount);
         Assert.Equal("https://pay.test/x", transaction.PaymentUrl);
         Assert.Equal(Now.AddMinutes(15), transaction.ExpiresAt);
+        Assert.Equal(2, transaction.CredentialsVersion);
         Assert.Equal(Now, transaction.CreatedAt);
         Assert.False(transaction.NeedsReview);
     }
@@ -29,12 +31,13 @@ public class PaymentTransactionTests
     public void CheckoutFailed_HasNoLinkAndCutsALongError()
     {
         var transaction = PaymentTransaction.CheckoutFailed(
-            Guid.NewGuid(), PaymentGateway.VnPay, 3_000_000m, null, null, new string('e', 600), Now);
+            Guid.NewGuid(), PaymentGateway.VnPay, 3_000_000m, null, null, new string('e', 600), credentialsVersion: 2, Now);
 
         Assert.Equal(PaymentTransactionStatus.Failed, transaction.Status);
         Assert.Null(transaction.PaymentUrl);
         Assert.Null(transaction.ExpiresAt);
         Assert.Equal(PaymentTransaction.ErrorMaxLength, transaction.Error!.Length);
+        Assert.Equal(2, transaction.CredentialsVersion);
     }
 
     [Fact]

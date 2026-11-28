@@ -252,6 +252,46 @@ public class PaymentTests
     public void IsGatewayMethod_OnlyGatewayMethods(PaymentMethod method, bool expected) =>
         Assert.Equal(expected, Payment.IsGatewayMethod(method));
 
+    private static Payment RecordWith(PaymentMethod method) =>
+        Payment.ForInvoice(InvoiceId, Details() with { Method = method }, ActorId, Now);
+
+    [Theory]
+    [InlineData(PaymentMethod.Cash)]
+    [InlineData(PaymentMethod.BankTransfer)]
+    public void EnsureStaffCanConfirm_ManualMethod_DoesNotThrow(PaymentMethod method) =>
+        Assert.Null(Xunit.Record.Exception(RecordWith(method).EnsureStaffCanConfirm));
+
+    [Fact]
+    public void EnsureStaffCanConfirm_GatewayMethod_ThrowsConflict()
+    {
+        var ex = Assert.Throws<DomainException>(RecordWith(PaymentMethod.VnPay).EnsureStaffCanConfirm);
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal(Payment.GatewayConfirmOnlyMessage, ex.Message);
+    }
+
+    [Fact]
+    public void EnsureStaffCanVoid_PendingGatewayPayment_ThrowsConflict()
+    {
+        var ex = Assert.Throws<DomainException>(RecordWith(PaymentMethod.VnPay).EnsureStaffCanVoid);
+
+        Assert.Equal(DomainErrorKind.Conflict, ex.Kind);
+        Assert.Equal(Payment.GatewayPendingVoidMessage, ex.Message);
+    }
+
+    [Fact]
+    public void EnsureStaffCanVoid_ConfirmedGatewayPayment_DoesNotThrow()
+    {
+        var payment = RecordWith(PaymentMethod.VnPay);
+        payment.Confirm(confirmedBy: null, Now, "14123456");
+
+        Assert.Null(Xunit.Record.Exception(payment.EnsureStaffCanVoid));
+    }
+
+    [Fact]
+    public void EnsureStaffCanVoid_PendingManualPayment_DoesNotThrow() =>
+        Assert.Null(Xunit.Record.Exception(RecordWith(PaymentMethod.BankTransfer).EnsureStaffCanVoid));
+
     [Fact]
     public void Confirm_WithTransactionReference_KeepsIt()
     {

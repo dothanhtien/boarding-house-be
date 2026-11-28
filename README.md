@@ -233,7 +233,7 @@ except starting an online payment):
 | `GET /api/me/leases/{id}/utility-readings` | meter readings of the months the caller lived there |
 | `GET /api/me/invoices`, `GET /api/me/invoices/{id}` | invoices of those months (cancelled ones only with `status=cancelled`) |
 | `GET /api/me/invoices/{id}/payment-qr` | the VietQR code for the amount left to pay |
-| `GET /api/me/invoices/{id}/online-payment-gateways` | gateways the organization accepts online (e.g. `["vnPay"]`) |
+| `GET /api/me/invoices/{id}/online-payment-gateways` | gateways the organization accepts online (e.g. `[{ "gateway": "vnPay" }]`) |
 | `POST /api/me/invoices/{id}/online-payments` | `{ "gateway": "vnPay" }` → a payment link for the amount left to pay (see [Online payments](#online-payments-vnpay)) |
 | `GET /api/me/payments` | payments of those invoices |
 
@@ -264,7 +264,10 @@ server-to-server call (IPN), or the same signed parameters the tenant's browser 
    { "merchantCode": "<vnp_TmnCode>", "secret": "<vnp_HashSecret>", "isActive": true }
    ```
 
-   The secret is encrypted with ASP.NET Core Data Protection and never returned; omit `secret` later to keep it. The
+   The secret is encrypted with ASP.NET Core Data Protection and never returned; omit `secret` later to keep it.
+   Every change of `merchantCode` or `secret` keeps the replaced pair (`organization_payment_gateway_credential_histories`,
+   one row per version) and each payment link records the version it was signed with, so a callback is accepted when
+   signed with the current pair or with the one of its link, however many times they changed since. The
    Data Protection key ring is stored in the `data_protection_keys` table: **never delete those rows**, and restore
    them with the rest of the database, or every saved gateway secret becomes unreadable.
 3. **IPN URL** — register `https://<api-host>/api/payment-gateways/vnpay/ipn` in the VNPay merchant portal. To test
@@ -273,9 +276,12 @@ server-to-server call (IPN), or the same signed parameters the tenant's browser 
    [sandbox merchant portal](https://sandbox.vnpayment.vn/merchantv2/). Sandbox merchant accounts and test cards:
    <https://sandbox.vnpayment.vn/devreg/>.
 4. **Flow** — `POST /api/me/invoices/{id}/online-payments` creates a `pending` payment for the amount left to pay
-   and returns a link valid for 15 minutes (clicking again returns the same link). The IPN confirms it (invoice paid),
+   and returns a link valid for 15 minutes (clicking again returns the same link while it has more than 2 minutes
+   left; after that `409` until it expires). It is `409` too while a cash or bank transfer of the invoice waits for
+   staff confirmation. The IPN confirms it (invoice paid),
    or voids it when the tenant cancels; the `void-expired-online-payments` job voids payments still pending 30
    minutes after they were created.
+   Staff cannot confirm a pending online payment, nor void it, by hand (`409`): only the gateway result or the job does.
 5. **Return page** — a backup for an IPN that is late or never arrives (e.g. locally without a tunnel). The page
    posts every query parameter of its URL, as strings, to `POST /api/me/payments/vnpay/return`:
 
@@ -291,7 +297,7 @@ server-to-server call (IPN), or the same signed parameters the tenant's browser 
    URL says `vnp_ResponseCode=00`. Rows from this path are `payment_transactions.type = 'RETURN'`.
 
 Every request to and callback from a gateway is kept in `payment_transactions` (signatures masked). Money that
-arrives but cannot be applied — the payment had expired, or the invoice was already paid or cancelled — is saved with
+arrives but cannot be applied — the payment had expired, the invoice was already paid, cancelled or deleted — is saved with
 `needs_review = true` and logged as an error; refund or record it by hand:
 
 ```sql

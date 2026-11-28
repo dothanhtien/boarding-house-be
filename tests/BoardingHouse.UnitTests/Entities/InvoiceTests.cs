@@ -1329,6 +1329,31 @@ public class InvoiceTests
     }
 
     [Fact]
+    public void GetAmountToRequest_FractionalTotal_PayingTheRequestedAmountSettlesTheInvoice()
+    {
+        var invoice = Create();
+        TestEntities.Set(invoice, new { TotalAmount = 5_355_000.5m });
+
+        var payment = invoice.RecordPayment(Cash(invoice.GetAmountToRequest()), ActorId, Now);
+        invoice.ConfirmPayment(payment, ActorId, Later);
+        invoice.RefreshStatus(InvoiceDueDate.AddDays(1), LateFeePolicy.None, ActorId, Later);
+
+        Assert.Equal(InvoiceStatus.Paid, invoice.Status);
+        Assert.Equal(0.5m, invoice.RemainingAmount);
+    }
+
+    [Fact]
+    public void RefreshStatus_OneVndOrMoreLeft_IsNotPaid()
+    {
+        var invoice = Create();
+        TestEntities.Set(invoice, new { PaidAmount = 5_354_999m });
+
+        invoice.RefreshStatus(InvoiceDueDate, LateFeePolicy.None, ActorId, Later);
+
+        Assert.Equal(InvoiceStatus.Partial, invoice.Status);
+    }
+
+    [Fact]
     public void GetAmountToRequest_OverdueInvoice_ReturnsTheRemainingAmount()
     {
         var invoice = Create();

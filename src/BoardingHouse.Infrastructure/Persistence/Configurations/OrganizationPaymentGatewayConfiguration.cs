@@ -25,5 +25,10 @@ public class OrganizationPaymentGatewayConfiguration : IEntityTypeConfiguration<
             .WithMany()
             .HasForeignKey(g => g.OrganizationId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasMany(g => g.CredentialHistories)
+            .WithOne()
+            .HasForeignKey(h => h.OrganizationPaymentGatewayId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

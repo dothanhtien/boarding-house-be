@@ -10,4 +10,6 @@ public interface IOrganizationPaymentGatewayRepository
         Guid organizationId, PaymentGateway gateway, CancellationToken cancellationToken = default);
     Task<List<OrganizationPaymentGateway>> ListByOrganizationIdAsync(
         Guid organizationId, CancellationToken cancellationToken = default);
+    Task<OrganizationPaymentGatewayCredentialHistory?> GetReplacedCredentialsAsync(
+        Guid organizationPaymentGatewayId, int version, CancellationToken cancellationToken = default);
 }

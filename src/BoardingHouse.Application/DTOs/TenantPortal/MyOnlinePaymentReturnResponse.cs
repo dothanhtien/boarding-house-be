@@ -1,9 +1,9 @@
 using BoardingHouse.Application.Services.PaymentGateways;
 using BoardingHouse.Domain.Entities.Enums;
 
-namespace BoardingHouse.Application.DTOs.PaymentGateways;
+namespace BoardingHouse.Application.DTOs.TenantPortal;
 
-public record OnlinePaymentReturnResponse
+public record MyOnlinePaymentReturnResponse
 {
     public required Guid PaymentId { get; init; }
     public required Guid InvoiceId { get; init; }

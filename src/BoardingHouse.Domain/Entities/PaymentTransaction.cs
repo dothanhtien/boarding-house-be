@@ -20,9 +20,8 @@ public class PaymentTransaction : Entity
     public string? ResponsePayload { get; private set; }
     public string? WebhookPayload { get; private set; }
     public string? Error { get; private set; }
-
+    public int? CredentialsVersion { get; private set; }
     public bool NeedsReview { get; private set; }
-
     public DateTimeOffset CreatedAt { get; private set; }
 
     private PaymentTransaction() { }
@@ -35,6 +34,7 @@ public class PaymentTransaction : Entity
         DateTimeOffset expiresAt,
         string requestPayload,
         string? responsePayload,
+        int credentialsVersion,
         DateTimeOffset now) => new()
         {
             PaymentId = paymentId,
@@ -46,6 +46,7 @@ public class PaymentTransaction : Entity
             ExpiresAt = expiresAt,
             RequestPayload = requestPayload,
             ResponsePayload = responsePayload,
+            CredentialsVersion = credentialsVersion,
             CreatedAt = now
         };
 
@@ -56,6 +57,7 @@ public class PaymentTransaction : Entity
         string? requestPayload,
         string? responsePayload,
         string error,
+        int credentialsVersion,
         DateTimeOffset now) => new()
         {
             PaymentId = paymentId,
@@ -66,6 +68,7 @@ public class PaymentTransaction : Entity
             RequestPayload = requestPayload,
             ResponsePayload = responsePayload,
             Error = Truncate(error),
+            CredentialsVersion = credentialsVersion,
             CreatedAt = now
         };
 

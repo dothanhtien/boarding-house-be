@@ -23,4 +23,12 @@ public class OrganizationPaymentGatewayRepository(AppDbContext context) : IOrgan
             .Where(g => g.OrganizationId == organizationId)
             .OrderBy(g => g.Gateway)
             .ToListAsync(cancellationToken);
+
+    public Task<OrganizationPaymentGatewayCredentialHistory?> GetReplacedCredentialsAsync(
+        Guid organizationPaymentGatewayId, int version, CancellationToken cancellationToken = default) =>
+        context.OrganizationPaymentGatewayCredentialHistories
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                h => h.OrganizationPaymentGatewayId == organizationPaymentGatewayId && h.Version == version,
+                cancellationToken);
 }

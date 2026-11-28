@@ -82,7 +82,7 @@ public class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
                 leases, lease_tenants, lease_status_histories, lease_utility_services,
                 invoices, invoice_items, invoice_status_histories, invoice_number_sequences,
                 invoice_generation_runs,
-                payments, payment_transactions, organization_payment_gateways,
+                payments, payment_transactions, organization_payment_gateways, organization_payment_gateway_credential_histories,
                 media_assets,
                 tenant_profiles
             CASCADE

@@ -1,6 +1,7 @@
 using BoardingHouse.Application.Common;
 using BoardingHouse.Application.Common.CurrentUser;
 using BoardingHouse.Application.DTOs.PaymentGateways;
+using BoardingHouse.Application.DTOs.TenantPortal;
 using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Application.Persistence;
 using BoardingHouse.Application.Queries;
@@ -29,6 +30,10 @@ public class OnlinePaymentService(
     public const string PaymentInProgressMessage =
         "Another online payment of this invoice is in progress, try again in a few minutes";
     public const string GatewayUnavailableMessage = "The payment gateway could not start the payment, try again later";
+    public const string PaymentAwaitingConfirmationMessage =
+        "A payment of this invoice is waiting for confirmation by the staff";
+
+    public static readonly TimeSpan MinReusedCheckoutLifetime = TimeSpan.FromMinutes(2);
 
     private const string UnknownPaymentError = "Unknown payment reference";
     private const string InvalidSignatureError = "Invalid signature";
@@ -38,7 +43,7 @@ public class OnlinePaymentService(
 
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
 
-    public async Task<List<PaymentGateway>> GetMyGatewaysAsync(Guid invoiceId, CancellationToken cancellationToken = default)
+    public async Task<List<MyOnlinePaymentGatewayResponse>> GetMyGatewaysAsync(Guid invoiceId, CancellationToken cancellationToken = default)
     {
         await EnsureMyInvoiceAsync(invoiceId, cancellationToken);
 
@@ -48,11 +53,11 @@ public class OnlinePaymentService(
 
         return accounts
             .Where(a => a.IsActive && gateways.Any(g => g.Gateway == a.Gateway))
-            .Select(a => a.Gateway)
+            .Select(a => new MyOnlinePaymentGatewayResponse { Gateway = a.Gateway })
             .ToList();
     }
 
-    public async Task<OnlineCheckoutResponse> CreateMyCheckoutAsync(
+    public async Task<MyOnlineCheckoutResponse> CreateMyCheckoutAsync(
         Guid invoiceId, CreateOnlineCheckoutRequest request, string clientIp, CancellationToken cancellationToken = default)
     {
         var gateway = request.Gateway!.Value;
@@ -67,6 +72,11 @@ public class OnlinePaymentService(
                 ?? throw new AppNotFoundException(NotFoundMessages.Invoice(invoiceId));
             var now = DateTimeOffset.UtcNow;
 
+            if (await paymentRepository.ExistsPendingManualPaymentAsync(invoiceId, ct))
+            {
+                throw new AppConflictException(PaymentAwaitingConfirmationMessage);
+            }
+
             var pending = await paymentRepository.FindPendingGatewayPaymentAsync(
                 invoiceId, now - Payment.GatewayCheckoutLifetime, ct);
             if (pending is not null)
@@ -75,7 +85,7 @@ public class OnlinePaymentService(
 
                 return pending.Method == gateway.ToPaymentMethod()
                     && checkout is { Status: PaymentTransactionStatus.Pending, PaymentUrl: not null }
-                    && checkout.ExpiresAt > now
+                    && checkout.ExpiresAt > now + MinReusedCheckoutLifetime
                         ? new ReusedCheckout(ToResponse(pending.Id, gateway, checkout))
                         : throw new AppConflictException(PaymentInProgressMessage);
             }
@@ -107,7 +117,8 @@ public class OnlinePaymentService(
                 amount,
                 invoice.InvoiceNumber,
                 now,
-                new GatewayCredentials(account.MerchantCode, secretProtector.Unprotect(account.SecretEncrypted)));
+                new GatewayCredentials(account.MerchantCode, secretProtector.Unprotect(account.SecretEncrypted)),
+                account.CredentialsVersion);
         }, cancellationToken);
 
         if (start is ReusedCheckout reused)
@@ -147,6 +158,7 @@ public class OnlinePaymentService(
             expiresAt,
             gatewayCheckout.RequestPayload,
             gatewayCheckout.ResponsePayload,
+            created.CredentialsVersion,
             DateTimeOffset.UtcNow);
         await paymentTransactionRepository.AddAsync(transaction, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -180,7 +192,7 @@ public class OnlinePaymentService(
         return adapter.BuildCallbackResponse(outcome);
     }
 
-    public async Task<OnlinePaymentReturnResponse> HandleMyReturnAsync(
+    public async Task<MyOnlinePaymentReturnResponse> HandleMyReturnAsync(
         PaymentGateway gateway, OnlinePaymentReturnRequest request, CancellationToken cancellationToken = default)
     {
         var userId = currentUserAccessor.RequiredUser.Id;
@@ -204,7 +216,7 @@ public class OnlinePaymentService(
             "Online payment return handled ({PaymentId}, {Gateway}, sent by user {UserId}): {Outcome}, payment {PaymentStatus}",
             paymentId, gateway, userId, outcome, payment.Status);
 
-        return new OnlinePaymentReturnResponse
+        return new MyOnlinePaymentReturnResponse
         {
             PaymentId = paymentId,
             InvoiceId = invoiceId.Value,
@@ -259,22 +271,34 @@ public class OnlinePaymentService(
 
         // 1. The payment the callback names (not trusted yet), locked with its invoice
         var invoiceId = data.PaymentId is { } paymentId ? await paymentRepository.GetInvoiceIdAsync(paymentId, ct) : null;
-        var invoice = invoiceId is { } id ? await invoiceRepository.GetAggregateForUpdateAsync(id, ct) : null;
-        var payment = invoice is null ? null : await paymentRepository.GetForUpdateAsync(data.PaymentId!.Value, ct);
-
-        if (invoice is null || payment is null || payment.Method != gateway.ToPaymentMethod())
+        if (invoiceId is null)
         {
-            await RecordCallbackAsync(null, gateway, PaymentTransactionStatus.Failed, data, UnknownPaymentError, false, now, source, ct);
+            // Not one of our payments, so there is no account to check the signature with: only logged, so an
+            // anonymous caller cannot fill payment_transactions
             logger.LogWarning("Payment gateway callback for an unknown payment ({Gateway}, {PaymentId})", gateway, data.PaymentId);
             return GatewayCallbackOutcome.PaymentNotFound;
         }
 
+        var invoice = await invoiceRepository.GetAggregateForUpdateAsync(invoiceId.Value, ct);
+        var payment = invoice is null ? null : await paymentRepository.GetForUpdateAsync(data.PaymentId!.Value, ct);
+
+        if (invoice is null || payment is null || payment.Method != gateway.ToPaymentMethod())
+        {
+            // One of our payments that cannot take it (invoice deleted, another method): money may have been received
+            await RecordCallbackAsync(
+                data.PaymentId, gateway, PaymentTransactionStatus.Failed, data, UnknownPaymentError, data.IsSuccess, now,
+                source, ct);
+            logger.Log(
+                data.IsSuccess ? LogLevel.Error : LogLevel.Warning,
+                "Payment gateway callback for a payment that cannot take it ({Gateway}, {PaymentId})", gateway, data.PaymentId);
+            return GatewayCallbackOutcome.PaymentNotFound;
+        }
+
         // 2. Signed with the secret of the organization the payment belongs to (even if the gateway was turned off
-        // since: a late IPN for a payment already started must still count)
+        // since: a late IPN for a payment already started must still count): its current credentials, or the ones the
+        // payment link was signed with if they were replaced since
         var account = await organizationPaymentGatewayRepository.GetAsync(invoice.OrganizationId, gateway, ct);
-        if (account is null
-            || !adapter.VerifyCallback(
-                callback, new GatewayCredentials(account.MerchantCode, secretProtector.Unprotect(account.SecretEncrypted))))
+        if (account is null || !await IsSignedByAccountAsync(adapter, callback, account, payment, ct))
         {
             await RecordCallbackAsync(payment.Id, gateway, PaymentTransactionStatus.Failed, data, InvalidSignatureError, false, now, source, ct);
             logger.LogWarning("Payment gateway callback with an invalid signature ({Gateway}, {PaymentId})", gateway, payment.Id);
@@ -360,6 +384,31 @@ public class OnlinePaymentService(
         return GatewayCallbackOutcome.Received;
     }
 
+    private async Task<bool> IsSignedByAccountAsync(
+        IPaymentGateway adapter,
+        GatewayCallback callback,
+        OrganizationPaymentGateway account,
+        Payment payment,
+        CancellationToken ct)
+    {
+        if (IsSignedWith(adapter, callback, account.MerchantCode, account.SecretEncrypted))
+        {
+            return true;
+        }
+
+        var checkout = await paymentTransactionRepository.GetLatestCheckoutAsync(payment.Id, ct);
+        if (checkout?.CredentialsVersion is not { } version || version == account.CredentialsVersion)
+        {
+            return false;
+        }
+
+        var replaced = await organizationPaymentGatewayRepository.GetReplacedCredentialsAsync(account.Id, version, ct);
+        return replaced is not null && IsSignedWith(adapter, callback, replaced.MerchantCode, replaced.SecretEncrypted);
+    }
+
+    private bool IsSignedWith(IPaymentGateway adapter, GatewayCallback callback, string merchantCode, string secretEncrypted) =>
+        adapter.VerifyCallback(callback, new GatewayCredentials(merchantCode, secretProtector.Unprotect(secretEncrypted)));
+
     private Task RecordCallbackAsync(
         Guid? paymentId,
         PaymentGateway gateway,
@@ -390,7 +439,8 @@ public class OnlinePaymentService(
             var now = DateTimeOffset.UtcNow;
             await paymentTransactionRepository.AddAsync(
                 PaymentTransaction.CheckoutFailed(
-                    created.PaymentId, gateway, created.Amount, ex.RequestPayload, ex.ResponsePayload, ex.Message, now),
+                    created.PaymentId, gateway, created.Amount, ex.RequestPayload, ex.ResponsePayload, ex.Message,
+                    created.CredentialsVersion, now),
                 ct);
 
             if (ex.IsTimeout)
@@ -422,7 +472,7 @@ public class OnlinePaymentService(
         gateways.SingleOrDefault(g => g.Gateway == gateway)
             ?? throw new AppConflictException(OrganizationPaymentGateway.NotAvailableMessage);
 
-    private static OnlineCheckoutResponse ToResponse(Guid paymentId, PaymentGateway gateway, PaymentTransaction checkout) => new()
+    private static MyOnlineCheckoutResponse ToResponse(Guid paymentId, PaymentGateway gateway, PaymentTransaction checkout) => new()
     {
         PaymentId = paymentId,
         Gateway = gateway,
@@ -433,7 +483,7 @@ public class OnlinePaymentService(
 
     private abstract record CheckoutStart;
 
-    private sealed record ReusedCheckout(OnlineCheckoutResponse Response) : CheckoutStart;
+    private sealed record ReusedCheckout(MyOnlineCheckoutResponse Response) : CheckoutStart;
 
     private sealed record NewCheckout(
         Guid InvoiceId,
@@ -441,5 +491,6 @@ public class OnlinePaymentService(
         decimal Amount,
         string InvoiceNumber,
         DateTimeOffset CreatedAt,
-        GatewayCredentials Credentials) : CheckoutStart;
+        GatewayCredentials Credentials,
+        int CredentialsVersion) : CheckoutStart;
 }

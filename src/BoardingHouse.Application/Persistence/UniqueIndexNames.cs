@@ -13,6 +13,8 @@ public static class UniqueIndexNames
     public const string LeasePreviousLeaseId = "ix_leases_previous_lease_id";
     public const string LeaseRoomIdActive = "ix_leases_room_id_active";
     public const string MediaAssetEntityTypeEntityId = "ix_media_assets_entity_type_entity_id";
+    public const string OrganizationPaymentGatewayCredentialHistoryGatewayIdVersion =
+        "ix_org_payment_gateway_credential_histories_gateway_id_version";
     public const string OrganizationPaymentGatewayOrganizationIdGateway = "ix_organization_payment_gateways_organization_id_gateway";
     public const string PaymentTransactionGatewayGatewayTransactionId = "ix_payment_transactions_gateway_gateway_transaction_id";
     public const string RoomPropertyIdRoomNumber = "ix_rooms_property_id_room_number";

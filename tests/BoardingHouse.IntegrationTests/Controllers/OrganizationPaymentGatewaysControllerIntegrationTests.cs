@@ -221,6 +221,43 @@ public class OrganizationPaymentGatewaysControllerIntegrationTests(PostgresApiFa
     }
 
     [Fact]
+    public async Task Put_UpdateWithNewSecret_KeepsTheReplacedCredentialsWithWhoReplacedThem()
+    {
+        var organizationId = await CreateOrganizationAsync();
+        await PutVnPayAsync(organizationId, new { merchantCode = "TESTCODE", secret = Secret, isActive = true });
+
+        await PutVnPayAsync(organizationId, new { merchantCode = "TESTCODE", secret = "NEWSECRET9876543210", isActive = true });
+        await PutVnPayAsync(organizationId, new { merchantCode = "OTHERCODE", isActive = true });
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var protector = scope.ServiceProvider.GetRequiredService<ISecretProtector>();
+        var account = await context.OrganizationPaymentGateways.SingleAsync(g => g.OrganizationId == organizationId);
+        var retired = await context.OrganizationPaymentGatewayCredentialHistories
+            .Where(h => h.OrganizationPaymentGatewayId == account.Id)
+            .OrderBy(h => h.Version)
+            .ToListAsync();
+        Assert.Equal(3, account.CredentialsVersion);
+        Assert.Equal(
+            [(1, "TESTCODE", Secret, _actorId), (2, "TESTCODE", "NEWSECRET9876543210", _actorId)],
+            retired.Select(h => (h.Version, h.MerchantCode, protector.Unprotect(h.SecretEncrypted), h.ReplacedBy)));
+    }
+
+    [Fact]
+    public async Task Put_UpdateWithTheSameValues_KeepsTheCredentialsVersion()
+    {
+        var organizationId = await CreateOrganizationAsync();
+        await PutVnPayAsync(organizationId, new { merchantCode = "TESTCODE", secret = Secret, isActive = true });
+
+        await PutVnPayAsync(organizationId, new { merchantCode = "TESTCODE", isActive = false });
+
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Equal(1, await context.OrganizationPaymentGateways.Where(g => g.OrganizationId == organizationId).Select(g => g.CredentialsVersion).SingleAsync());
+        Assert.Empty(await context.OrganizationPaymentGatewayCredentialHistories.ToListAsync());
+    }
+
+    [Fact]
     public async Task Put_GatewayInRouteIsCaseInsensitive()
     {
         var organizationId = await CreateOrganizationAsync();

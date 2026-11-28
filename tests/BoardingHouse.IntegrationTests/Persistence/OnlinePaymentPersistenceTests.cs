@@ -84,6 +84,57 @@ public class OnlinePaymentPersistenceTests(PostgresContainerFixture fixture)
             .SingleAsync());
     }
 
+    private async Task<OrganizationPaymentGateway> SaveCreatedAccountAsync(Guid organizationId, Guid staffId)
+    {
+        var account = OrganizationPaymentGateway.Create(
+            organizationId, PaymentGateway.VnPay, "TESTCODE", "cipher-1", isActive: true, staffId, Now);
+        await using var context = fixture.CreateContext();
+        context.OrganizationPaymentGateways.Add(account);
+        await context.SaveChangesAsync();
+        return account;
+    }
+
+    [Fact]
+    public async Task CredentialHistory_ChangeOfATrackedAccount_InsertsTheRetiredCredentials()
+    {
+        var (organizationId, _, staffId) = await SeedPaymentAsync();
+        var account = await SaveCreatedAccountAsync(organizationId, staffId);
+
+        await using (var context = fixture.CreateContext())
+        {
+            var tracked = await context.OrganizationPaymentGateways.SingleAsync(g => g.Id == account.Id);
+            tracked.Update("OTHERCODE", "cipher-2", isActive: true, staffId, Now.AddMinutes(1));
+            await context.SaveChangesAsync();
+        }
+
+        await using var readContext = fixture.CreateContext();
+        Assert.Equal(2, await readContext.OrganizationPaymentGateways.Where(g => g.Id == account.Id).Select(g => g.CredentialsVersion).SingleAsync());
+        var retired = await readContext.OrganizationPaymentGatewayCredentialHistories.SingleAsync();
+        Assert.Equal(
+            (account.Id, 1, "TESTCODE", "cipher-1", staffId, Now.AddMinutes(1)),
+            (retired.OrganizationPaymentGatewayId, retired.Version, retired.MerchantCode, retired.SecretEncrypted,
+                retired.ReplacedBy, retired.ReplacedAt));
+    }
+
+    [Fact]
+    public async Task CredentialHistory_TwoChangesOfTheSameVersionAtOnce_AreRejectedByTheNamedIndex()
+    {
+        var (organizationId, _, staffId) = await SeedPaymentAsync();
+        var account = await SaveCreatedAccountAsync(organizationId, staffId);
+
+        await using var first = fixture.CreateContext();
+        await using var second = fixture.CreateContext();
+        var firstAccount = await first.OrganizationPaymentGateways.SingleAsync(g => g.Id == account.Id);
+        var secondAccount = await second.OrganizationPaymentGateways.SingleAsync(g => g.Id == account.Id);
+        firstAccount.Update("TESTCODE", "cipher-2", isActive: true, staffId, Now.AddMinutes(1));
+        secondAccount.Update("TESTCODE", "cipher-3", isActive: true, staffId, Now.AddMinutes(1));
+        await first.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<DbUpdateException>(() => second.SaveChangesAsync());
+
+        Assert.Equal(UniqueIndexNames.OrganizationPaymentGatewayCredentialHistoryGatewayIdVersion, ConstraintOf(ex));
+    }
+
     [Fact]
     public async Task OrganizationPaymentGateway_SecondAccountForTheSameGateway_IsRejected()
     {

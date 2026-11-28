@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using BoardingHouse.Api.Common;
 using BoardingHouse.Application.DTOs.Auth;
 using BoardingHouse.Application.DTOs.PaymentGateways;
+using BoardingHouse.Application.DTOs.TenantPortal;
 using BoardingHouse.Application.DTOs.Users;
 using BoardingHouse.Application.Jobs;
 using BoardingHouse.Application.Services.PaymentGateways;
@@ -126,7 +127,7 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var protector = scope.ServiceProvider.GetRequiredService<ISecretProtector>();
         context.OrganizationPaymentGateways.Add(OrganizationPaymentGateway.Create(
-            _organizationId, PaymentGateway.VnPay, MerchantCode, protector.Protect(Secret), isActive, _staffId));
+            _organizationId, PaymentGateway.VnPay, MerchantCode, protector.Protect(Secret), isActive, _staffId, DateTimeOffset.UtcNow));
         await context.SaveChangesAsync();
     }
 
@@ -151,7 +152,7 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         var (client, tenantId) = await RegisterAndLoginAsync("Tenant A");
         var invoiceId = await SeedInvoiceAsync(tenantId);
         await ConfigureVnPayAsync();
-        var checkout = await ReadDataAsync<OnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
+        var checkout = await ReadDataAsync<MyOnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
         return (client, invoiceId, checkout.PaymentId);
     }
 
@@ -213,7 +214,9 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         var response = await client.GetAsync($"/api/me/invoices/{invoiceId}/online-payment-gateways");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal([PaymentGateway.VnPay], await ReadDataAsync<List<PaymentGateway>>(response));
+        Assert.Equal(
+            [new MyOnlinePaymentGatewayResponse { Gateway = PaymentGateway.VnPay }],
+            await ReadDataAsync<List<MyOnlinePaymentGatewayResponse>>(response));
     }
 
     [Fact]
@@ -223,7 +226,7 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         var invoiceId = await SeedInvoiceAsync(tenantId);
         await ConfigureVnPayAsync(isActive: false);
 
-        var gateways = await ReadDataAsync<List<PaymentGateway>>(
+        var gateways = await ReadDataAsync<List<MyOnlinePaymentGatewayResponse>>(
             await client.GetAsync($"/api/me/invoices/{invoiceId}/online-payment-gateways"));
 
         Assert.Empty(gateways);
@@ -252,7 +255,7 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         var response = await CheckoutAsync(client, invoiceId);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var checkout = await ReadDataAsync<OnlineCheckoutResponse>(response);
+        var checkout = await ReadDataAsync<MyOnlineCheckoutResponse>(response);
         Assert.Equal((PaymentGateway.VnPay, 3_000_000m), (checkout.Gateway, checkout.Amount));
         Assert.InRange(checkout.ExpiresAt, DateTimeOffset.UtcNow.AddMinutes(14), DateTimeOffset.UtcNow.AddMinutes(16));
         Assert.StartsWith("https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?", checkout.PaymentUrl);
@@ -283,8 +286,8 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         var invoiceId = await SeedInvoiceAsync(tenantId);
         await ConfigureVnPayAsync();
 
-        var first = await ReadDataAsync<OnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
-        var second = await ReadDataAsync<OnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
+        var first = await ReadDataAsync<MyOnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
+        var second = await ReadDataAsync<MyOnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
 
         Assert.Equal((first.PaymentId, first.PaymentUrl), (second.PaymentId, second.PaymentUrl));
         Assert.Equal(1, await QueryAsync(c => c.Payments.CountAsync()));
@@ -326,7 +329,7 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         var invoiceId = await SeedInvoiceAsync(tenantId, InvoiceStatus.Partial, paidAmount: 1_200_000m);
         await ConfigureVnPayAsync();
 
-        var checkout = await ReadDataAsync<OnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
+        var checkout = await ReadDataAsync<MyOnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
 
         Assert.Equal(1_800_000m, checkout.Amount);
     }
@@ -474,15 +477,103 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
     }
 
     [Fact]
-    public async Task Ipn_UnknownPayment_Returns01()
+    public async Task Ipn_UnknownPayment_Returns01WithoutRecordingIt()
     {
         await StartCheckoutAsync();
 
         Assert.Equal("01", await SendIpnAsync(IpnFields(Guid.NewGuid())));
 
+        Assert.Empty(await CallbacksAsync());
+    }
+
+    [Fact]
+    public async Task Ipn_PaidForADeletedInvoice_Returns01AndFlagsIt()
+    {
+        var (_, invoiceId, paymentId) = await StartCheckoutAsync();
+        await ExecuteAsync(c => c.Database.ExecuteSqlAsync(
+            $"UPDATE invoices SET deleted_at = {DateTimeOffset.UtcNow}, deleted_by = {_staffId} WHERE id = {invoiceId}"));
+
+        Assert.Equal("01", await SendIpnAsync(IpnFields(paymentId)));
+
         var callback = Assert.Single(await CallbacksAsync());
-        Assert.Null(callback.PaymentId);
-        Assert.Equal("Unknown payment reference", callback.Error);
+        Assert.Equal((paymentId, PaymentTransactionStatus.Failed, true), (callback.PaymentId, callback.Status, callback.NeedsReview));
+    }
+
+    private const string SecondSecret = "SECONDSECRET0123456";
+
+    // Saved one change at a time, as two PUTs would
+    private async Task ChangeVnPaySecretAsync(string secret)
+    {
+        using var scope = factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var protector = scope.ServiceProvider.GetRequiredService<ISecretProtector>();
+        var account = await context.OrganizationPaymentGateways.SingleAsync();
+        account.Update(MerchantCode, protector.Protect(secret), isActive: true, _staffId, DateTimeOffset.UtcNow);
+        await context.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task Ipn_SecretChangedTwiceAfterCheckout_StillConfirmsWithTheSecretOfTheLink()
+    {
+        var (_, invoiceId, paymentId) = await StartCheckoutAsync();
+        await ChangeVnPaySecretAsync(SecondSecret);
+        await ChangeVnPaySecretAsync("THIRDSECRET01234567");
+
+        Assert.Equal("00", await SendIpnAsync(IpnFields(paymentId), secret: Secret));
+
+        Assert.Equal(InvoiceStatus.Paid, await QueryAsync(c => c.Invoices.Where(i => i.Id == invoiceId).Select(i => i.Status).SingleAsync()));
+        Assert.Equal(
+            [1, 2],
+            await QueryAsync(c => c.OrganizationPaymentGatewayCredentialHistories.OrderBy(h => h.Version).Select(h => h.Version).ToListAsync()));
+        Assert.Equal(3, await QueryAsync(c => c.OrganizationPaymentGateways.Select(g => g.CredentialsVersion).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Ipn_SignedWithAReplacedSecretThatIsNotTheLinks_Returns97()
+    {
+        var (_, _, paymentId) = await StartCheckoutAsync();
+        await ChangeVnPaySecretAsync(SecondSecret);
+        await ChangeVnPaySecretAsync("THIRDSECRET01234567");
+
+        Assert.Equal("97", await SendIpnAsync(IpnFields(paymentId), secret: SecondSecret));
+
+        Assert.Equal(PaymentStatus.Pending, (await PaymentAsync(paymentId)).Status);
+    }
+
+    [Fact]
+    public async Task Checkout_RecordsTheCredentialsVersionItWasSignedWith()
+    {
+        var (client, tenantId) = await RegisterAndLoginAsync("Tenant A");
+        var invoiceId = await SeedInvoiceAsync(tenantId);
+        await ConfigureVnPayAsync();
+        await ChangeVnPaySecretAsync(SecondSecret);
+
+        await CheckoutAsync(client, invoiceId);
+
+        var checkout = await QueryAsync(c => c.PaymentTransactions.SingleAsync(t => t.Type == PaymentTransactionType.Checkout));
+        Assert.Equal(2, checkout.CredentialsVersion);
+    }
+
+    [Fact]
+    public async Task Checkout_ManualPaymentWaitingForStaff_Returns409()
+    {
+        var (client, tenantId) = await RegisterAndLoginAsync("Tenant A");
+        var invoiceId = await SeedInvoiceAsync(tenantId);
+        await ConfigureVnPayAsync();
+        await ExecuteAsync(async c =>
+        {
+            var invoice = await c.Invoices.SingleAsync(i => i.Id == invoiceId);
+            c.Payments.Add(invoice.RecordPayment(
+                new PaymentDetails(3_000_000, PaymentMethod.BankTransfer, DateTimeOffset.UtcNow, tenantId, null, null, null),
+                _staffId,
+                DateTimeOffset.UtcNow));
+            await c.SaveChangesAsync();
+        });
+
+        var response = await CheckoutAsync(client, invoiceId);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(0, await QueryAsync(c => c.Payments.CountAsync(p => p.Method == PaymentMethod.VnPay)));
     }
 
     [Fact]
@@ -496,7 +587,7 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         Assert.Equal((PaymentStatus.Voided, Payment.GatewayFailedReason), (payment.Status, payment.VoidReason));
         Assert.Null(payment.VoidedBy);
 
-        var next = await ReadDataAsync<OnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
+        var next = await ReadDataAsync<MyOnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
         Assert.NotEqual(paymentId, next.PaymentId);
     }
 
@@ -609,7 +700,7 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         Assert.Null(payment.VoidedBy);
         Assert.Equal(SentinelActors.System, payment.UpdatedBy);
 
-        var next = await ReadDataAsync<OnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
+        var next = await ReadDataAsync<MyOnlineCheckoutResponse>(await CheckoutAsync(client, invoiceId));
         Assert.NotEqual(paymentId, next.PaymentId);
     }
 
@@ -692,7 +783,7 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         var response = await SendReturnAsync(client, ReturnParams(IpnFields(paymentId), invoiceId));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var result = await ReadDataAsync<OnlinePaymentReturnResponse>(response);
+        var result = await ReadDataAsync<MyOnlinePaymentReturnResponse>(response);
         Assert.Equal((paymentId, invoiceId), (result.PaymentId, result.InvoiceId));
         Assert.Equal((GatewayCallbackOutcome.Received, PaymentStatus.Confirmed), (result.Outcome, result.PaymentStatus));
 
@@ -727,7 +818,7 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         var (client, invoiceId, paymentId) = await StartCheckoutAsync();
         await SendIpnAsync(IpnFields(paymentId));
 
-        var result = await ReadDataAsync<OnlinePaymentReturnResponse>(
+        var result = await ReadDataAsync<MyOnlinePaymentReturnResponse>(
             await SendReturnAsync(client, ReturnParams(IpnFields(paymentId), invoiceId)));
 
         Assert.Equal((GatewayCallbackOutcome.AlreadyProcessed, PaymentStatus.Confirmed), (result.Outcome, result.PaymentStatus));
@@ -743,7 +834,7 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         var response = await SendReturnAsync(client, ReturnParams(IpnFields(paymentId), invoiceId, secret: "OTHERSECRET"));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var result = await ReadDataAsync<OnlinePaymentReturnResponse>(response);
+        var result = await ReadDataAsync<MyOnlinePaymentReturnResponse>(response);
         Assert.Equal((GatewayCallbackOutcome.InvalidSignature, PaymentStatus.Pending), (result.Outcome, result.PaymentStatus));
         Assert.Equal(PaymentStatus.Pending, (await PaymentAsync(paymentId)).Status);
         Assert.Equal("Invalid signature", Assert.Single(await ReturnsAsync()).Error);
@@ -756,7 +847,7 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
         var @params = ReturnParams(IpnFields(paymentId), invoiceId);
         @params["vnp_Amount"] = "100";
 
-        var result = await ReadDataAsync<OnlinePaymentReturnResponse>(await SendReturnAsync(client, @params));
+        var result = await ReadDataAsync<MyOnlinePaymentReturnResponse>(await SendReturnAsync(client, @params));
 
         Assert.Equal(GatewayCallbackOutcome.InvalidSignature, result.Outcome);
         Assert.Equal(PaymentStatus.Pending, (await PaymentAsync(paymentId)).Status);
@@ -791,7 +882,7 @@ public class OnlinePaymentsIntegrationTests(PostgresApiFactory factory)
     {
         var (client, invoiceId, paymentId) = await StartCheckoutAsync();
 
-        var result = await ReadDataAsync<OnlinePaymentReturnResponse>(
+        var result = await ReadDataAsync<MyOnlinePaymentReturnResponse>(
             await SendReturnAsync(client, ReturnParams(IpnFields(paymentId, responseCode: "24"), invoiceId)));
 
         Assert.Equal((GatewayCallbackOutcome.Received, PaymentStatus.Voided), (result.Outcome, result.PaymentStatus));

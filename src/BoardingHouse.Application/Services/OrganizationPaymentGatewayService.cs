@@ -20,6 +20,9 @@ public class OrganizationPaymentGatewayService(
     IOrganizationScopeAccessor organizationScopeAccessor,
     ILogger<OrganizationPaymentGatewayService> logger) : IOrganizationPaymentGatewayService
 {
+    public const string ConcurrentChangeMessage =
+        "The payment gateway was changed by someone else at the same time, reload it and try again";
+
     public async Task<List<OrganizationPaymentGatewayResponse>> ListAsync(
         Guid organizationId, CancellationToken cancellationToken = default)
     {
@@ -53,19 +56,33 @@ public class OrganizationPaymentGatewayService(
                 request.MerchantCode,
                 secretEncrypted,
                 request.IsActive!.Value,
-                currentUserAccessor.RequiredUser.Id);
+                currentUserAccessor.RequiredUser.Id,
+                DateTimeOffset.UtcNow);
             await organizationPaymentGatewayRepository.AddAsync(account, cancellationToken);
         }
         else
         {
-            account.Update(request.MerchantCode, secretEncrypted, request.IsActive!.Value);
+            account.Update(
+                request.MerchantCode,
+                secretEncrypted,
+                request.IsActive!.Value,
+                currentUserAccessor.RequiredUser.Id,
+                DateTimeOffset.UtcNow);
         }
 
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (UniqueConstraintViolationException ex)
+            when (ex.ConstraintName == UniqueIndexNames.OrganizationPaymentGatewayCredentialHistoryGatewayIdVersion)
+        {
+            throw new AppConflictException(ConcurrentChangeMessage);
+        }
 
         logger.LogInformation(
-            "Payment gateway {Gateway} saved for organization {OrganizationId} (active: {IsActive}, secret changed: {SecretChanged})",
-            gateway, organizationId, account.IsActive, secretEncrypted is not null);
+            "Payment gateway {Gateway} saved for organization {OrganizationId} (active: {IsActive}, secret changed: {SecretChanged}, credentials version: {CredentialsVersion})",
+            gateway, organizationId, account.IsActive, secretEncrypted is not null, account.CredentialsVersion);
 
         return account.Adapt<OrganizationPaymentGatewayResponse>();
     }

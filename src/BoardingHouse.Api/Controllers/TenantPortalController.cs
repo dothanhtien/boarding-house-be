@@ -64,27 +64,27 @@ public class TenantPortalController(
     }
 
     [HttpGet("invoices/{id:guid}/online-payment-gateways")]
-    public async Task<ActionResult<ApiResponse<List<PaymentGateway>>>> GetOnlinePaymentGateways(
+    public async Task<ActionResult<ApiResponse<List<MyOnlinePaymentGatewayResponse>>>> GetOnlinePaymentGateways(
         Guid id, CancellationToken cancellationToken)
     {
         var gateways = await onlinePaymentService.GetMyGatewaysAsync(id, cancellationToken);
-        return Ok(new ApiResponse<List<PaymentGateway>> { Data = gateways });
+        return Ok(new ApiResponse<List<MyOnlinePaymentGatewayResponse>> { Data = gateways });
     }
 
     [HttpPost("invoices/{id:guid}/online-payments")]
-    public async Task<ActionResult<ApiResponse<OnlineCheckoutResponse>>> CreateOnlinePayment(
+    public async Task<ActionResult<ApiResponse<MyOnlineCheckoutResponse>>> CreateOnlinePayment(
         Guid id, CreateOnlineCheckoutRequest request, CancellationToken cancellationToken)
     {
         var checkout = await onlinePaymentService.CreateMyCheckoutAsync(id, request, ClientIp(), cancellationToken);
-        return Ok(new ApiResponse<OnlineCheckoutResponse> { Data = checkout });
+        return Ok(new ApiResponse<MyOnlineCheckoutResponse> { Data = checkout });
     }
 
     [HttpPost("payments/{gateway}/return")]
-    public async Task<ActionResult<ApiResponse<OnlinePaymentReturnResponse>>> HandleOnlinePaymentReturn(
+    public async Task<ActionResult<ApiResponse<MyOnlinePaymentReturnResponse>>> HandleOnlinePaymentReturn(
         PaymentGateway gateway, OnlinePaymentReturnRequest request, CancellationToken cancellationToken)
     {
         var result = await onlinePaymentService.HandleMyReturnAsync(gateway, request, cancellationToken);
-        return Ok(new ApiResponse<OnlinePaymentReturnResponse> { Data = result });
+        return Ok(new ApiResponse<MyOnlinePaymentReturnResponse> { Data = result });
     }
 
     [HttpGet("leases/{id:guid}/utility-readings")]

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using BoardingHouse.Api.Common.CurrentUser;
 using BoardingHouse.Application.DTOs.PaymentGateways;
+using BoardingHouse.Application.DTOs.TenantPortal;
 using BoardingHouse.Application.Exceptions;
 using BoardingHouse.Application.Persistence;
 using BoardingHouse.Application.Queries;
@@ -54,7 +55,7 @@ public class OnlinePaymentServiceTests
         _organizationPaymentGatewayRepository
             .Setup(r => r.GetAsync(_invoice.OrganizationId, PaymentGateway.VnPay, It.IsAny<CancellationToken>()))
             .ReturnsAsync(OrganizationPaymentGateway.Create(
-                _invoice.OrganizationId, PaymentGateway.VnPay, "TESTCODE", "cipher", isActive: true, Guid.NewGuid()));
+                _invoice.OrganizationId, PaymentGateway.VnPay, "TESTCODE", "cipher", isActive: true, Guid.NewGuid(), DateTimeOffset.UtcNow));
         _secretProtector.Setup(p => p.Unprotect("cipher")).Returns("TESTSECRET");
 
         _paymentRepository
@@ -114,7 +115,7 @@ public class OnlinePaymentServiceTests
             discountReason: null, notes: null, DateTimeOffset.UtcNow, SentinelActors.System);
     }
 
-    private Task<OnlineCheckoutResponse> CheckoutAsync() =>
+    private Task<MyOnlineCheckoutResponse> CheckoutAsync() =>
         _service.CreateMyCheckoutAsync(
             _invoice.Id, new CreateOnlineCheckoutRequest { Gateway = PaymentGateway.VnPay }, "127.0.0.1");
 
@@ -223,7 +224,8 @@ public class OnlinePaymentServiceTests
             _paymentTransactionRepository
                 .Setup(r => r.GetLatestCheckoutAsync(pending.Id, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(PaymentTransaction.Checkout(
-                    pending.Id, PaymentGateway.VnPay, 3_000_000m, "https://pay.test/old", expiresAt, "{}", null, now));
+                    pending.Id, PaymentGateway.VnPay, 3_000_000m, "https://pay.test/old", expiresAt, "{}", null,
+                    OrganizationPaymentGateway.FirstCredentialsVersion, now));
         }
 
         return pending;
@@ -268,6 +270,34 @@ public class OnlinePaymentServiceTests
     }
 
     [Fact]
+    public async Task CreateMyCheckout_PendingPaymentWithLinkAboutToExpire_Returns409()
+    {
+        SetupPendingPayment(
+            PaymentMethod.VnPay,
+            DateTimeOffset.UtcNow + OnlinePaymentService.MinReusedCheckoutLifetime - TimeSpan.FromSeconds(10));
+
+        var ex = await Assert.ThrowsAsync<AppConflictException>(CheckoutAsync);
+
+        Assert.Equal(OnlinePaymentService.PaymentInProgressMessage, ex.Message);
+        Assert.Null(_payment);
+    }
+
+    [Fact]
+    public async Task CreateMyCheckout_ManualPaymentWaitingForStaff_Returns409()
+    {
+        _paymentRepository
+            .Setup(r => r.ExistsPendingManualPaymentAsync(_invoice.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var ex = await Assert.ThrowsAsync<AppConflictException>(CheckoutAsync);
+
+        Assert.Equal(OnlinePaymentService.PaymentAwaitingConfirmationMessage, ex.Message);
+        Assert.Null(_payment);
+        _gateway.Verify(
+            g => g.CreateCheckoutAsync(It.IsAny<GatewayCheckoutRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task CreateMyCheckout_GatewayWithoutAdapter_Returns409BeforeTouchingTheInvoice()
     {
         var ex = await Assert.ThrowsAsync<AppConflictException>(() => _service.CreateMyCheckoutAsync(
@@ -292,9 +322,10 @@ public class OnlinePaymentServiceTests
     public async Task GetMyGateways_ActiveAccountWithAnAdapter_IsListed()
     {
         SetupAccounts(OrganizationPaymentGateway.Create(
-            _invoice.OrganizationId, PaymentGateway.VnPay, "TESTCODE", "cipher", isActive: true, Guid.NewGuid()));
+            _invoice.OrganizationId, PaymentGateway.VnPay, "TESTCODE", "cipher", isActive: true, Guid.NewGuid(), DateTimeOffset.UtcNow));
 
-        Assert.Equal([PaymentGateway.VnPay], await _service.GetMyGatewaysAsync(_invoice.Id));
+        Assert.Equal(
+            [new MyOnlinePaymentGatewayResponse { Gateway = PaymentGateway.VnPay }], await _service.GetMyGatewaysAsync(_invoice.Id));
     }
 
     [Fact]
@@ -302,7 +333,7 @@ public class OnlinePaymentServiceTests
     {
         SetupAccounts(
             OrganizationPaymentGateway.Create(
-                _invoice.OrganizationId, PaymentGateway.VnPay, "TESTCODE", "cipher", isActive: false, Guid.NewGuid()),
+                _invoice.OrganizationId, PaymentGateway.VnPay, "TESTCODE", "cipher", isActive: false, Guid.NewGuid(), DateTimeOffset.UtcNow),
             TestEntities.New<OrganizationPaymentGateway>(new
             {
                 OrganizationId = _invoice.OrganizationId, Gateway = (PaymentGateway)99, IsActive = true,
@@ -355,18 +386,141 @@ public class OnlinePaymentServiceTests
         Assert.True(_currentUserAccessor.IsSystemActor);
     }
 
-    [Fact]
-    public async Task HandleCallback_UnknownPayment_RecordsItAndAnswersPaymentNotFound()
+    // A payment of the invoice that a VNPay callback cannot take (recorded in cash)
+    private Payment SetupPaymentOfAnotherMethod()
     {
-        SetupCallback(paymentId: null);
+        _payment = _invoice.RecordPayment(
+            new PaymentDetails(3_000_000, PaymentMethod.Cash, DateTimeOffset.UtcNow, null, null, null, null),
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow);
+        _paymentRepository
+            .Setup(r => r.GetInvoiceIdAsync(_payment.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(_invoice.Id);
+        return _payment;
+    }
+
+    [Theory]
+    [InlineData(false)] // no reference at all
+    [InlineData(true)] // a reference that is not one of our payments
+    public async Task HandleCallback_UnknownPayment_AnswersPaymentNotFoundWithoutRecordingIt(bool withReference)
+    {
+        SetupCallback(withReference ? Guid.NewGuid() : null);
+
+        var response = await _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback);
+
+        Assert.Equal(nameof(GatewayCallbackOutcome.PaymentNotFound), response.Body);
+        Assert.Empty(_transactions);
+        _gateway.Verify(g => g.VerifyCallback(It.IsAny<GatewayCallback>(), It.IsAny<GatewayCredentials>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task HandleCallback_PaidForAPaymentThatCannotTakeIt_RecordsItForReview()
+    {
+        var payment = SetupPaymentOfAnotherMethod();
+        SetupCallback(payment.Id);
 
         var response = await _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback);
 
         Assert.Equal(nameof(GatewayCallbackOutcome.PaymentNotFound), response.Body);
         var transaction = Assert.Single(_transactions);
-        Assert.Equal((PaymentTransactionType.Callback, PaymentTransactionStatus.Failed), (transaction.Type, transaction.Status));
-        Assert.Null(transaction.PaymentId);
-        _gateway.Verify(g => g.VerifyCallback(It.IsAny<GatewayCallback>(), It.IsAny<GatewayCredentials>()), Times.Never);
+        Assert.Equal((PaymentTransactionStatus.Failed, payment.Id), (transaction.Status, transaction.PaymentId));
+        Assert.True(transaction.NeedsReview);
+        Assert.Equal(PaymentStatus.Pending, payment.Status);
+    }
+
+    private static readonly GatewayCredentials Version1 = new("TESTCODE", "TESTSECRET");
+    private static readonly GatewayCredentials Version2 = new("TESTCODE", "SECRET2");
+    private static readonly GatewayCredentials Version3 = new("NEWCODE", "SECRET3");
+
+    // A pending VNPay payment whose link was signed with credentials version 'linkVersion' (null: a checkout row
+    // written before versions were recorded), an account changed twice since (now at version 3), and a callback
+    // signed with 'signedWith'
+    private Payment SetupChangedCredentials(int? linkVersion, GatewayCredentials signedWith)
+    {
+        var payment = SetupReturnFor(visible: true);
+        _gateway.Setup(g => g.ParseCallback(IpnCallback))
+            .Returns(new GatewayCallbackData(payment.Id, "14123456", 3_000_000m, IsSuccess: true, "{}"));
+        _gateway
+            .Setup(g => g.BuildCallbackResponse(It.IsAny<GatewayCallbackOutcome>()))
+            .Returns((GatewayCallbackOutcome outcome) => new GatewayHttpResponse(200, "application/json", outcome.ToString()));
+        _gateway
+            .Setup(g => g.VerifyCallback(IpnCallback, It.IsAny<GatewayCredentials>()))
+            .Returns((GatewayCallback _, GatewayCredentials c) => c == signedWith);
+
+        var now = DateTimeOffset.UtcNow;
+        var actorId = Guid.NewGuid();
+        var account = OrganizationPaymentGateway.Create(
+            _invoice.OrganizationId, PaymentGateway.VnPay, "TESTCODE", "cipher", isActive: true, actorId, now.AddDays(-1));
+        account.Update("TESTCODE", "cipher-2", isActive: true, actorId, now.AddMinutes(-3));
+        account.Update("NEWCODE", "cipher-3", isActive: true, actorId, now.AddMinutes(-2));
+        _secretProtector.Setup(p => p.Unprotect("cipher-2")).Returns("SECRET2");
+        _secretProtector.Setup(p => p.Unprotect("cipher-3")).Returns("SECRET3");
+        _organizationPaymentGatewayRepository
+            .Setup(r => r.GetAsync(_invoice.OrganizationId, PaymentGateway.VnPay, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(account);
+        _organizationPaymentGatewayRepository
+            .Setup(r => r.GetReplacedCredentialsAsync(account.Id, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid _, int version, CancellationToken _) =>
+                account.CredentialHistories.SingleOrDefault(h => h.Version == version));
+
+        var checkout = PaymentTransaction.Checkout(
+            payment.Id, PaymentGateway.VnPay, 3_000_000m, "https://pay.test/x", now.AddMinutes(10), "{}", null,
+            linkVersion ?? 0, now.AddMinutes(-5));
+        if (linkVersion is null)
+        {
+            TestEntities.Set(checkout, new { CredentialsVersion = (int?)null });
+        }
+
+        _paymentTransactionRepository
+            .Setup(r => r.GetLatestCheckoutAsync(payment.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(checkout);
+        return payment;
+    }
+
+    [Fact]
+    public async Task HandleCallback_SignedWithTheCredentialsOfTheLinkReplacedTwiceSince_IsAccepted()
+    {
+        var payment = SetupChangedCredentials(linkVersion: 1, signedWith: Version1);
+
+        var response = await _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback);
+
+        Assert.Equal(nameof(GatewayCallbackOutcome.Received), response.Body);
+        Assert.Equal(PaymentStatus.Confirmed, payment.Status);
+    }
+
+    [Fact]
+    public async Task HandleCallback_SignedWithTheCurrentCredentials_IsAccepted()
+    {
+        var payment = SetupChangedCredentials(linkVersion: 1, signedWith: Version3);
+
+        var response = await _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback);
+
+        Assert.Equal(nameof(GatewayCallbackOutcome.Received), response.Body);
+        Assert.Equal(PaymentStatus.Confirmed, payment.Status);
+    }
+
+    [Fact]
+    public async Task HandleCallback_SignedWithReplacedCredentialsOtherThanTheLinks_IsRejected()
+    {
+        var payment = SetupChangedCredentials(linkVersion: 2, signedWith: Version1);
+
+        var response = await _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback);
+
+        Assert.Equal(nameof(GatewayCallbackOutcome.InvalidSignature), response.Body);
+        Assert.Equal(PaymentStatus.Pending, payment.Status);
+    }
+
+    [Fact]
+    public async Task HandleCallback_CheckoutWithoutCredentialsVersion_OnlyAcceptsTheCurrentOnes()
+    {
+        var payment = SetupChangedCredentials(linkVersion: null, signedWith: Version2);
+
+        var response = await _service.HandleCallbackAsync(PaymentGateway.VnPay, IpnCallback);
+
+        Assert.Equal(nameof(GatewayCallbackOutcome.InvalidSignature), response.Body);
+        Assert.Equal(PaymentStatus.Pending, payment.Status);
+        _organizationPaymentGatewayRepository.Verify(
+            r => r.GetReplacedCredentialsAsync(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -387,7 +541,7 @@ public class OnlinePaymentServiceTests
     [Fact]
     public async Task HandleCallback_SameTransactionCommittedByAnotherDelivery_AnswersAlreadyProcessed()
     {
-        SetupCallback(paymentId: null);
+        SetupCallback(SetupPaymentOfAnotherMethod().Id);
         _paymentTransactionRepository
             .Setup(r => r.AddAsync(It.IsAny<PaymentTransaction>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new UniqueConstraintViolationException(
